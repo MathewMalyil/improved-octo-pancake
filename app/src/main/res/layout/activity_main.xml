@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <Button
+            android:id="@+id/selectPdfButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Select PDF" />
+
+        <TextView
+            android:id="@+id/pdfTextDisplay"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:scrollbars="vertical"
+            android:text="PDF text will appear here"
+            android:padding="8dp"
+            android:background="#EEEEEE" />
+
+        <EditText
+            android:id="@+id/promptInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Enter your question or prompt" />
+
+        <RadioGroup
+            android:id="@+id/modelSelection"
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <RadioButton
+                android:id="@+id/gpt3Radio"
+                android:checked="true"
+                android:text="GPT-3.5" />
+            <RadioButton
+                android:id="@+id/gpt4Radio"
+                android:text="GPT-4" />
+        </RadioGroup>
+
+        <Button
+            android:id="@+id/analyzeButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ask AI" />
+
+        <TextView
+            android:id="@+id/aiResponseDisplay"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:scrollbars="vertical"
+            android:text="AI response will appear here"
+            android:padding="8dp"
+            android:background="#DDFFDD" />
+    </LinearLayout>
+</ScrollView>
