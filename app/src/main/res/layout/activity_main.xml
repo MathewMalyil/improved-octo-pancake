@@ -29,7 +29,8 @@
             android:id="@+id/promptInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Enter your question or prompt" />
+            android:hint="Enter your question or prompt"
+            android:minHeight="48dp" />
 
         <RadioGroup
             android:id="@+id/modelSelection"
@@ -59,5 +60,25 @@
             android:text="AI response will appear here"
             android:padding="8dp"
             android:background="#DDFFDD" />
+
+        <Button
+            android:id="@+id/btnExportShare"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Export and Share" />
+
+        <Button
+            android:id="@+id/btnExportTxt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Export as TXT" />
+
+        <Button
+            android:id="@+id/btnExportPdf"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Export as PDF" />
+
+
     </LinearLayout>
 </ScrollView>

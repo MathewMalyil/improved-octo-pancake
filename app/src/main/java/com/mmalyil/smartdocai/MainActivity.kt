@@ -1,7 +1,5 @@
 package com.mmalyil.smartdocai
-import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.text.PDFTextStripper
-import com.tom_roush.pdfbox.util.PDFBoxResourceLoader
+
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import android.net.Uri
@@ -13,15 +11,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.InputStream
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
+
+import java.time.LocalDate
+
 import android.content.Intent
 
-import com.github.dhaval2404.imagepicker.ImagePicker
 
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import java.io.File
 
-
+// MainActivity.kt
 
 
 
@@ -29,128 +31,187 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var selectPdfButton: Button
     private lateinit var analyzeButton: Button
+    private lateinit var modelGroup: RadioGroup
     private lateinit var pdfTextDisplay: TextView
     private lateinit var aiResponseDisplay: TextView
     private lateinit var promptInput: EditText
-    private lateinit var modelGroup: RadioGroup
-    private var extractedText: String = ""
-
-    private lateinit var modelSelection: RadioGroup
-
-    private val pickPdfLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let { extractTextFromPdf(it) }
-    }
+    private var extractedText = ""
+    private lateinit var exportShareButton: Button
     companion object {
-        private const val REQUEST_CODE_PICK_PDF = 1001
+        const val REQUEST_CODE_PICK = 1001
     }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // View binding
+
+
+
+
+
+        // Bind views
+        selectPdfButton = findViewById(R.id.selectPdfButton)
+        analyzeButton = findViewById(R.id.analyzeButton)
+        modelGroup = findViewById(R.id.modelSelection)
         pdfTextDisplay = findViewById(R.id.pdfTextDisplay)
         aiResponseDisplay = findViewById(R.id.aiResponseDisplay)
         promptInput = findViewById(R.id.promptInput)
-        modelSelection = findViewById(R.id.modelSelection)
 
-        findViewById<Button>(R.id.selectPdfButton).setOnClickListener {
+        // Reset usage count daily
+        val prefs = getSharedPreferences("usagePrefs", MODE_PRIVATE)
+        val today = LocalDate.now().toString()
+        if (prefs.getString("lastUsedDate", "") != today) {
+            prefs.edit().putString("lastUsedDate", today).putInt("freeUsageCount", 0).apply()
+        }
+
+        // File picker
+        selectPdfButton.setOnClickListener {
             openFilePicker()
         }
 
-        findViewById<Button>(R.id.analyzeButton).setOnClickListener {
+        // Analyze
+        analyzeButton.setOnClickListener {
             val prompt = promptInput.text.toString().trim()
-
-            if (prompt.isEmpty()) {
-                showToast("Please enter a prompt")
+            if (prompt.isEmpty() || extractedText.isEmpty()) {
+                showToast("Please select a file and enter prompt")
                 return@setOnClickListener
             }
 
-            if (extractedText.isEmpty()) {
-                showToast("Please select a PDF first")
-                return@setOnClickListener
-            }
-
-            // Check selected GPT model
-            val selectedModel = when (modelSelection.checkedRadioButtonId) {
-                R.id.gpt3Radio -> "gpt-3.5-turbo"
+            val selectedModel = when (modelGroup.checkedRadioButtonId) {
                 R.id.gpt4Radio -> "gpt-4"
                 else -> "gpt-3.5-turbo"
             }
 
-            // Free quota logic for GPT-3.5
-            if (selectedModel == "gpt-3.5-turbo") {
-                if (!hasFreeQuota()) {
-                    showToast("Free usage quota exceeded. Upgrade to Pro to continue.")
-                    return@setOnClickListener
-                } else {
-                    increaseUsageCount()
-                }
+            if (selectedModel == "gpt-3.5-turbo" && !hasFreeQuota()) {
+                showToast("Free usage limit reached. Upgrade to use more.")
+                return@setOnClickListener
             }
 
-            // Call AI with prompt
-            analyzeWithAI(prompt)
+            increaseUsageCount()
+            analyzeWithAI(prompt, selectedModel)
         }
+
+
+
+
+
+        // Export/Share
+        exportShareButton = findViewById(R.id.btnExportShare)
+        exportShareButton.setOnClickListener {
+            if (extractedText.isEmpty()) {
+                showToast("No text to share")
+                return@setOnClickListener
+            }
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, extractedText)
+                putExtra(Intent.EXTRA_SUBJECT, "Document Analysis Result")
+            }
+            startActivity(Intent.createChooser(shareIntent, "Share Document Analysis"))
+        }
+
+
+        // Export as file
+        val btnExportTxt = findViewById<Button>(R.id.btnExportTxt)
+        val btnExportPdf = findViewById<Button>(R.id.btnExportPdf)
+
+        btnExportTxt.setOnClickListener {
+            exportTextAsFile(aiResponseDisplay.text.toString(), "txt")
+        }
+
+        btnExportPdf.setOnClickListener {
+            exportTextAsFile(aiResponseDisplay.text.toString(), "pdf")
+        }
+    }
+
+    private fun openFilePicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ))
+        }
+        filePickerLauncher.launch(intent)
+    }
+
+    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
+        if (result.resultCode == RESULT_OK) {
+            val uri = result.data?.data ?: return@registerForActivityResult
+            val type = contentResolver.getType(uri)
+
+            when {
+                type?.contains("pdf") == true -> extractTextFromPdf(uri)
+                type?.contains("wordprocessingml") == true -> {
+                    extractedText = DocumentUtils.extractTextFromDocx(this, uri)
+                    showExtractedText("DOCX loaded")
+                }
+                type?.contains("presentationml") == true -> {
+                    extractedText = DocumentUtils.extractTextFromPptx(this, uri)
+                    showExtractedText("PPTX loaded")
+                }
+                else -> showToast("Unsupported file")
+            }
+        } else {
+            showToast("File selection cancelled")
+        }
+    }
+
+
+
+
+
+
+
+    private fun showExtractedText(message: String) {
+        pdfTextDisplay.text = extractedText.take(1000) + if (extractedText.length > 1000) "..." else ""
+        showToast(message)
     }
 
     private fun extractTextFromPdf(uri: Uri) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val inputStream: InputStream? = contentResolver.openInputStream(uri)
-                val doc = PDDocument.load(inputStream)
-                val text = PDFTextStripper().getText(doc)
-                doc.close()
-                extractedText = text
+                val input = contentResolver.openInputStream(uri)
+                val document = com.tom_roush.pdfbox.pdmodel.PDDocument.load(input)
+                val text = com.tom_roush.pdfbox.text.PDFTextStripper().getText(document)
+                document.close()
                 withContext(Dispatchers.Main) {
-                    pdfTextDisplay.text = text.take(1000) + if (text.length > 1000) "..." else ""
-                    showToast("PDF extracted successfully")
+                    extractedText = text
+                    showExtractedText("PDF loaded")
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    showToast("PDF extraction failed: ${e.message}")
+                    showToast("Error reading PDF: ${e.message}")
                 }
             }
         }
     }
 
-    private fun analyzeWithAI(prompt: String) {
+    private fun analyzeWithAI(prompt: String, model: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val model = if (modelGroup.checkedRadioButtonId == R.id.gpt3Radio)
-                    "gpt-3.5-turbo" else "gpt-4"
-
+                val apiKey = "Bearer YOUR_OPENAI_KEY" // 🔁 Replace
                 val service = RetrofitClient.openAIService
-                val apiKey = "Bearer YOUR_API_KEY" // Replace this
 
                 val messages = listOf(
                     Message("system", "You are a helpful assistant."),
-                    Message("user", "PDF:\n$extractedText"),
+                    Message("user", "Document:\n$extractedText"),
                     Message("user", prompt)
                 )
 
-                val request = ChatRequest(model, messages, 0.7)
-                val response = service.createChatCompletion(apiKey, request)
+                val response = service.createChatCompletion(apiKey, ChatRequest(model, messages, 0.7))
 
                 withContext(Dispatchers.Main) {
                     aiResponseDisplay.text = response.choices.firstOrNull()?.message?.content ?: "No reply"
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    showToast("GPT error: ${e.message}")
+                    showToast("AI error: ${e.message}")
                 }
-
-                val selectedModel = when (modelSelection.checkedRadioButtonId) {
-                    R.id.gpt3Radio -> "gpt-3.5-turbo"
-                    R.id.gpt4Radio -> "gpt-4"
-                    else -> "gpt-3.5-turbo"
-                }
-
-                if (selectedModel == "gpt-3.5-turbo" && !hasFreeQuota()) {
-                    showToast("Daily limit reached for free users. Try again tomorrow or upgrade to Pro.")
-
-                }
-                increaseUsageCount()
-                analyzeWithAI(prompt)
-
             }
         }
     }
@@ -161,73 +222,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun hasFreeQuota(): Boolean {
         val prefs = getSharedPreferences("usagePrefs", MODE_PRIVATE)
-        val today = java.time.LocalDate.now().toString()
-        val lastDate = prefs.getString("lastUsedDate", "")
-        val currentCount = if (today == lastDate) prefs.getInt("freeUsageCount", 0) else 0
-        return currentCount < 5  // ✅ LIMIT: 5 free uses/day
+        return prefs.getInt("freeUsageCount", 0) < 5
     }
 
     private fun increaseUsageCount() {
         val prefs = getSharedPreferences("usagePrefs", MODE_PRIVATE)
-        val today = java.time.LocalDate.now().toString()
-        val editor = prefs.edit()
-        val currentCount = if (prefs.getString("lastUsedDate", "") == today)
-            prefs.getInt("freeUsageCount", 0) else 0
-
-        editor.putString("lastUsedDate", today)
-        editor.putInt("freeUsageCount", currentCount + 1)
-        editor.apply()
+        val current = prefs.getInt("freeUsageCount", 0)
+        prefs.edit().putInt("freeUsageCount", current + 1).apply()
     }
-    private val documentPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let {
-            val mimeType = contentResolver.getType(uri)
 
-            when (mimeType) {
-                "application/pdf" -> extractTextFromPdf(uri)
+    private fun exportTextAsFile(content: String, format: String) {
+        val fileName = if (format == "txt") "export.txt" else "export.pdf"
+        val mimeType = if (format == "txt") "text/plain" else "application/pdf"
 
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> {
-                    val text = DocumentUtils.extractTextFromDocx(this, uri)
-                    extractedText = text
-                    pdfTextDisplay.text = text.take(1000) + if (text.length > 1000) "..." else ""
-                    showToast("DOCX loaded successfully")
-                }
+        val file = File(cacheDir, fileName)
+        file.writeText(content)
 
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> {
-                    val text = DocumentUtils.extractTextFromPptx(this, uri)
-                    extractedText = text
-                    pdfTextDisplay.text = text.take(1000) + if (text.length > 1000) "..." else ""
-                    showToast("PPTX loaded successfully")
-                }
+        val uri = FileProvider.getUriForFile(this, "com.mmalyil.smartdocai.fileprovider", file)
 
-                else -> showToast("Unsupported file type")
-            }
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+
+        startActivity(Intent.createChooser(shareIntent, "Share via"))
+    }
     }
 
 
-    private fun openFilePicker() {
-        documentPickerLauncher.launch(
-            arrayOf(
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            )
-        )
-    }
-
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_CODE_PICK_PDF && resultCode == RESULT_OK) {
-            val uri: Uri? = data?.data
-            if (uri != null) {
-                extractTextFromPdf(uri)
-            } else {
-                showToast("No file selected.")
-            }
-        }
-    }
-
-
-
-}
