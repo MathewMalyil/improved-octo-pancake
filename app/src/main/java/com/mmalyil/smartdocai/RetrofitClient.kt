@@ -4,19 +4,30 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
+
+
+
+
 object RetrofitClient {
-    private const val BASE_URL = "https://api.openai.com/v1/"
 
-    val openAIService: OpenAIService by lazy {
-        val interceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
-        }
-        val client = OkHttpClient.Builder()
-            .addInterceptor(interceptor)
-            .build()
+    // ✅ Replace this with your Mac's actual IP address
+    private const val MISTRAL_BASE_URL = "http://192.168.1.5:8000/" // Local Mistral server
+    private const val OPENAI_BASE_URL = "https://api.openai.com/v1/"
 
-        Retrofit.Builder()
-            .baseUrl(BASE_URL)
+    private val interceptor = HttpLoggingInterceptor().apply {
+        level = HttpLoggingInterceptor.Level.BODY
+    }
+
+    private val client = OkHttpClient.Builder()
+        .addInterceptor(interceptor)
+        .build()
+
+    // 🔁 Choose Mistral or OpenAI dynamically
+    fun getService(useMistral: Boolean): OpenAIService {
+        val baseUrl = if (useMistral) MISTRAL_BASE_URL else OPENAI_BASE_URL
+
+        return Retrofit.Builder()
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

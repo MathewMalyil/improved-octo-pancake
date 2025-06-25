@@ -96,18 +96,36 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            val selectedModel = when (modelGroup.checkedRadioButtonId) {
-                R.id.gpt4Radio -> "gpt-4"
-                else -> "gpt-3.5-turbo"
+            val selectedModelId = modelGroup.checkedRadioButtonId
+
+            val (modelName, useMistral) = when (selectedModelId) {
+                R.id.gpt4Radio -> "gpt-4" to false
+                R.id.mistralRadio -> "mistral" to true
+                else -> "gpt-3.5-turbo" to false
             }
 
-            if (selectedModel == "gpt-3.5-turbo" && !hasFreeQuota()) {
+            if (modelName == "gpt-3.5-turbo" && !hasFreeQuota()) {
                 showToast("Free usage limit reached. Upgrade to use more.")
                 return@setOnClickListener
             }
 
             increaseUsageCount()
-            analyzeWithAI(prompt, selectedModel)
+
+            val messages = listOf(
+                Message("system", "You are a helpful assistant."),
+                Message("user", "Document:\n$extractedText"),
+                Message("user", prompt)
+            )
+
+            val request = ChatRequest(
+                model = modelName,
+                messages = messages,
+                temperature = 0.7
+            )
+
+            val service = RetrofitClient.getService(useMistral)
+
+            analyzeWithAI(request, service)
         }
 
 
@@ -136,7 +154,11 @@ class MainActivity : AppCompatActivity() {
             if (extractedText.isNotBlank()) {
                 exportAsTxt(extractedText)
             } else {
-                Toast.makeText(this, "Please extract text from a document first", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    "Please extract text from a document first",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
 
@@ -144,7 +166,11 @@ class MainActivity : AppCompatActivity() {
             if (extractedText.isNotBlank()) {
                 exportAsPdf(extractedText)
             } else {
-                Toast.makeText(this, "Please extract text from a document first", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    "Please extract text from a document first",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
@@ -215,20 +241,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun analyzeWithAI(prompt: String, model: String) {
+    private fun analyzeWithAI(request: ChatRequest, service: OpenAIService) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val apiKey = "Bearer YOUR_OPENAI_KEY" // 🔁 Replace
-                val service = RetrofitClient.openAIService
-
-                val messages = listOf(
-                    Message("system", "You are a helpful assistant."),
-                    Message("user", "Document:\n$extractedText"),
-                    Message("user", prompt)
-                )
-
-                val response =
-                    service.createChatCompletion(apiKey, ChatRequest(model, messages, 0.7))
+                val response = service.createChatCompletion(request)
 
                 withContext(Dispatchers.Main) {
                     aiResponseDisplay.text =
@@ -241,6 +257,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
 
     private fun showToast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()

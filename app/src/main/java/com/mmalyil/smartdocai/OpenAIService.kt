@@ -6,19 +6,15 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 
 
-
 interface OpenAIService {
-    @Headers("Content-Type: application/json")
-    @POST("chat/completions")
+    @POST("v1/chat/completions")
     suspend fun createChatCompletion(
-        @Header("Authorization") auth: String,
         @Body request: ChatRequest
     ): ChatResponse
-
-
-
-
-
-
-
 }
+
+
+
+
+
+// Note: The OpenAIService interface defines the API endpoint for creating chat completions.
