@@ -22,6 +22,27 @@ import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import java.io.File
+import java.io.FileOutputStream
+import android.content.Context
+import com.itextpdf.text.Document
+import com.itextpdf.text.Paragraph
+import com.itextpdf.text.pdf.PdfWriter
+
+
+
+
+
+
+
+
+
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2023 Mert Malyil <
+
+// This is the main activity for the SmartDocAI application
+// It allows users to select PDF, DOCX, or PPTX files, extract text, and analyze it using AI models
+// It also provides options to export the results as text or PDF files and share them via other apps
+// It uses Retrofit for network requests, PDFBox for PDF text extraction, and Apache POI for DOCX and PPTX
 
 // MainActivity.kt
 
@@ -37,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var promptInput: EditText
     private var extractedText = ""
     private lateinit var exportShareButton: Button
+
     companion object {
         const val REQUEST_CODE_PICK = 1001
     }
@@ -44,10 +66,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-
-
-
 
 
         // Bind views
@@ -93,9 +111,6 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-
-
-
         // Export/Share
         exportShareButton = findViewById(R.id.btnExportShare)
         exportShareButton.setOnClickListener {
@@ -118,11 +133,19 @@ class MainActivity : AppCompatActivity() {
         val btnExportPdf = findViewById<Button>(R.id.btnExportPdf)
 
         btnExportTxt.setOnClickListener {
-            exportTextAsFile(aiResponseDisplay.text.toString(), "txt")
+            if (extractedText.isNotBlank()) {
+                exportAsTxt(extractedText)
+            } else {
+                Toast.makeText(this, "Please extract text from a document first", Toast.LENGTH_SHORT).show()
+            }
         }
 
         btnExportPdf.setOnClickListener {
-            exportTextAsFile(aiResponseDisplay.text.toString(), "pdf")
+            if (extractedText.isNotBlank()) {
+                exportAsPdf(extractedText)
+            } else {
+                Toast.makeText(this, "Please extract text from a document first", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -130,45 +153,46 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            ))
+            putExtra(
+                Intent.EXTRA_MIME_TYPES, arrayOf(
+                    "application/pdf",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                )
+            )
         }
         filePickerLauncher.launch(intent)
     }
 
-    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
-        if (result.resultCode == RESULT_OK) {
-            val uri = result.data?.data ?: return@registerForActivityResult
-            val type = contentResolver.getType(uri)
+    private val filePickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
+            if (result.resultCode == RESULT_OK) {
+                val uri = result.data?.data ?: return@registerForActivityResult
+                val type = contentResolver.getType(uri)
 
-            when {
-                type?.contains("pdf") == true -> extractTextFromPdf(uri)
-                type?.contains("wordprocessingml") == true -> {
-                    extractedText = DocumentUtils.extractTextFromDocx(this, uri)
-                    showExtractedText("DOCX loaded")
+                when {
+                    type?.contains("pdf") == true -> extractTextFromPdf(uri)
+                    type?.contains("wordprocessingml") == true -> {
+                        extractedText = DocumentUtils.extractTextFromDocx(this, uri)
+                        showExtractedText("DOCX loaded")
+                    }
+
+                    type?.contains("presentationml") == true -> {
+                        extractedText = DocumentUtils.extractTextFromPptx(this, uri)
+                        showExtractedText("PPTX loaded")
+                    }
+
+                    else -> showToast("Unsupported file")
                 }
-                type?.contains("presentationml") == true -> {
-                    extractedText = DocumentUtils.extractTextFromPptx(this, uri)
-                    showExtractedText("PPTX loaded")
-                }
-                else -> showToast("Unsupported file")
+            } else {
+                showToast("File selection cancelled")
             }
-        } else {
-            showToast("File selection cancelled")
         }
-    }
-
-
-
-
-
 
 
     private fun showExtractedText(message: String) {
-        pdfTextDisplay.text = extractedText.take(1000) + if (extractedText.length > 1000) "..." else ""
+        pdfTextDisplay.text =
+            extractedText.take(1000) + if (extractedText.length > 1000) "..." else ""
         showToast(message)
     }
 
@@ -203,10 +227,12 @@ class MainActivity : AppCompatActivity() {
                     Message("user", prompt)
                 )
 
-                val response = service.createChatCompletion(apiKey, ChatRequest(model, messages, 0.7))
+                val response =
+                    service.createChatCompletion(apiKey, ChatRequest(model, messages, 0.7))
 
                 withContext(Dispatchers.Main) {
-                    aiResponseDisplay.text = response.choices.firstOrNull()?.message?.content ?: "No reply"
+                    aiResponseDisplay.text =
+                        response.choices.firstOrNull()?.message?.content ?: "No reply"
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -231,23 +257,62 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().putInt("freeUsageCount", current + 1).apply()
     }
 
-    private fun exportTextAsFile(content: String, format: String) {
-        val fileName = if (format == "txt") "export.txt" else "export.pdf"
-        val mimeType = if (format == "txt") "text/plain" else "application/pdf"
 
-        val file = File(cacheDir, fileName)
-        file.writeText(content)
 
-        val uri = FileProvider.getUriForFile(this, "com.mmalyil.smartdocai.fileprovider", file)
+
+
+
+    fun exportAsPdf(text: String) {
+        try {
+            val file = File(getExternalFilesDir(null), "SmartDocAI_Export.pdf")
+            val document = Document()
+            PdfWriter.getInstance(document, FileOutputStream(file))
+            document.open()
+            document.add(Paragraph(text))
+            document.close()
+
+            val uri = FileProvider.getUriForFile(
+                this,
+                "com.mmalyil.smartdocai.fileprovider",
+                file
+            )
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI PDF Export")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            startActivity(Intent.createChooser(shareIntent, "Share PDF via"))
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showToast("PDF export failed: ${e.message}")
+        }
+    }
+
+
+    fun exportAsTxt(text: String) {
+        val file = File(getExternalFilesDir(null), "SmartDocAI_Export.txt")
+        file.writeText(text)
+
+        val uri = FileProvider.getUriForFile(
+            this,
+            "com.mmalyil.smartdocai.fileprovider",
+            file
+        )
 
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = mimeType
+            type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI TXT Export")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
-        startActivity(Intent.createChooser(shareIntent, "Share via"))
+        startActivity(Intent.createChooser(shareIntent, "Share TXT via"))
     }
-    }
+
+}
 
 

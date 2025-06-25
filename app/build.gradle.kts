@@ -107,8 +107,12 @@ android {
         implementation("org.apache.commons:commons-collections4:4.4")
 
 
+       // Or use 2.1.7 if sticking to older version
 
-    }
+            implementation("com.itextpdf:itextpdf:5.5.13.3") // Or use 2.1.7 if sticking to older version
+        }
+
+
 }
 
 
