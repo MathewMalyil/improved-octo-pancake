@@ -1,3 +1,16 @@
 <resources>
     <string name="app_name">SmartDoc AI</string>
+
+    <string-array name="model_options">
+        <item>GPT-3.5</item>
+        <item>GPT-4</item>
+        <item>Mistral</item>
+        <item>Groq</item>
+    </string-array>
+
+
+
+
+
+
 </resources>

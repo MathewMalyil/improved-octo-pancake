@@ -50,6 +50,13 @@
                 android:text="GPT-4" />
 
             <RadioButton
+                android:id="@+id/groqRadio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Groq (Cloud)" />
+
+
+            <RadioButton
                 android:id="@+id/mistralRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -88,6 +95,43 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Export as PDF" />
+
+        <CheckBox
+            android:id="@+id/includeDocumentText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Include Extracted Document"
+            android:checked="true" />
+
+        <CheckBox
+            android:id="@+id/includeAIResponse"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Include AI Response"
+            android:checked="true" />
+        <Button
+            android:id="@+id/btnOpenAIChat"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Chat with AI"
+            android:layout_marginTop="12dp"
+            android:layout_gravity="center_horizontal" />
+
+
+        <Button
+            android:id="@+id/btnScanDoc"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Scan Document"
+            android:layout_marginTop="12dp"
+            android:layout_gravity="center_horizontal" />
+        <Button
+            android:id="@+id/btnPickImage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Pick Image for OCR"
+            android:layout_marginTop="12dp" />
+
 
 
     </LinearLayout>

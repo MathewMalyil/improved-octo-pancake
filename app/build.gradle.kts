@@ -17,15 +17,36 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    val localProps = rootProject.file("local.properties").reader().useLines { lines ->
+        lines.mapNotNull {
+            val parts = it.split("=")
+            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        }.toMap()
+    }
+
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+            buildConfigField("String", "GROQ_API_KEY", "\"${localProps["GROQ_API_KEY"]}\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("String", "GROQ_API_KEY", "\"${localProps["GROQ_API_KEY"]}\"")
         }
     }
+
+    buildFeatures {
+        viewBinding = true
+        buildConfig = true // Enable buildConfig to access API keys
+    }
+
+
+
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -40,9 +61,7 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-    buildFeatures {
-        viewBinding = true
-    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -68,6 +87,9 @@ android {
             exclude("META-INF/NOTICE")
             exclude("META-INF/NOTICE.txt")
         }
+
+
+
     }
 
     dependencies {
@@ -109,7 +131,18 @@ android {
 
        // Or use 2.1.7 if sticking to older version
 
-            implementation("com.itextpdf:itextpdf:5.5.13.3") // Or use 2.1.7 if sticking to older version
+        implementation("com.itextpdf:itextpdf:5.5.13.3") // Or use 2.1.7 if sticking to older version
+
+
+
+
+
+        implementation("androidx.camera:camera-core:1.3.1")
+        implementation("androidx.camera:camera-camera2:1.3.1")
+        implementation("androidx.camera:camera-lifecycle:1.3.1")
+        implementation("androidx.camera:camera-view:1.3.1")
+
+        implementation("com.google.mlkit:text-recognition:16.0.0")
         }
 
 

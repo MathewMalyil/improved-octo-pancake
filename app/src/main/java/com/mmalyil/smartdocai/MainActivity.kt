@@ -12,23 +12,30 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.widget.Toast
-
+import android.widget.CheckBox
 import java.time.LocalDate
-
 import android.content.Intent
-
-
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
-import android.content.Context
+
 import com.itextpdf.text.Document
 import com.itextpdf.text.Paragraph
 import com.itextpdf.text.pdf.PdfWriter
 
 
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+
+
+
+
+
+
+// Constants for API keys
 
 
 
@@ -36,16 +43,9 @@ import com.itextpdf.text.pdf.PdfWriter
 
 
 
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: 2023 Mert Malyil <
 
-// This is the main activity for the SmartDocAI application
-// It allows users to select PDF, DOCX, or PPTX files, extract text, and analyze it using AI models
-// It also provides options to export the results as text or PDF files and share them via other apps
-// It uses Retrofit for network requests, PDFBox for PDF text extraction, and Apache POI for DOCX and PPTX
 
-// MainActivity.kt
-
+val groqApiKey= com.mmalyil.smartdocai.BuildConfig.GROQ_API_KEY
 
 
 class MainActivity : AppCompatActivity() {
@@ -58,6 +58,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var promptInput: EditText
     private var extractedText = ""
     private lateinit var exportShareButton: Button
+
+    private lateinit var chkIncludeDoc: CheckBox
+    private lateinit var chkIncludeAI: CheckBox
+    private var aiAnswer: String = ""
+
+    private lateinit var btnPickImage: Button
+
+
 
     companion object {
         const val REQUEST_CODE_PICK = 1001
@@ -75,6 +83,11 @@ class MainActivity : AppCompatActivity() {
         pdfTextDisplay = findViewById(R.id.pdfTextDisplay)
         aiResponseDisplay = findViewById(R.id.aiResponseDisplay)
         promptInput = findViewById(R.id.promptInput)
+
+
+        val cbIncludeDoc = findViewById<CheckBox>(R.id.includeDocumentText)
+        val cbIncludeAI = findViewById<CheckBox>(R.id.includeAIResponse)
+
 
         // Reset usage count daily
         val prefs = getSharedPreferences("usagePrefs", MODE_PRIVATE)
@@ -98,10 +111,11 @@ class MainActivity : AppCompatActivity() {
 
             val selectedModelId = modelGroup.checkedRadioButtonId
 
-            val (modelName, useMistral) = when (selectedModelId) {
-                R.id.gpt4Radio -> "gpt-4" to false
-                R.id.mistralRadio -> "mistral" to true
-                else -> "gpt-3.5-turbo" to false
+            val (modelName, source) = when (selectedModelId) {
+                R.id.gpt4Radio -> "gpt-4" to "openai"
+                R.id.groqRadio -> "meta-llama/llama-4-scout-17b-16e-instruct" to "groq"
+                R.id.mistralRadio -> "mistral" to "mistral"
+                else -> "gpt-3.5-turbo" to "openai"
             }
 
             if (modelName == "gpt-3.5-turbo" && !hasFreeQuota()) {
@@ -112,9 +126,9 @@ class MainActivity : AppCompatActivity() {
             increaseUsageCount()
 
             val messages = listOf(
-                Message("system", "You are a helpful assistant."),
-                Message("user", "Document:\n$extractedText"),
-                Message("user", prompt)
+                ChatMessage("system", "You are a helpful assistant."),
+                ChatMessage("user", "Document:\n$extractedText"),
+                ChatMessage("user", prompt)
             )
 
             val request = ChatRequest(
@@ -123,9 +137,14 @@ class MainActivity : AppCompatActivity() {
                 temperature = 0.7
             )
 
-            val service = RetrofitClient.getService(useMistral)
 
-            analyzeWithAI(request, service)
+            val service = RetrofitClient.getService(source)
+            val authHeader = when (source) {
+
+                "groq" -> "Bearer $groqApiKey"
+                else -> "" // Local mistral needs no auth
+            }
+            analyzeWithAI(prompt, modelName, source, extractedText)
         }
 
 
@@ -151,30 +170,110 @@ class MainActivity : AppCompatActivity() {
         val btnExportPdf = findViewById<Button>(R.id.btnExportPdf)
 
         btnExportTxt.setOnClickListener {
-            if (extractedText.isNotBlank()) {
-                exportAsTxt(extractedText)
-            } else {
-                Toast.makeText(
-                    this,
-                    "Please extract text from a document first",
-                    Toast.LENGTH_SHORT
-                ).show()
+            val includeDoc = chkIncludeDoc.isChecked
+            val includeAI = chkIncludeAI.isChecked
+            if (!includeDoc && !includeAI) {
+                showToast("Please select at least one option to export")
+                return@setOnClickListener
             }
+            exportAsTxt(includeDoc, includeAI)
         }
 
         btnExportPdf.setOnClickListener {
-            if (extractedText.isNotBlank()) {
-                exportAsPdf(extractedText)
-            } else {
-                Toast.makeText(
-                    this,
-                    "Please extract text from a document first",
-                    Toast.LENGTH_SHORT
-                ).show()
+            val includeDoc = chkIncludeDoc.isChecked
+            val includeAI = chkIncludeAI.isChecked
+            if (!includeDoc && !includeAI) {
+                showToast("Please select at least one option to export")
+                return@setOnClickListener
             }
+            exportAsPdf(includeDoc, includeAI)
+        }
+
+
+        // Checkboxes for export options ANDROID ADDED
+        chkIncludeDoc = findViewById(R.id.includeDocumentText)
+        chkIncludeAI = findViewById(R.id.includeAIResponse)
+        chkIncludeDoc.isChecked = true // Default to include document text
+        chkIncludeAI.isChecked = true // Default to include AI response
+        chkIncludeDoc.setOnCheckedChangeListener { _, isChecked ->
+            if (!isChecked && !chkIncludeAI.isChecked) {
+                showToast("Please select at least one option to export")
+                chkIncludeDoc.isChecked = true // Revert to checked
+            }
+        }
+        chkIncludeAI.setOnCheckedChangeListener { _, isChecked ->
+            if (!isChecked && !chkIncludeDoc.isChecked) {
+                showToast("Please select at least one option to export")
+                chkIncludeAI.isChecked = true // Revert to checked
+            }
+        }
+
+
+//ANDROID CLOSE HERE CODE
+        val btnOpenAIChat = findViewById<Button>(R.id.btnOpenAIChat)
+        btnOpenAIChat.setOnClickListener {
+            val intent = Intent(this, AIChatActivity::class.java)
+            startActivity(intent)
+        }
+
+
+        val btnScanDoc = findViewById<Button>(R.id.btnScanDoc)
+        btnScanDoc.setOnClickListener {
+            val intent = Intent(this, ScanActivity::class.java)
+            scanLauncher.launch(intent)
+        }
+
+        btnPickImage = findViewById(R.id.btnPickImage)
+
+        btnPickImage.setOnClickListener {
+            imagePickerLauncher.launch("image/*")
+        }
+
+
+    }
+    private val imagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { processImageForOCR(it) }
+    }
+
+    private fun processImageForOCR(uri: Uri) {
+        try {
+            val inputImage = InputImage.fromFilePath(this, uri)
+
+
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+            recognizer.process(inputImage)
+                .addOnSuccessListener { result ->
+                    val scannedText = result.text
+                    extractedText = scannedText
+                    pdfTextDisplay.text = scannedText
+                    showToast("Text extracted from image successfully!")
+                }
+                .addOnFailureListener { e ->
+                    showToast("OCR failed: ${e.message}")
+                }
+        } catch (e: Exception) {
+            showToast("Failed to load image: ${e.message}")
         }
     }
 
+
+
+private val scanLauncher =
+    registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val scannedText = result.data?.getStringExtra("scannedText") ?: ""
+            extractedText = scannedText
+            pdfTextDisplay.text = scannedText
+            showToast("Scanned text loaded")
+        }
+
+    }
+
+
+    // Open file picker to select PDF, DOCX, or PPTX
     private fun openFilePicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -241,18 +340,44 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun analyzeWithAI(request: ChatRequest, service: OpenAIService) {
+    fun analyzeWithAI(prompt: String, modelName: String, source: String, extractedText: String) {
+        val service = RetrofitClient.getService(source)
+        val apiKey = when (source) {
+            "groq" -> com.mmalyil.smartdocai.BuildConfig.GROQ_API_KEY
+            "openai" -> com.mmalyil.smartdocai.BuildConfig.GROQ_API_KEY
+            "mistral" -> "" // Local Mistral does not require an API key
+            else -> "DUMMY_KEY" // if using OpenAI too
+        }
+
+
+        val messages = listOf(
+            ChatMessage("system", "Reply in the same language as the user's message."),
+            ChatMessage("user", "Here is the document text:\n$extractedText"),
+            ChatMessage("user", prompt)
+        )
+
+        val request = ChatRequest(
+            model = modelName,
+            messages = messages,
+            temperature = 0.7// 👈 Add this
+        )
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = service.createChatCompletion(request)
-
+                val response = service.createChatCompletion("Bearer $apiKey", request)
+                val aiReply = response.choices.firstOrNull()?.message?.content ?: "No reply"
                 withContext(Dispatchers.Main) {
-                    aiResponseDisplay.text =
-                        response.choices.firstOrNull()?.message?.content ?: "No reply"
+                    aiResponseDisplay.text = aiReply
+                    aiAnswer = aiReply // Store the AI answer for export
+                    showToast("AI analysis complete")
+                    if (hasFreeQuota()) {
+                        showToast("Free usage count increased. You have ${5 - getSharedPreferences("usagePrefs", MODE_PRIVATE).getInt("freeUsageCount", 0)} uses left.")
+                    } else {
+                        showToast("Free usage limit reached. Upgrade to use more.")
+                    }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    showToast("AI error: ${e.message}")
+                    aiResponseDisplay.text = "Error: ${e.localizedMessage}"
                 }
             }
         }
@@ -275,51 +400,33 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
+        val content = buildExportContent(includeDoc, includeAI)
+        val file = File(getExternalFilesDir(null), "SmartDocAI_Export.pdf")
+        val document = Document()
+        PdfWriter.getInstance(document, FileOutputStream(file))
+        document.open()
+        document.add(Paragraph(content))
+        document.close()
 
-
-
-
-    fun exportAsPdf(text: String) {
-        try {
-            val file = File(getExternalFilesDir(null), "SmartDocAI_Export.pdf")
-            val document = Document()
-            PdfWriter.getInstance(document, FileOutputStream(file))
-            document.open()
-            document.add(Paragraph(text))
-            document.close()
-
-            val uri = FileProvider.getUriForFile(
-                this,
-                "com.mmalyil.smartdocai.fileprovider",
-                file
-            )
-
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI PDF Export")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            startActivity(Intent.createChooser(shareIntent, "Share PDF via"))
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            showToast("PDF export failed: ${e.message}")
+        val uri = FileProvider.getUriForFile(this, "com.mmalyil.smartdocai.fileprovider", file)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI PDF Export")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+
+        startActivity(Intent.createChooser(shareIntent, "Share PDF via"))
     }
 
 
-    fun exportAsTxt(text: String) {
+    fun exportAsTxt(includeDoc: Boolean, includeAI: Boolean) {
+        val content = buildExportContent(includeDoc, includeAI)
         val file = File(getExternalFilesDir(null), "SmartDocAI_Export.txt")
-        file.writeText(text)
+        file.writeText(content)
 
-        val uri = FileProvider.getUriForFile(
-            this,
-            "com.mmalyil.smartdocai.fileprovider",
-            file
-        )
-
+        val uri = FileProvider.getUriForFile(this, "com.mmalyil.smartdocai.fileprovider", file)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -329,6 +436,24 @@ class MainActivity : AppCompatActivity() {
 
         startActivity(Intent.createChooser(shareIntent, "Share TXT via"))
     }
+
+
+    private fun buildExportContent(includeDoc: Boolean, includeAI: Boolean): String {
+        val builder = StringBuilder()
+        if (includeDoc) {
+            builder.append("📄 Extracted Document:\n")
+                .append(extractedText.trim())
+                .append("\n\n------------------------------\n\n")
+        }
+        if (includeAI) {
+            builder.append("🤖 AI Analysis:\n").append(aiAnswer) .append("\n\n")
+        }
+        return builder.toString()
+    }
+
+
+
+
 
 }
 
