@@ -319,6 +319,33 @@ class ToolsFragment : Fragment() {
     private fun toast(msg: String) {
         Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
     }
+
+    fun triggerUploadFromFab() {
+        openFilePicker()
+    }
+
+    fun triggerPickImageFromFab() {
+        imagePickerLauncher.launch("image/*")
+    }
+
+    private val scanLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val scannedText = result.data?.getStringExtra("scannedText") ?: ""
+                extractedText = scannedText
+                pdfTextDisplay.text = scannedText
+                toast("Scanned text loaded")
+            }
+        }
+
+
+
+    fun triggerScanFromFab() {
+        val intent = Intent(requireContext(), ScanActivity::class.java)
+        scanLauncher.launch(intent)
+    }
+
+
 }
 
 

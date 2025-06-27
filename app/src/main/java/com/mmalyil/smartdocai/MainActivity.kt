@@ -2,38 +2,16 @@ package com.mmalyil.smartdocai
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
-import android.net.Uri
-import android.widget.Button
-import android.widget.EditText
-import android.widget.RadioGroup
-import android.widget.TextView
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+
 import android.widget.Toast
-import android.widget.CheckBox
-import java.time.LocalDate
+
 import android.content.Intent
-import androidx.activity.result.ActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
-import java.io.File
-import java.io.FileOutputStream
-
-import com.itextpdf.text.Document
-import com.itextpdf.text.Paragraph
-import com.itextpdf.text.pdf.PdfWriter
-
-
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 import com.google.android.material.bottomnavigation.BottomNavigationView
 
-
-
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import android.widget.LinearLayout
 
 
 // Constants for API keys
@@ -82,6 +60,75 @@ class MainActivity : AppCompatActivity() {
                 .replace(R.id.contentFrame, HomeFragment())
                 .commit()
         }
+
+
+
+        val fab = findViewById<FloatingActionButton>(R.id.fab)
+        fab.setOnClickListener {
+            showFabActionSheet()
+        }
+    }
+
+
+
+
+    private fun showFabActionSheet() {
+        val bottomSheet = layoutInflater.inflate(R.layout.dialog_fab_actions, null)
+
+        val dialog = BottomSheetDialog(this)
+        dialog.setContentView(bottomSheet)
+
+        bottomSheet.findViewById<LinearLayout>(R.id.actionUpload)?.setOnClickListener {
+            val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+
+            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
+            nav.selectedItemId = R.id.nav_tools
+
+// Delay trigger just a bit to let fragment load
+            nav.postDelayed({
+                val toolsFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+                if (toolsFragment is ToolsFragment) {
+                    toolsFragment.triggerUploadFromFab()
+                } else {
+                    Toast.makeText(this, "Please try again", Toast.LENGTH_SHORT).show()
+                }
+            }, 150)
+            dialog.dismiss()
+        }
+
+        bottomSheet.findViewById<LinearLayout>(R.id.actionScan)?.setOnClickListener {
+            val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
+            nav.selectedItemId = R.id.nav_tools
+// Delay trigger just a bit to let fragment load
+            nav.postDelayed({
+                val toolsFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+                if (toolsFragment is ToolsFragment) {
+                    toolsFragment.triggerScanFromFab()
+                } else {
+                    Toast.makeText(this, "Please try again", Toast.LENGTH_SHORT).show()
+                }
+            }, 150)
+            dialog.dismiss()
+        }
+
+        bottomSheet.findViewById<LinearLayout>(R.id.actionPickImage)?.setOnClickListener {
+            val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
+            nav.selectedItemId = R.id.nav_tools
+// Delay trigger just a bit to let fragment load
+            nav.postDelayed({
+                val toolsFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+                if (toolsFragment is ToolsFragment) {
+                    toolsFragment.triggerPickImageFromFab()
+                } else {
+                    Toast.makeText(this, "Please try again", Toast.LENGTH_SHORT).show()
+                }
+            }, 150)
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
 }
 
