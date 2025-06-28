@@ -15,7 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.lang.Exception
-
+import com.mmalyil.smartdocai.BuildConfig // ✅ import BuildConfig
 
 
 class AIChatActivity : AppCompatActivity() {

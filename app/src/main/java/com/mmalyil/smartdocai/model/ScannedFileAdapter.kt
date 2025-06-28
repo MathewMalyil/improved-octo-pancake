@@ -6,39 +6,41 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.mmalyil.smartdocai.databinding.ItemScannedFileBinding
+import androidx.recyclerview.widget.DiffUtil
+
+import androidx.recyclerview.widget.ListAdapter
+import android.view.View
+import android.widget.TextView
+import java.text.DateFormat
+import java.util.Date
+import com.mmalyil.smartdocai.R
+import android.view.*
 
 
 
 class ScannedFileAdapter(
-    private val context: Context,
-    private var fileList: List<ScannedFile>,
-    private val onShareClicked: (ScannedFile) -> Unit,
-    private val onDeleteClicked: (ScannedFile) -> Unit
-) : RecyclerView.Adapter<ScannedFileAdapter.FileViewHolder>() {
+    private val onClick: (ScannedFile) -> Unit
+) : ListAdapter<ScannedFile, ScannedFileAdapter.FileViewHolder>(DiffCallback()) {
 
-    inner class FileViewHolder(val binding: ItemScannedFileBinding) :
-        RecyclerView.ViewHolder(binding.root)
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val binding = ItemScannedFileBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return FileViewHolder(binding)
-    }
-
-    override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        val file = fileList[position]
-        with(holder.binding) {
-            fileName.text = file.fileName
-            fileThumbnail.setImageURI(Uri.parse(file.fileUri))
-
-            btnShare.setOnClickListener { onShareClicked(file) }
-            btnDelete.setOnClickListener { onDeleteClicked(file) }
+    class FileViewHolder(val view: View) : RecyclerView.ViewHolder(view) {
+        fun bind(file: ScannedFile, onClick: (ScannedFile) -> Unit) {
+            view.findViewById<TextView>(R.id.fileNameText).text = file.fileName
+            view.findViewById<TextView>(R.id.fileDateText).text = DateFormat.getDateTimeInstance().format(Date(file.timestamp))
+            view.setOnClickListener { onClick(file) }
         }
     }
 
-    override fun getItemCount(): Int = fileList.size
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_scanned_file, parent, false)
+        return FileViewHolder(view)
+    }
 
-    fun updateFiles(newList: List<ScannedFile>) {
-        fileList = newList
-        notifyDataSetChanged()
+    override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
+        holder.bind(getItem(position), onClick)
+    }
+
+    class DiffCallback : DiffUtil.ItemCallback<ScannedFile>() {
+        override fun areItemsTheSame(old: ScannedFile, new: ScannedFile) = old.id == new.id
+        override fun areContentsTheSame(old: ScannedFile, new: ScannedFile) = old == new
     }
 }

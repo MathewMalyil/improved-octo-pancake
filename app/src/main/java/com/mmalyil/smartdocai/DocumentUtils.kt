@@ -7,7 +7,7 @@ import org.apache.poi.xslf.usermodel.XMLSlideShow
 import java.io.InputStream
 
 import java.lang.Exception
-
+import org.apache.poi.xwpf.usermodel.XWPFDocument // ✅ for DOCX
 
 
 

@@ -1,24 +1,16 @@
 pluginManagement {
     repositories {
-        google {
-            content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
-                includeGroupByRegex("androidx.*")
-            }
-        }
-        mavenCentral()
+        google() // ✅ Required for 'com.android.application'
         gradlePluginPortal()
+        mavenCentral()
     }
 }
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") } // Optional, if you need JitPack for any dependencies
+        maven(url = "https://jitpack.io") // ✅ Add this
     }
 }
-
-rootProject.name = "SmartDoc AI"
+rootProject.name = "SmartDocAI"
 include(":app")

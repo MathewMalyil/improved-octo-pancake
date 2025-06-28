@@ -1,21 +1,21 @@
 package com.mmalyil.smartdocai.model
 
 
-import android.os.Parcelable
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 
 
-/**
- * Data class representing a scanned file with its metadata.
- *
- * @property fileName The name of the scanned file.
- * @property fileUri The URI of the scanned file.
- * @property content The text content extracted from the scanned file.
- * @property date The timestamp when the file was scanned.
- */
 
+
+
+@Entity(tableName = "scannedfile")
 data class ScannedFile(
-    val fileName: String,
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val fileUri: String,
-    val content: String = "",
-    val date: Long = System.currentTimeMillis()
+    var fileName: String,
+    val content: String,
+
+    val aiResponse: String?,
+    val timestamp: Long = System.currentTimeMillis(
+) // Default to current time
 )
