@@ -1,42 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:padding="16dp">
 
     <LinearLayout
         android:orientation="vertical"
-        android:padding="16dp"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:divider="?android:attr/dividerHorizontal"
+        android:showDividers="middle"
+        android:dividerPadding="12dp">
 
+        <!-- Select PDF Button -->
         <Button
             android:id="@+id/selectPdfButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Select PDF" />
 
+        <!-- PDF Content Preview -->
         <TextView
             android:id="@+id/pdfTextDisplay"
             android:layout_width="match_parent"
             android:layout_height="200dp"
             android:scrollbars="vertical"
             android:text="PDF text will appear here"
-            android:padding="8dp"
-            android:background="#EEEEEE" />
+            android:padding="12dp"
+            android:background="#EEEEEE"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
 
+        <!-- Prompt Input -->
         <EditText
             android:id="@+id/promptInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Enter your question or prompt"
-            android:minHeight="48dp" />
+            android:minHeight="48dp"
+            android:padding="8dp" />
 
+        <!-- Model Selection -->
         <RadioGroup
             android:id="@+id/modelSelection"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
 
             <RadioButton
                 android:id="@+id/gpt35Radio"
@@ -63,39 +73,57 @@
                 android:text="Mistral (Local)" />
         </RadioGroup>
 
+        <!-- Ask AI Button -->
         <Button
             android:id="@+id/analyzeButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Ask AI" />
 
+        <!-- AI Response Display -->
         <TextView
             android:id="@+id/aiResponseDisplay"
             android:layout_width="match_parent"
             android:layout_height="200dp"
             android:scrollbars="vertical"
             android:text="AI response will appear here"
-            android:padding="8dp"
-            android:background="#DDFFDD" />
+            android:padding="12dp"
+            android:background="#DDFFDD"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
 
-        <Button
-            android:id="@+id/btnExportShare"
-            android:layout_width="wrap_content"
+        <!-- Export Options -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Export and Share" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="12dp"
+            android:weightSum="3"
+            android:paddingBottom="8dp">
 
-        <Button
-            android:id="@+id/btnExportTxt"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Export as TXT" />
+            <Button
+                android:id="@+id/btnExportShare"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Export and Share" />
 
-        <Button
-            android:id="@+id/btnExportPdf"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Export as PDF" />
+            <Button
+                android:id="@+id/btnExportTxt"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Export TXT" />
 
+            <Button
+                android:id="@+id/btnExportPdf"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Export PDF" />
+        </LinearLayout>
+
+        <!-- Export Options -->
         <CheckBox
             android:id="@+id/includeDocumentText"
             android:layout_width="wrap_content"
@@ -110,17 +138,17 @@
             android:text="Include AI Response"
             android:checked="true" />
 
+        <!-- OCR & Chat Buttons -->
         <Button
             android:id="@+id/btnPickImage"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Pick Image for OCR"
-            android:layout_marginTop="12dp" />
-
+            android:layout_marginTop="16dp" />
 
         <Button
             android:id="@+id/btnOpenAIChat"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Chat with AI"
             android:layout_marginTop="12dp" />

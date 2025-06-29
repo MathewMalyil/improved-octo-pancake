@@ -5,87 +5,50 @@ package com.mmalyil.smartdocai
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
-
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-
 import com.mmalyil.smartdocai.model.ScannedFileAdapter
-
-import android.view.*
-
-import androidx.lifecycle.ViewModelProvider
-
 import com.mmalyil.smartdocai.model.ScannedFileViewModel
-
-import com.mmalyil.smartdocai.model.ScannedFile
 import com.mmalyil.smartdocai.model.ScannedFileRepository
 import com.mmalyil.smartdocai.model.AppDatabase
+import android.content.Intent
+import com.mmalyil.smartdocai.model.ScannedFileDetailActivity
+import android.util.Log
 
-import com.mmalyil.smartdocai.model.ScannedFileViewModelFactory
-import android.widget.Button
-import java.text.DateFormat
-import java.util.Date
-import android.widget.Toast
-import com.mmalyil.smartdocai.R
-import com.mmalyil.smartdocai.model.ScannedFileDao
-
-// FilesFragment.kt
-
+import com.mmalyil.smartdocai.databinding.FragmentFilesBinding
 
 
 class FilesFragment : Fragment() {
-    private lateinit var viewModel: ScannedFileViewModel
+
+    private lateinit var binding: FragmentFilesBinding
     private lateinit var adapter: ScannedFileAdapter
+    private lateinit var viewModel: ScannedFileViewModel
 
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
+        inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val view = inflater.inflate(R.layout.fragment_files, container, false)
-        val recyclerView = view.findViewById<RecyclerView>(R.id.filesRecyclerView)
+        binding = FragmentFilesBinding.inflate(inflater, container, false)
+        return binding.root
+    }
 
-
-        // ✅ Initialize DAO, Repository, ViewModel
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val dao = AppDatabase.getDatabase(requireContext()).scannedFileDao()
         val repository = ScannedFileRepository(dao)
-        val factory = ScannedFileViewModelFactory(repository)
-        viewModel = ViewModelProvider(this, factory)[ScannedFileViewModel::class.java]
+        viewModel = ScannedFileViewModel(repository)
 
-        // ✅ Set up RecyclerView
-        adapter = ScannedFileAdapter { file ->
-            // Open file or show options
+        adapter = ScannedFileAdapter(emptyList()) { file ->
+            val intent = Intent(requireContext(), ScannedFileDetailActivity::class.java)
+            intent.putExtra("scannedFile", file)
+            startActivity(intent)
         }
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
+        binding.rvFiles.layoutManager = LinearLayoutManager(requireContext())
+        binding.rvFiles.adapter = adapter
 
-        // ✅ Observe LiveData
-        viewModel.allFiles.observe(viewLifecycleOwner) { list: List<ScannedFile> ->
-            adapter.submitList(list)
+        viewModel.allFiles.observe(viewLifecycleOwner) { files ->
+            Log.d("DEBUG", "Observed ${files.size} files")
+            adapter.updateFiles(files)
         }
-
-        // ✅ Test Insert Button
-        val addTestButton = view.findViewById<Button>(R.id.btnAddTest)
-        addTestButton.setOnClickListener {
-
-            val extractedText = "Text from PDF or OCR"
-            val aiSummary = "AI summary of the text"
-            val fileName = "scanned_file_${System.currentTimeMillis()}.txt"
-            val aiResponse = "Sample content from AI"
-
-
-            viewModel.insertFile(
-                content = extractedText,
-                fileName = fileName,
-                aiResponse = aiSummary
-            )
-
-        }
-
-
-        return view
     }
 }
-

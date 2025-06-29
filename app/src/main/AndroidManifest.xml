@@ -39,6 +39,8 @@
 
         <activity android:name=".AIChatActivity" />
 
+        <activity android:name=".model.ScannedFileDetailActivity" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

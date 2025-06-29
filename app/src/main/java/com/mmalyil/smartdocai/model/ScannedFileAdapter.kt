@@ -1,46 +1,54 @@
 package com.mmalyil.smartdocai.model
 
-import android.content.Context
-import android.net.Uri
+
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.mmalyil.smartdocai.databinding.ItemScannedFileBinding
-import androidx.recyclerview.widget.DiffUtil
-
-import androidx.recyclerview.widget.ListAdapter
+import com.mmalyil.smartdocai.model.ScannedFile
 import android.view.View
 import android.widget.TextView
 import java.text.DateFormat
 import java.util.Date
 import com.mmalyil.smartdocai.R
 import android.view.*
-
-
+import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.*
+import android.content.Intent
 
 class ScannedFileAdapter(
+    private var fileList: List<ScannedFile>,
     private val onClick: (ScannedFile) -> Unit
-) : ListAdapter<ScannedFile, ScannedFileAdapter.FileViewHolder>(DiffCallback()) {
+) : RecyclerView.Adapter<ScannedFileAdapter.FileViewHolder>() {
 
-    class FileViewHolder(val view: View) : RecyclerView.ViewHolder(view) {
-        fun bind(file: ScannedFile, onClick: (ScannedFile) -> Unit) {
-            view.findViewById<TextView>(R.id.fileNameText).text = file.fileName
-            view.findViewById<TextView>(R.id.fileDateText).text = DateFormat.getDateTimeInstance().format(Date(file.timestamp))
-            view.setOnClickListener { onClick(file) }
-        }
+    inner class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val fileName: TextView = itemView.findViewById(R.id.tvFileName)
+        val timestamp: TextView = itemView.findViewById(R.id.tvTimestamp)
+        val contentPreview: TextView = itemView.findViewById(R.id.tvContentPreview)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_scanned_file, parent, false)
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_scanned_file, parent, false)
         return FileViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        holder.bind(getItem(position), onClick)
+        val file = fileList[position]
+        holder.fileName.text = file.fileName
+        holder.timestamp.text = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+            .format(Date(file.timestamp))
+        holder.contentPreview.text = file.content.take(100)
+
+        holder.itemView.setOnClickListener {
+            onClick(file)
+        }
     }
 
-    class DiffCallback : DiffUtil.ItemCallback<ScannedFile>() {
-        override fun areItemsTheSame(old: ScannedFile, new: ScannedFile) = old.id == new.id
-        override fun areContentsTheSame(old: ScannedFile, new: ScannedFile) = old == new
+    override fun getItemCount(): Int = fileList.size
+
+    fun updateFiles(newList: List<ScannedFile>) {
+        fileList = newList
+        notifyDataSetChanged()
     }
 }

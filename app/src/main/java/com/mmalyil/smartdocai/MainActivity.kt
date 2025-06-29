@@ -13,6 +13,11 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import android.widget.LinearLayout
 
+// This is the main activity for the SmartDocAI application
+
+
+// MainActivity.kt
+
 
 // Constants for API keys
 
@@ -48,7 +53,7 @@ class MainActivity : AppCompatActivity() {
             }
             selectedFragment?.let {
                 supportFragmentManager.beginTransaction()
-                    .replace(R.id.contentFrame, it)
+                    .replace(R.id.contentFrame, it, it::class.java.simpleName)
                     .commit()
                 true
             } ?: false
@@ -57,7 +62,7 @@ class MainActivity : AppCompatActivity() {
         // Load HomeFragment on first launch
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
-                .replace(R.id.contentFrame, HomeFragment())
+                .replace(R.id.contentFrame, HomeFragment(), HomeFragment::class.java.simpleName)
                 .commit()
         }
 
@@ -86,7 +91,7 @@ class MainActivity : AppCompatActivity() {
 
 // Delay trigger just a bit to let fragment load
             nav.postDelayed({
-                val toolsFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+                val toolsFragment = supportFragmentManager.findFragmentByTag(ToolsFragment::class.java.simpleName)
                 if (toolsFragment is ToolsFragment) {
                     toolsFragment.triggerUploadFromFab()
                 } else {
@@ -102,7 +107,7 @@ class MainActivity : AppCompatActivity() {
             nav.selectedItemId = R.id.nav_tools
 // Delay trigger just a bit to let fragment load
             nav.postDelayed({
-                val toolsFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+                val toolsFragment = supportFragmentManager.findFragmentByTag(ToolsFragment::class.java.simpleName)
                 if (toolsFragment is ToolsFragment) {
                     toolsFragment.triggerScanFromFab()
                 } else {
@@ -118,7 +123,7 @@ class MainActivity : AppCompatActivity() {
             nav.selectedItemId = R.id.nav_tools
 // Delay trigger just a bit to let fragment load
             nav.postDelayed({
-                val toolsFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+                val toolsFragment = supportFragmentManager.findFragmentByTag(ToolsFragment::class.java.simpleName)
                 if (toolsFragment is ToolsFragment) {
                     toolsFragment.triggerPickImageFromFab()
                 } else {
