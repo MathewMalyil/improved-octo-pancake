@@ -59,7 +59,7 @@ class AIChatActivity : AppCompatActivity() {
             val modelName = when (modelSpinner.selectedItem.toString()) {
                 "GPT-4" -> "gpt-4" to "openai"
                 "Mistral" -> "mistral" to "mistral"
-                "Groq" -> "meta-llama/llama-4-scout-17b-16e-instruct" to "groq"
+                "Groq" -> "llama3-8b-8192" to "groq"
                 else -> "gpt-3.5-turbo" to "openai"
             }
 

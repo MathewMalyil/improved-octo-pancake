@@ -19,4 +19,7 @@ class ScannedFileRepository(private val dao: ScannedFileDao) {
     suspend fun insert(file: ScannedFile) {
         dao.insert(file)
     }
+    suspend fun delete(file: ScannedFile) {
+        dao.delete(file)
+    }
 }

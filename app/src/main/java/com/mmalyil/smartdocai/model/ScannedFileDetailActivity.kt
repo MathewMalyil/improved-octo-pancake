@@ -74,9 +74,25 @@ class ScannedFileDetailActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "File not available", Toast.LENGTH_SHORT).show()
                 finish()
+            }
+        }
 
 
-
+        // Delete button logic
+        binding.btnDelete.setOnClickListener {
+            val file = intent.getSerializableExtra("scannedFile") as? ScannedFile
+            if (file != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    val dao = AppDatabase.getDatabase(this@ScannedFileDetailActivity).scannedFileDao()
+                    dao.delete(file)
+                    runOnUiThread {
+                        Toast.makeText(this@ScannedFileDetailActivity, "File deleted", Toast.LENGTH_SHORT).show()
+                        finish()
+                    }
+                }
+            } else {
+                Toast.makeText(this, "File not available", Toast.LENGTH_SHORT).show()
+                finish()
             }
         }
     }

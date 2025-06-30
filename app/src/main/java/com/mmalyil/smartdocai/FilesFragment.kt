@@ -19,11 +19,15 @@ import android.util.Log
 import com.mmalyil.smartdocai.databinding.FragmentFilesBinding
 
 
+
+
+
 class FilesFragment : Fragment() {
 
     private lateinit var binding: FragmentFilesBinding
     private lateinit var adapter: ScannedFileAdapter
     private lateinit var viewModel: ScannedFileViewModel
+
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -38,11 +42,19 @@ class FilesFragment : Fragment() {
         val repository = ScannedFileRepository(dao)
         viewModel = ScannedFileViewModel(repository)
 
-        adapter = ScannedFileAdapter(emptyList()) { file ->
-            val intent = Intent(requireContext(), ScannedFileDetailActivity::class.java)
-            intent.putExtra("scannedFile", file)
-            startActivity(intent)
-        }
+
+        adapter = ScannedFileAdapter(
+            fileList = emptyList(),
+            onClick = { file ->
+                val intent = Intent(requireContext(), ScannedFileDetailActivity::class.java)
+                intent.putExtra("scannedFile", file)
+                startActivity(intent)
+            },
+            onDelete = { file ->
+                Log.d("DEBUG_DELETE", "Deleting file: $file")
+                viewModel.deleteFile(file)
+            }
+        )
         binding.rvFiles.layoutManager = LinearLayoutManager(requireContext())
         binding.rvFiles.adapter = adapter
 

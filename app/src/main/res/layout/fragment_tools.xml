@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:padding="20dp">
 
     <LinearLayout
         android:orientation="vertical"
@@ -10,145 +11,124 @@
         android:layout_height="wrap_content"
         android:divider="?android:attr/dividerHorizontal"
         android:showDividers="middle"
-        android:dividerPadding="12dp">
+        android:dividerPadding="8dp"
+        android:spacing="12dp">
 
-        <!-- Select PDF Button -->
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/selectPdfButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Select PDF" />
 
-        <!-- PDF Content Preview -->
-        <TextView
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/pdfTextDisplay"
             android:layout_width="match_parent"
             android:layout_height="200dp"
-            android:scrollbars="vertical"
-            android:text="PDF text will appear here"
             android:padding="12dp"
-            android:background="#EEEEEE"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
+            android:background="?attr/colorSurfaceVariant"
+            android:text="PDF text will appear here"
+            android:scrollbars="vertical" />
 
-        <!-- Prompt Input -->
-        <EditText
-            android:id="@+id/promptInput"
+        <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Enter your question or prompt"
-            android:minHeight="48dp"
-            android:padding="8dp" />
+            android:hint="Enter your question or prompt">
 
-        <!-- Model Selection -->
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/promptInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
         <RadioGroup
             android:id="@+id/modelSelection"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
+            android:layout_height="wrap_content">
 
-            <RadioButton
+            <com.google.android.material.radiobutton.MaterialRadioButton
                 android:id="@+id/gpt35Radio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="GPT-3.5" />
 
-            <RadioButton
+            <com.google.android.material.radiobutton.MaterialRadioButton
                 android:id="@+id/gpt4Radio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="GPT-4" />
 
-            <RadioButton
+            <com.google.android.material.radiobutton.MaterialRadioButton
                 android:id="@+id/groqRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Groq (Cloud)" />
 
-            <RadioButton
+            <com.google.android.material.radiobutton.MaterialRadioButton
                 android:id="@+id/mistralRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Mistral (Local)" />
         </RadioGroup>
 
-        <!-- Ask AI Button -->
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/analyzeButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Ask AI" />
+            android:text="Ask AI"
+            style="?attr/materialButtonOutlinedStyle" />
 
-        <!-- AI Response Display -->
-        <TextView
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/aiResponseDisplay"
             android:layout_width="match_parent"
             android:layout_height="200dp"
+            android:padding="12dp"
             android:scrollbars="vertical"
             android:text="AI response will appear here"
-            android:padding="12dp"
-            android:background="#DDFFDD"
-            android:textAppearance="?android:attr/textAppearanceSmall" />
+            android:background="?attr/colorSurfaceVariant" />
 
-        <!-- Export Options -->
-        <LinearLayout
-            android:layout_width="match_parent"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExportShare"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginTop="12dp"
-            android:weightSum="3"
-            android:paddingBottom="8dp">
+            android:text="Export and Share" />
 
-            <Button
-                android:id="@+id/btnExportShare"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Export and Share" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExportTxt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Export as TXT" />
 
-            <Button
-                android:id="@+id/btnExportTxt"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Export TXT" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExportPdf"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Export as PDF" />
 
-            <Button
-                android:id="@+id/btnExportPdf"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Export PDF" />
-        </LinearLayout>
-
-        <!-- Export Options -->
-        <CheckBox
+        <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/includeDocumentText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Include Extracted Document"
             android:checked="true" />
 
-        <CheckBox
+        <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/includeAIResponse"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Include AI Response"
             android:checked="true" />
 
-        <!-- OCR & Chat Buttons -->
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPickImage"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Pick Image for OCR"
-            android:layout_marginTop="16dp" />
+            android:layout_marginTop="12dp" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnOpenAIChat"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Chat with AI"
             android:layout_marginTop="12dp" />

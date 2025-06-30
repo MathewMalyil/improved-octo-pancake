@@ -33,5 +33,14 @@ class ScannedFileViewModel(private val repository: ScannedFileRepository) : View
         viewModelScope.launch {
             repository.insert(file)
         }
+
+
+
     }
-}
+    fun deleteFile(file: ScannedFile) {
+        viewModelScope.launch {
+            repository.delete(file)
+        }
+
+        }
+    }

@@ -1,13 +1,9 @@
 package com.mmalyil.smartdocai
+
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import com.mmalyil.smartdocai.OpenAIService
-
-
-
-
 
 
 object RetrofitClient {
@@ -20,7 +16,7 @@ object RetrofitClient {
         val baseUrl = when (source) {
             "groq" -> GROQ_BASE_URL
             "mistral" -> MISTRAL_BASE_URL
-            else -> OPENAI_BASE_URL
+            else -> OPENAI_BASE_URL // default to OpenAI
         }
 
         val interceptor = HttpLoggingInterceptor().apply {
@@ -38,6 +34,13 @@ object RetrofitClient {
             .build()
             .create(OpenAIService::class.java)
     }
+
+    fun apiKey (source: String): String {
+        return when (source) {
+            "groq" -> BuildConfig.GROQ_API_KEY
+            "openai" -> BuildConfig.OPENAI_API_KEY
+            "mistral" -> "" // local Mistral, no key
+            else -> "DUMMY_KEY"
+        }
+    }
 }
-
-
