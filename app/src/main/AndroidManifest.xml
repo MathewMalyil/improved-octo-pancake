@@ -42,12 +42,21 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <activity android:name=".IntroActivity" />
 
         <activity android:name=".ScanActivity" />
 
         <activity android:name=".AIChatActivity" />
 
         <activity android:name=".model.ScannedFileDetailActivity" />
+
+        <activity android:name=".FeedbackActivity" />
+
+        <activity android:name=".HelpFaqActivity" />
+
+
+        <activity android:name=".PrivacyPolicyActivity" />
+        <activity android:name=".TermsOfServiceActivity" />
 
         <activity
             android:name=".MainActivity"

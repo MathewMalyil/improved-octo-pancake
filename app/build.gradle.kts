@@ -1,8 +1,8 @@
 import java.util.Properties
 plugins {
     id("com.android.application") version "8.11.0"
-    id("org.jetbrains.kotlin.android") version "1.9.0"
-    id("com.google.devtools.ksp") version "1.9.0-1.0.13" // ✅ This is the correct plugin ID and version
+    id("org.jetbrains.kotlin.android") version "1.9.21"
+    id("com.google.devtools.ksp") version "1.9.21-1.0.15" // ✅ This is the correct plugin ID and version
 }
 
 
@@ -22,6 +22,10 @@ android {
     compileSdk = 34
 
     val groqApiKey = localProperties["GROQ_API_KEY"] ?: "MISSING_KEY"
+    val openAiApiKey = localProperties["OPENAI_API_KEY"] ?: "DUMMY_OPENAI_KEY"
+
+
+
 
     defaultConfig {
         applicationId = "com.mmalyil.smartdocai"
@@ -31,8 +35,10 @@ android {
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // ✅ Inject into BuildConfig
+        // ✅ Inject your API key here
         buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
+        buildConfigField("String", "OPENAI_API_KEY", "\"DUMMY_OPENAI_KEY\"")
+
     }
 
     buildFeatures {
@@ -52,61 +58,16 @@ android {
     sourceSets {
         getByName("main").java.srcDirs("build/generated/ksp/main/kotlin")
     }
-}
 
+        packaging {
+            jniLibs {
+                useLegacyPackaging = false
 
-
-
-
-
-android {
-    namespace = "com.mmalyil.smartdocai"
-    compileSdk = 34
-
-    val groqApiKey = localProperties["GROQ_API_KEY"] ?: "MISSING_KEY"
-
-    defaultConfig {
-        applicationId = "com.mmalyil.smartdocai"
-        minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // ✅ Inject your API key here
-        buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
-    }
-
-    buildFeatures {
-        viewBinding = true
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    sourceSets {
-        getByName("main").java.srcDirs("build/generated/ksp/main/kotlin")
-    }
-
-
-    defaultConfig {
-        buildConfigField(
-            "String",
-            "GROQ_API_KEY",
-            "\"${localProperties["GROQ_API_KEY"] ?: "MISSING_KEY"}\""
-        )
-
-        buildConfigField("String", "OPENAI_API_KEY", "\"DUMMY_OPENAI_KEY\"")
-
+            }
+        }
 
     }
-}
+
 
 
     dependencies {
@@ -161,5 +122,8 @@ android {
 
 
         implementation("com.google.android.material:material:1.12.0") // or latest
+
+
+        implementation("com.github.AppIntro:AppIntro:6.3.1")
 
     }

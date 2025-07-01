@@ -41,6 +41,22 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        supportActionBar?.title = "Send Feedback"
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+        val prefs = getSharedPreferences("onboarding", MODE_PRIVATE)
+        val hasSeenIntro = prefs.getBoolean("seen", false)
+        if (!hasSeenIntro) {
+            startActivity(Intent(this, IntroActivity::class.java))
+            prefs.edit().putBoolean("seen", true).apply()
+            finish()
+        }
+
+
+
+
+        // Initialize BottomNavigationView and set up item selection listener
+
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
 
         bottomNav.setOnItemSelectedListener { item ->
