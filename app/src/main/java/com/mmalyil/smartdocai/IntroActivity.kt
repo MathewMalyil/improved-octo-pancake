@@ -28,30 +28,30 @@ class IntroActivity : AppIntro() {
             title = "Welcome to SmartDoc AI",
             description = "Scan, upload, and analyze documents with the power of AI.",
             imageDrawable = R.drawable.ic_doc_welcome, // Replace with your image
-            backgroundColor = ContextCompat.getColor(this, R.color.teal_700)
+            backgroundColor = ContextCompat.getColor(this, R.color.colorBackground)
         
         ))
         addSlide(AppIntroFragment.newInstance(
             title = "Scan or Upload Files",
             description = "Easily scan with your camera or upload PDFs, DOCX, or PPTX files.",
             imageDrawable = R.drawable.ic_scan_upload, // Replace with your image
-            backgroundColor = ContextCompat.getColor(this, R.color.white)
+            backgroundColor = ContextCompat.getColor(this, R.color.colorPrimary)
 
         ))
         addSlide(AppIntroFragment.newInstance(
             title = "Smart AI Analysis",
             description = "Ask questions, summarize content, or extract insights with GPT & Mistral models.",
             imageDrawable = R.drawable.ic_ai_analysis, // Replace with your image
-            backgroundColor = ContextCompat.getColor(this, R.color.surface)
+            backgroundColor = ContextCompat.getColor(this, R.color.colorPrimary)
 
         ))
         addSlide(AppIntroFragment.newInstance(
             title = "Export & Share",
             description = "Save or share AI-powered results in TXT or PDF formats instantly.",
             imageDrawable = R.drawable.ic_share_export, // Replace with your image
-            backgroundColor = ContextCompat.getColor(this, R.color.yellow_500)
-
+            backgroundColor = ContextCompat.getColor(this, R.color.colorSecondary)
         ))
+
 
     }
 }

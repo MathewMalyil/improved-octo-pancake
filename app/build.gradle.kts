@@ -19,7 +19,7 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.mmalyil.smartdocai"
-    compileSdk = 34
+    compileSdk = 35
 
     val groqApiKey = localProperties["GROQ_API_KEY"] ?: "MISSING_KEY"
     val openAiApiKey = localProperties["OPENAI_API_KEY"] ?: "DUMMY_OPENAI_KEY"
@@ -30,8 +30,8 @@ android {
     defaultConfig {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
+        targetSdk = 35
+        versionCode = 2
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -74,7 +74,7 @@ android {
         // Core Android
         implementation("androidx.core:core-ktx:1.12.0")
         implementation("androidx.appcompat:appcompat:1.6.1")
-        implementation("com.google.android.material:material:1.9.0")
+        implementation("com.google.android.material:material:1.11.0")
 
         // RecyclerView
         implementation("androidx.recyclerview:recyclerview:1.3.2")

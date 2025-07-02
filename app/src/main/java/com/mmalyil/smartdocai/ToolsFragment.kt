@@ -41,7 +41,7 @@ import android.content.Context
 import android.app.AlarmManager
 import android.app.PendingIntent
 import java.util.Calendar
-
+import android.app.Activity
 
 class ToolsFragment : Fragment() {
 
@@ -62,7 +62,7 @@ class ToolsFragment : Fragment() {
     private var aiAnswer = ""
     private var selectedFileName = ""
     private var selectedFileUri = ""
-
+    private val PICK_DOCUMENT_REQUEST_CODE = 1001
     private lateinit var scannedFileViewModel: ScannedFileViewModel
 
     private val imagePickerLauncher = registerForActivityResult(
@@ -203,13 +203,74 @@ class ToolsFragment : Fragment() {
             putExtra(
                 Intent.EXTRA_MIME_TYPES, arrayOf(
                     "application/pdf",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    "application/msword", // .doc
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+                    "application/vnd.ms-powerpoint", // .ppt
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation" // .pptx
+                ))
+        }
+        startActivityForResult(intent, PICK_DOCUMENT_REQUEST_CODE)
+    }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == PICK_DOCUMENT_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+            data?.data?.let { uri ->
+                // 👇 Persist permission
+                requireContext().contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
+
+                // 👉 Pass the URI to your extractor/AI logic
+                handlePickedDocument(uri)
+            }
+        }
+    }
+    private fun handlePickedDocument(uri: Uri) {
+        selectedFileUri = uri.toString()
+
+        val cursor = requireContext().contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                selectedFileName =
+                    it.getString(it.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            }
+        }
+
+        val type = requireContext().contentResolver.getType(uri)
+        when {
+            type?.contains("pdf") == true -> extractTextFromPdf(uri)
+            type?.contains("wordprocessingml") == true -> {
+                extractedText = DocumentUtils.extractTextFromDocx(requireContext(), uri)
+                showExtractedText("DOCX loaded")
+            }
+            type?.contains("presentationml") == true -> {
+                extractedText = DocumentUtils.extractTextFromPptx(requireContext(), uri)
+                showExtractedText("PPTX loaded")
+            }
+            else -> toast("Unsupported file")
+        }
+
+       
+// Show feedback that file was picked
+        Toast.makeText(requireContext(), "Picked: $selectedFileName", Toast.LENGTH_SHORT).show()
+
+// 🔁 Auto-trigger AI if prompt is already entered
+        val prompt = promptInput.text.toString().trim()
+        if (prompt.isNotEmpty() && extractedText.isNotEmpty()) {
+            analyzeSmartlyWithQuota(
+                context = requireContext(),
+                prompt = prompt,
+                extractedText = extractedText,
+                fileName = selectedFileName,
+                fileUri = selectedFileUri,
+                viewModel = scannedFileViewModel
             )
         }
-        filePickerLauncher.launch(intent)
+
     }
+
 
     private fun processImageForOCR(uri: Uri) {
         try {
