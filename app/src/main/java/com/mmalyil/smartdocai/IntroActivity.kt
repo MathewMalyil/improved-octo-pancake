@@ -8,6 +8,7 @@ import android.os.Bundle
 import com.github.appintro.AppIntro
 import com.github.appintro.AppIntroFragment
 import androidx.core.content.ContextCompat
+import android.content.Intent
 // Ensure you have the necessary imports for AppIntro and other components
 
 // This is the IntroActivity for the SmartDocAI application
@@ -54,4 +55,24 @@ class IntroActivity : AppIntro() {
 
 
     }
+
+    override fun onDonePressed(currentFragment: androidx.fragment.app.Fragment?) {
+        super.onDonePressed(currentFragment)
+
+        // Save that onboarding was completed
+        val prefs = getSharedPreferences("onboarding", MODE_PRIVATE)
+        prefs.edit().putBoolean("completed", true).apply()
+
+        // Go to MainActivity
+        startActivity(Intent(this, MainActivity::class.java))
+        finish()
+    }
+
+    override fun onSkipPressed(currentFragment: androidx.fragment.app.Fragment?) {
+        super.onSkipPressed(currentFragment)
+        onDonePressed(currentFragment) // treat skip same as done
+    }
 }
+
+
+// Note: Ensure you have the necessary dependencies for AppIntro in your build.gradle file

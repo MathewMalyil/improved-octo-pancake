@@ -13,17 +13,21 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.lang.Exception
-import com.mmalyil.smartdocai.BuildConfig // ✅ import BuildConfig
 
+import com.mmalyil.smartdocai.model.ChatMessage
+import com.mmalyil.smartdocai.model.ChatRequest
+import com.mmalyil.smartdocai.util.ChatReply
+import com.mmalyil.smartdocai.util.analyzeWithAI
+
+
+import kotlinx.coroutines.*
 
 class AIChatActivity : AppCompatActivity() {
 
     private lateinit var chatRecyclerView: RecyclerView
     private lateinit var inputEditText: EditText
     private lateinit var sendButton: ImageButton
-    private lateinit var modelSpinner: Spinner
+    private lateinit var modelTextView: TextView
 
     private val chatMessages = mutableListOf<ChatMessage>()
     private lateinit var chatAdapter: ChatAdapter
@@ -36,14 +40,9 @@ class AIChatActivity : AppCompatActivity() {
 
         chatRecyclerView = findViewById(R.id.chatRecyclerView)
         inputEditText = findViewById(R.id.messageInput)
-        sendButton = findViewById<ImageButton>(R.id.sendButton)
-        modelSpinner = findViewById(R.id.modelSpinner)
+        sendButton = findViewById(R.id.sendButton)
+        modelTextView = findViewById(R.id.modelUsedText) // 👈 Add this TextView in layout XML
 
-        // Set up model selector
-        val modelOptions = listOf("GPT-3.5", "GPT-4", "Mistral", "Groq")
-        modelSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, modelOptions)
-
-        // Set up chat
         chatAdapter = ChatAdapter(chatMessages)
         chatRecyclerView.layoutManager = LinearLayoutManager(this).apply {
             stackFromEnd = true
@@ -53,17 +52,11 @@ class AIChatActivity : AppCompatActivity() {
         sendButton.setOnClickListener {
             val userInput = inputEditText.text.toString().trim()
             if (userInput.isEmpty()) return@setOnClickListener
+
             addMessage("user", userInput)
             inputEditText.text.clear()
 
-            val modelName = when (modelSpinner.selectedItem.toString()) {
-                "GPT-4" -> "gpt-4" to "openai"
-                "Mistral" -> "mistral" to "mistral"
-                "Groq" -> "llama3-8b-8192" to "groq"
-                else -> "gpt-3.5-turbo" to "openai"
-            }
-
-            queryAI(modelName.first, modelName.second)
+            runAI(userInput)
         }
     }
 
@@ -73,32 +66,22 @@ class AIChatActivity : AppCompatActivity() {
         chatRecyclerView.scrollToPosition(chatMessages.size - 1)
     }
 
-    private fun queryAI(model: String, source: String) {
+    private fun runAI(prompt: String) {
         coroutineScope.launch {
-            try {
-                val request = ChatRequest(
-                    model = model,
-                    messages = chatMessages.map { ChatMessage(it.role, it.content) },
-                    temperature = 0.7
-                )
+            analyzeWithAI(
+                context = this@AIChatActivity,
+                prompt = prompt,
+                history = chatMessages,
+                onResult = { reply: ChatReply ->
+                    addMessage("assistant", reply.content)
+                    modelTextView.text = "Model: ${reply.modelUsed}"
 
-                val service = RetrofitClient.getService(source)
-                val authHeader = when (source) {
-                    "groq" -> "Bearer ${BuildConfig.GROQ_API_KEY}"
-                    "openai" -> "Bearer ${BuildConfig.GROQ_API_KEY}"
-                    else -> "" // Local Mistral requires no header
+                    // Optional: show usage
+                    // val used = UsageManager.getTokensUsed(this@AIChatActivity)
+                    // val cap = UsageManager.getTokenCap(this@AIChatActivity)
+                    // Toast.makeText(this@AIChatActivity, "$used / $cap tokens used", Toast.LENGTH_SHORT).show()
                 }
-
-                val response = withContext(Dispatchers.IO) {
-                    service.createChatCompletion(authHeader, request)
-                }
-
-                val reply = response.choices.firstOrNull()?.message?.content ?: "No reply"
-                addMessage("assistant", reply)
-
-            } catch (e: Exception) {
-                addMessage("assistant", "Error: ${e.localizedMessage}")
-            }
+            )
         }
     }
 

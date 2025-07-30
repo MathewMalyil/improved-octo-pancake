@@ -1,46 +1,120 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:padding="16dp"
+    android:background="?android:attr/windowBackground">
 
     <LinearLayout
         android:orientation="vertical"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center"
         android:divider="?android:attr/dividerHorizontal"
         android:showDividers="middle"
-        android:dividerPadding="8dp">
+        android:dividerPadding="10dp"
+        android:padding="4dp">
 
-        <Button
-            android:id="@+id/btnReplayOnboarding"
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Replay Onboarding Walkthrough" />
+            app:cardElevation="8dp"
+            app:cardCornerRadius="20dp"
 
-        <Button
-            android:id="@+id/btnHelpFaq"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Help and FAQ" />
+            app:strokeWidth="1dp"
 
-        <Button
-            android:id="@+id/btnFeedback"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Send Feedback" />
 
-        <Button
-            android:id="@+id/btnPrivacyPolicy"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Privacy Policy" />
 
-        <Button
-            android:id="@+id/btnTerms"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Terms of Service" />
+            app:strokeColor="?attr/colorOutline"
+            app:cardBackgroundColor="?attr/colorSurfaceContainer"
+        android:layout_marginBottom="20dp"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:spacing="10dp">
+
+                <!-- Use Filled Buttons for All -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnReplayOnboarding"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Replay Onboarding Walkthrough"
+                    android:textStyle="bold"
+                    app:cornerRadius="16dp"
+                    app:icon="@drawable/ic_walkthrough"
+                    app:iconPadding="8dp"
+                    app:iconGravity="start"
+                    app:backgroundTint="?attr/colorPrimary" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnHelpFaq"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Help and FAQ"
+                    android:textStyle="bold"
+                    app:cornerRadius="16dp"
+                    app:icon="@drawable/ic_help"
+                    app:iconPadding="8dp"
+                    app:iconGravity="start"
+                    app:backgroundTint= "?attr/colorPrimary"
+                    android:layout_marginTop="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnFeedback"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Send Feedback"
+                    android:textStyle="bold"
+                    app:cornerRadius="16dp"
+                    app:icon="@drawable/ic_feedback"
+                    app:iconPadding="8dp"
+                    app:iconGravity="start"
+                    app:backgroundTint="?attr/colorPrimary"
+                    android:layout_marginTop="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnPrivacyPolicy"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Privacy Policy"
+                    android:textStyle="bold"
+                    app:cornerRadius="16dp"
+                    app:icon="@drawable/ic_privacy"
+                    app:iconPadding="8dp"
+                    app:iconGravity="start"
+                    app:backgroundTint="?attr/colorPrimary"
+                    android:layout_marginTop="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTerms"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Terms of Service"
+                    android:textStyle="bold"
+                    app:cornerRadius="16dp"
+                    app:icon="@drawable/ic_terms"
+                    app:iconPadding="8dp"
+                    app:iconGravity="start"
+                    app:backgroundTint="?attr/colorPrimary"
+                    android:layout_marginTop="10dp" />
+
+
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnManagePlan"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Manage AI Plan / Upgrade"
+                    android:layout_marginTop="24dp"
+                    android:layout_marginBottom="16dp" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>
 </ScrollView>

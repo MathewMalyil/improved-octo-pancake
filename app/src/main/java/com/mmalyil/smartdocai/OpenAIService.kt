@@ -1,5 +1,6 @@
 package com.mmalyil.smartdocai
-import retrofit2.http.*
+import com.mmalyil.smartdocai.model.ChatRequest
+import com.mmalyil.smartdocai.model.ChatResponse
 import retrofit2.http.Body
 
 import retrofit2.http.Header

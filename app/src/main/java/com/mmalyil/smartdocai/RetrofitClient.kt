@@ -8,7 +8,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitClient {
 
-    private const val MISTRAL_BASE_URL = "http://192.168.1.5:8000/v1/"
+    private const val MISTRAL_BASE_URL = "http://192.168.1.10:8000/v1/"
     private const val OPENAI_BASE_URL = "https://api.openai.com/v1/"
     private const val GROQ_BASE_URL = "https://api.groq.com/openai/v1/"
 

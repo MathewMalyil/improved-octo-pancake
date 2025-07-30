@@ -8,7 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-
+import com.mmalyil.smartdocai.model.ChatMessage
 
 
 class ChatAdapter(private val messages: List<ChatMessage>) :

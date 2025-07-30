@@ -10,13 +10,13 @@
 
     <item
         android:id="@+id/nav_tools"
-        android:icon="@drawable/ic_tools"
-        android:title="Tools" />
+        android:icon="@drawable/ic_analysis"
+        android:title="Analyse" />
 
     <item
         android:id="@+id/nav_files"
         android:icon="@drawable/ic_folder"
-        android:title="Files" />
+        android:title="Saved Files" />
 
     <item
         android:id="@+id/nav_settings"

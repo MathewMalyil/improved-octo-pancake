@@ -7,7 +7,6 @@ import androidx.fragment.app.Fragment
 import android.app.Activity.RESULT_OK
 import android.content.Intent
 import android.net.Uri
-import android.widget.*
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
@@ -42,6 +41,8 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import java.util.Calendar
 import android.app.Activity
+import com.mmalyil.smartdocai.model.ChatMessage
+import com.mmalyil.smartdocai.model.ChatRequest
 
 class ToolsFragment : Fragment() {
 

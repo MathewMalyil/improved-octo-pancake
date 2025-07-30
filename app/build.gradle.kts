@@ -1,6 +1,6 @@
 import java.util.Properties
 plugins {
-    id("com.android.application") version "8.11.0"
+    id("com.android.application") version "8.11.1"
     id("org.jetbrains.kotlin.android") version "1.9.21"
     id("com.google.devtools.ksp") version "1.9.21-1.0.15" // ✅ This is the correct plugin ID and version
 }
@@ -87,6 +87,12 @@ android {
         // Room + KSP
         implementation("androidx.room:room-runtime:2.6.1")
         implementation("androidx.room:room-ktx:2.6.1")
+
+
+            implementation ("com.android.billingclient:billing:6.1.0")
+
+
+       // implementation(libs.billing.ktx)
         ksp("androidx.room:room-compiler:2.6.1")
 
         // Coroutines

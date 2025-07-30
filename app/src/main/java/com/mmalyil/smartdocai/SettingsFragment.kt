@@ -51,6 +51,10 @@ class SettingsFragment : Fragment() {
             startActivity(intent)
         }
 
+        val billingButton = view.findViewById<Button>(R.id.btnManagePlan)
+        billingButton.setOnClickListener {
+            startActivity(Intent(requireContext(), BillingActivity::class.java))
+        }
         return view
     }
 }
