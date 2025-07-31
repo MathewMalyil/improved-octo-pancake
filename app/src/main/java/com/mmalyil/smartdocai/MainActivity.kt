@@ -29,7 +29,7 @@ import android.widget.LinearLayout
 
 
 
-val groqApiKey= com.mmalyil.smartdocai.BuildConfig.GROQ_API_KEY
+
 
 
 

@@ -1,7 +1,5 @@
 package com.mmalyil.smartdocai.util
 
-
-
 import android.content.Context
 import android.widget.Toast
 import com.mmalyil.smartdocai.api.ChatApiHelper
@@ -32,7 +30,8 @@ suspend fun analyzeWithAI(
 
     val request = ChatRequest(
         model = selectedModel,
-        messages = finalMessages
+        messages = finalMessages,
+        temperature = 0.7
     )
 
     try {
@@ -43,9 +42,8 @@ suspend fun analyzeWithAI(
         val responseText = reply.choices.firstOrNull()?.message?.content ?: "No reply"
         val model = reply.modelUsed ?: selectedModel
 
-        // Approx token count: prompt + reply
+        // Approximate token usage
         val estimatedTokens = estimateTokens(prompt, responseText)
-
         if (model.startsWith("gpt")) {
             UsageManager.recordUsage(context, estimatedTokens)
         }
@@ -66,5 +64,5 @@ suspend fun analyzeWithAI(
 
 fun estimateTokens(prompt: String, response: String): Int {
     val totalChars = prompt.length + response.length
-    return (totalChars / 4.0).toInt().coerceAtLeast(1) // Rough average: 4 chars per token
+    return (totalChars / 4.0).toInt().coerceAtLeast(1)
 }

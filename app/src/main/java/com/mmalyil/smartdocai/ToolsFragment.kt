@@ -41,8 +41,10 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import java.util.Calendar
 import android.app.Activity
+import com.mmalyil.smartdocai.api.ChatApiHelper
 import com.mmalyil.smartdocai.model.ChatMessage
 import com.mmalyil.smartdocai.model.ChatRequest
+import com.mmalyil.smartdocai.util.estimateTokens
 
 class ToolsFragment : Fragment() {
 
@@ -383,21 +385,23 @@ class ToolsFragment : Fragment() {
         fileUri: String,
         viewModel: ScannedFileViewModel
     ) {
-        val service = RetrofitClient.getService(source)
-        val apiKey = RetrofitClient.apiKey(source)
-
+        val service = ChatApiHelper.chatService
 
         val messages = listOf(
-            ChatMessage("system", "Reply in the same language as the user's message."),
+            ChatMessage("system", "You must reply strictly in the same language as the user's input. Do not translate or switch languages under any circumstances."),
             ChatMessage("user", "Here is the document text:\n$extractedText"),
             ChatMessage("user", prompt)
         )
 
-        val request = ChatRequest(model = modelName, messages = messages, temperature = 0.7)
+        val request = ChatRequest(
+            model = modelName,
+            messages = messages,
+            temperature = 0.7
+        )
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = service.createChatCompletion("Bearer $apiKey", request)
+                val response = service.getChatReply(request)
                 val aiReply = response.choices.firstOrNull()?.message?.content ?: "No reply"
 
                 viewModel.insertFile(
@@ -406,28 +410,29 @@ class ToolsFragment : Fragment() {
                     content = extractedText,
                     aiResponse = aiReply
                 )
-                Log.d("DEBUG_SAVE", "fileName=$fileName")
-                Log.d("DEBUG_SAVE", "fileUri=$fileUri")
-                Log.d("DEBUG_SAVE", "content=${extractedText.take(100)}")
-                Log.d("DEBUG_SAVE", "aiResponse=${aiReply?.take(100)}")
+
+                val estimatedTokens = estimateTokens(prompt, aiReply)
+                if (modelName.startsWith("gpt")) {
+                    GPTUsageManager.incrementUsage(requireContext(), "gpt-4")
+                } else {
+                    GPTUsageManager.incrementUsage(requireContext(), "groq")
+                }
+
                 withContext(Dispatchers.Main) {
                     aiResponseDisplay.text = aiReply
                     aiAnswer = aiReply
                     toast("AI analysis complete and saved")
                 }
+
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     val message = e.localizedMessage ?: "Unknown error"
                     Log.e("AI_ERROR", "Model: $modelName, Source: $source, Error: $message")
 
-                    // Auto-fallback only for GPT-4 and Pro users
                     if (modelName == "gpt-4" && isProUser()) {
                         aiResponseDisplay.text = "GPT-4 failed. Retrying with Groq..."
 
-                        // Track Groq usage for fallback
-                        GPTUsageManager.incrementUsage(requireContext(), "groq")
-
-                        // Retry with Groq fallback model
+                        // Retry with Groq fallback
                         analyzeWithAI(
                             prompt = prompt,
                             modelName = "llama3-8b-8192",
@@ -443,9 +448,8 @@ class ToolsFragment : Fragment() {
                     }
                 }
             }
-
-
         }
+
     }
 
 
