@@ -41,10 +41,14 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import java.util.Calendar
 import android.app.Activity
+import android.widget.ScrollView
 import com.mmalyil.smartdocai.api.ChatApiHelper
 import com.mmalyil.smartdocai.model.ChatMessage
 import com.mmalyil.smartdocai.model.ChatRequest
 import com.mmalyil.smartdocai.util.estimateTokens
+import androidx.appcompat.app.AlertDialog
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+
 
 class ToolsFragment : Fragment() {
 
@@ -75,35 +79,22 @@ class ToolsFragment : Fragment() {
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result: ActivityResult ->
-        if (result.resultCode == RESULT_OK) {
-            val uri = result.data?.data ?: return@registerForActivityResult
-            selectedFileUri = uri.toString()
-
-            val cursor = requireContext().contentResolver.query(uri, null, null, null, null)
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    selectedFileName =
-                        it.getString(it.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
-                }
-            }
-
-            val type = requireContext().contentResolver.getType(uri)
-            when {
-                type?.contains("pdf") == true -> extractTextFromPdf(uri)
-                type?.contains("wordprocessingml") == true -> {
-                    extractedText = DocumentUtils.extractTextFromDocx(requireContext(), uri)
-                    showExtractedText("DOCX loaded")
-                }
-
-                type?.contains("presentationml") == true -> {
-                    extractedText = DocumentUtils.extractTextFromPptx(requireContext(), uri)
-                    showExtractedText("PPTX loaded")
-                }
-
-                else -> toast("Unsupported file")
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                requireContext().contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                handlePickedDocument(uri)
             }
         }
     }
+
+
+
+
+
+
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -115,7 +106,7 @@ class ToolsFragment : Fragment() {
         // Bind views
         selectPdfButton = view.findViewById(R.id.selectPdfButton)
         analyzeButton = view.findViewById(R.id.analyzeButton)
-        modelGroup = view.findViewById(R.id.modelSelection)
+      //  modelGroup = view.findViewById(R.id.modelSelection)
         pdfTextDisplay = view.findViewById(R.id.pdfTextDisplay)
         aiResponseDisplay = view.findViewById(R.id.aiResponseDisplay)
         promptInput = view.findViewById(R.id.promptInput)
@@ -189,15 +180,27 @@ class ToolsFragment : Fragment() {
             imagePickerLauncher.launch("image/*")
         }
 
-        view.findViewById<Button?>(R.id.btnOpenAIChat)?.setOnClickListener {
+        val fabUploadScan = view.findViewById<FloatingActionButton>(R.id.fabUploadScan)
+        fabUploadScan.setOnClickListener {
+            openFilePicker()
+        }
+
+        val btnOpenAIChat = view.findViewById<Button>(R.id.btnOpenAIChat)
+
+        btnOpenAIChat.setOnClickListener {
             val intent = Intent(requireContext(), AIChatActivity::class.java)
             startActivity(intent)
         }
-        scheduleDailyUsageReset(requireContext())
-        // Initialize the view model observer
 
-        return view
-    }
+        val btnPalmScanner = view.findViewById<Button>(R.id.btnPalmScanner)
+        btnPalmScanner.setOnClickListener {
+            val intent = Intent(requireContext(), PalmScannerActivity::class.java)
+            startActivity(intent)
+        }
+
+       return view }
+
+
 
     private fun openFilePicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -206,30 +209,17 @@ class ToolsFragment : Fragment() {
             putExtra(
                 Intent.EXTRA_MIME_TYPES, arrayOf(
                     "application/pdf",
-                    "application/msword", // .doc
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-                    "application/vnd.ms-powerpoint", // .ppt
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation" // .pptx
-                ))
-        }
-        startActivityForResult(intent, PICK_DOCUMENT_REQUEST_CODE)
-    }
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == PICK_DOCUMENT_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
-            data?.data?.let { uri ->
-                // 👇 Persist permission
-                requireContext().contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+                    "text/csv",
+                    "image/*"
                 )
-
-                // 👉 Pass the URI to your extractor/AI logic
-                handlePickedDocument(uri)
-            }
+            )
         }
+        filePickerLauncher.launch(intent) // ✅ use launcher
     }
+
     private fun handlePickedDocument(uri: Uri) {
         selectedFileUri = uri.toString()
 
@@ -242,24 +232,38 @@ class ToolsFragment : Fragment() {
         }
 
         val type = requireContext().contentResolver.getType(uri)
+        val name = selectedFileName.lowercase()
+
         when {
             type?.contains("pdf") == true -> extractTextFromPdf(uri)
-            type?.contains("wordprocessingml") == true -> {
+
+            type?.contains("wordprocessingml") == true || name.endsWith(".docx") -> {
                 extractedText = DocumentUtils.extractTextFromDocx(requireContext(), uri)
                 showExtractedText("DOCX loaded")
             }
-            type?.contains("presentationml") == true -> {
+
+            type?.contains("presentationml") == true || name.endsWith(".pptx") -> {
                 extractedText = DocumentUtils.extractTextFromPptx(requireContext(), uri)
                 showExtractedText("PPTX loaded")
             }
-            else -> toast("Unsupported file")
+
+            type?.contains("spreadsheetml") == true ||
+                    type == "application/vnd.ms-excel" ||
+                    name.endsWith(".xlsx") -> {
+                extractedText = DocumentUtils.extractTextFromXlsx(requireContext(), uri)
+                showExtractedText("XLSX loaded")
+            }
+
+            type == "text/csv" || name.endsWith(".csv") -> {
+                extractedText = DocumentUtils.extractTextFromCsv(requireContext(), uri)
+                showExtractedText("CSV loaded")
+            }
+
+            else -> toast("Unsupported file: $type")
         }
 
-       
-// Show feedback that file was picked
         Toast.makeText(requireContext(), "Picked: $selectedFileName", Toast.LENGTH_SHORT).show()
 
-// 🔁 Auto-trigger AI if prompt is already entered
         val prompt = promptInput.text.toString().trim()
         if (prompt.isNotEmpty() && extractedText.isNotEmpty()) {
             analyzeSmartlyWithQuota(
@@ -271,7 +275,6 @@ class ToolsFragment : Fragment() {
                 viewModel = scannedFileViewModel
             )
         }
-
     }
 
 
@@ -388,7 +391,7 @@ class ToolsFragment : Fragment() {
         val service = ChatApiHelper.chatService
 
         val messages = listOf(
-            ChatMessage("system", "You must reply strictly in the same language as the user's input. Do not translate or switch languages under any circumstances."),
+            ChatMessage("system", "You are GPT-4o. Always reply clearly, concisely, and only in the same language as the user's input. Never switch to another language.") ,
             ChatMessage("user", "Here is the document text:\n$extractedText"),
             ChatMessage("user", prompt)
         )

@@ -10,7 +10,9 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven(url = "https://jitpack.io") // ✅ Add this
+
+        }
     }
-}
+
 rootProject.name = "SmartDocAI"
 include(":app")

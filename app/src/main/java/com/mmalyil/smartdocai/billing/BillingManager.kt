@@ -66,7 +66,7 @@ class BillingManager(
         }
     }
 
-    private fun queryPurchases() {
+    fun queryPurchases() {
         billingClient.queryPurchasesAsync(
             QueryPurchasesParams.newBuilder()
                 .setProductType(BillingClient.ProductType.SUBS)

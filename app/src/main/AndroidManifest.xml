@@ -57,7 +57,9 @@
         <activity android:name=".BillingActivity" />
         <activity android:name=".PrivacyPolicyActivity" />
         <activity android:name=".TermsOfServiceActivity" />
-
+        <activity android:name=".PalmScannerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

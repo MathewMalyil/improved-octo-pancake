@@ -23,6 +23,13 @@
         android:text="Upgrade to GPT-4o Pro (₹199/month)" />
 
     <Button
+        android:id="@+id/btnBack"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="← Go Back"
+        android:layout_marginTop="24dp" />
+
+    <Button
         android:id="@+id/btnRestore"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

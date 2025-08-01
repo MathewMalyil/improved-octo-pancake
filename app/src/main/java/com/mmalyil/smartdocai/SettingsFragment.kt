@@ -53,7 +53,9 @@ class SettingsFragment : Fragment() {
 
         val billingButton = view.findViewById<Button>(R.id.btnManagePlan)
         billingButton.setOnClickListener {
-            startActivity(Intent(requireContext(), BillingActivity::class.java))
+            val intent = Intent(requireContext(), BillingActivity::class.java)
+            intent.putExtra("message", "Upgrade now to unlock GPT-4o Pro 🚀")
+            startActivity(intent)
         }
         return view
     }
