@@ -1,9 +1,9 @@
 import java.util.Properties
 
 plugins {
-    id("com.android.application") version "8.11.1"
-    id("org.jetbrains.kotlin.android") version "1.9.21"
-    id("com.google.devtools.ksp") version "1.9.21-1.0.15"
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("com.google.devtools.ksp")
 }
 
 val localProperties = Properties().apply {
@@ -12,7 +12,9 @@ val localProperties = Properties().apply {
         load(localPropsFile.inputStream())
     }
 }
-
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
 android {
     namespace = "com.mmalyil.smartdocai"
     compileSdk = 35
@@ -30,6 +32,13 @@ android {
 
         buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
+
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += mapOf("room.schemaLocation" to "$projectDir/schemas")
+
+            }
+        }
 
     }
     // ✅ Place here: outside defaultConfig
@@ -66,10 +75,6 @@ android {
         }
     }
 
-    aaptOptions {
-        noCompress += "tflite"
-    }
-
     // Optional: Enable shrinker for production
     /*
     buildTypes {
@@ -102,7 +107,7 @@ dependencies {
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
-    implementation(libs.genai.common)
+   // implementation(libs.genai.common)
     ksp("androidx.room:room-compiler:2.6.1")
 
     // Billing
@@ -151,7 +156,12 @@ dependencies {
 
 
     implementation("com.google.mediapipe:tasks-vision:0.10.26")
-// ✅ Working version
+
+
+
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 
 
 

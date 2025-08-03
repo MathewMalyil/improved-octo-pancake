@@ -192,11 +192,7 @@ class ToolsFragment : Fragment() {
             startActivity(intent)
         }
 
-        val btnPalmScanner = view.findViewById<Button>(R.id.btnPalmScanner)
-        btnPalmScanner.setOnClickListener {
-            val intent = Intent(requireContext(), PalmScannerActivity::class.java)
-            startActivity(intent)
-        }
+
 
        return view }
 
