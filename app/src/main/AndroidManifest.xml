@@ -59,20 +59,24 @@
         <activity android:name=".PrivacyPolicyActivity" />
 
         <activity android:name=".TermsOfServiceActivity" />
+
+
+
+        <activity
+            android:name=".ui.onboarding.OnboardingActivity"
+            android:exported="true"> <!-- Optional if targeting Android 12+ -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
 
-
-
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
-            <!-- Add PDF file handling capability -->
+            <!-- PDF intent filter (optional) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
