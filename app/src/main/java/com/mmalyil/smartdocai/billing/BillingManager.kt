@@ -1,18 +1,19 @@
 package com.mmalyil.smartdocai.billing
 
-
-
 import android.app.Activity
 import android.content.Context
 import android.util.Log
 import com.android.billingclient.api.*
-import com.android.billingclient.api.BillingClient
-import com.android.billingclient.api.PurchasesUpdatedListener
+import com.mmalyil.smartdocai.util.UsageManager
 
 class BillingManager(
     private val context: Context,
     private val listener: BillingUpdateListener
 ) : PurchasesUpdatedListener {
+
+    companion object {
+        const val PRO_PRODUCT_ID = "ai_pro_plan"
+    }
 
     private var billingClient: BillingClient
 
@@ -73,6 +74,7 @@ class BillingManager(
                 .build()
         ) { billingResult, purchases ->
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
+                handlePurchases(purchases)
                 listener.onPurchasesUpdated(purchases)
             }
         }
@@ -83,9 +85,21 @@ class BillingManager(
         purchases: MutableList<Purchase>?
     ) {
         if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
+            handlePurchases(purchases)
             listener.onPurchasesUpdated(purchases)
         } else {
             Log.w("BillingManager", "Purchase update failed: ${billingResult.debugMessage}")
+        }
+    }
+
+    private fun handlePurchases(purchases: List<Purchase>) {
+        for (purchase in purchases) {
+            if (purchase.products.contains(PRO_PRODUCT_ID) &&
+                purchase.purchaseState == Purchase.PurchaseState.PURCHASED
+            ) {
+                UsageManager.setPro(context, true)
+                Log.d("BillingManager", "✅ Pro subscription activated.")
+            }
         }
     }
 

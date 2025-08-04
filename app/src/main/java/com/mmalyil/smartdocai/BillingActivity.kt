@@ -36,7 +36,7 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         }
 
         upgradeButton.setOnClickListener {
-            billingManager.launchPurchaseFlow(this, "ai_pro_plan")
+            billingManager.launchPurchaseFlow(this, BillingManager.PRO_PRODUCT_ID)
         }
 
         restoreButton.setOnClickListener {
@@ -64,7 +64,9 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
     override fun onPurchasesUpdated(purchases: List<Purchase>) {
         for (purchase in purchases) {
-            if (purchase.products.contains("ai_pro_plan") && purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
+            if (purchase.products.contains(BillingManager.PRO_PRODUCT_ID)
+                && purchase.purchaseState == Purchase.PurchaseState.PURCHASED
+            ) {
                 UsageManager.setPro(this, true)
                 Toast.makeText(this, "Pro Activated!", Toast.LENGTH_LONG).show()
                 updateUsageUI()

@@ -1,6 +1,7 @@
 package com.mmalyil.smartdocai.util
 
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import com.mmalyil.smartdocai.api.ChatApiHelper
 import com.mmalyil.smartdocai.model.ChatMessage
@@ -21,13 +22,30 @@ suspend fun analyzeWithAI(
     triedFallback: Boolean = false
 ) {
     val isPro = UsageManager.isPro(context)
-    val used = UsageManager.getTokensUsed(context)
-    val cap = UsageManager.getTokenCap(context)
+    val gpt4Used = UsageManager.getTokensUsed(context)
+    val gpt4Cap = UsageManager.getTokenCap(context)
+    val groqUsed = UsageManager.getTokensUsed(context) // same as free usage
+    val gpt35Used = UsageManager.getGpt35Used(context)
+    val gpt35Cap = UsageManager.getGpt35Cap()
 
-    val selectedModel = if (isPro && used < cap && !triedFallback) "gpt-4o" else "llama3-8b-8192"
+    // ✅ Select model by priority
+    val selectedModel = when {
+        isPro && gpt4Used < gpt4Cap -> "gpt-4o"
+        groqUsed < 30_000 -> "llama3-8b-8192"
+        gpt35Used < gpt35Cap -> "gpt-3.5-turbo"
+        else -> null
+    }
+
+    if (selectedModel == null) {
+        withContext(Dispatchers.Main) {
+            onResult(
+                ChatReply("Upgrade required", modelUsed = "none")
+            )
+        }
+        return
+    }
 
     val finalMessages = history + ChatMessage("user", prompt)
-
     val request = ChatRequest(
         model = selectedModel,
         messages = finalMessages,
@@ -40,23 +58,55 @@ suspend fun analyzeWithAI(
         }
 
         val responseText = reply.choices.firstOrNull()?.message?.content ?: "No reply"
-        val model = reply.modelUsed ?: selectedModel
+        val modelUsed = reply.modelUsed ?: selectedModel
 
-        // Approximate token usage
+        // ✅ Track last used model
+        UsageManager.getPrefs(context).edit()
+            .putString("lastModelUsed", modelUsed)
+            .apply()
+
+        // ✅ Estimate tokens
         val estimatedTokens = estimateTokens(prompt, responseText)
-        if (model.startsWith("gpt")) {
-            UsageManager.recordUsage(context, estimatedTokens)
+
+        // ✅ Token tracking
+        when {
+            modelUsed.startsWith("gpt-4") -> UsageManager.recordUsage(context, estimatedTokens)
+            modelUsed.startsWith("gpt-3.5") -> UsageManager.incrementGpt35Usage(context, estimatedTokens)
+            else -> UsageManager.recordUsage(context, estimatedTokens) // Groq fallback
         }
 
-        onResult(ChatReply(responseText, model))
+        // ✅ Return result
+        withContext(Dispatchers.Main) {
+            onResult(
+                ChatReply(
+                    content = responseText,
+
+                    modelUsed = modelUsed
+                )
+            )
+        }
 
     } catch (e: Exception) {
-        if (!triedFallback) {
-            analyzeWithAI(context, prompt, history, onResult, triedFallback = true)
+        Log.e("AI_ERROR", "Model: $selectedModel, Error: ${e.localizedMessage}")
+
+        // Fallback: if GPT-4 failed, retry Groq or GPT-3.5 (only once)
+        if (!triedFallback && selectedModel == "gpt-4o") {
+            analyzeWithAI(
+                context = context,
+                prompt = prompt,
+                history = history,
+                onResult = onResult,
+                triedFallback = true
+            )
         } else {
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "AI error: ${e.message}", Toast.LENGTH_LONG).show()
-                onResult(ChatReply("AI failed. Try again later.", "error"))
+                onResult(
+                    ChatReply(
+                        content = "Error: ${e.localizedMessage ?: "Unknown error"}",
+
+                        modelUsed = selectedModel
+                    )
+                )
             }
         }
     }

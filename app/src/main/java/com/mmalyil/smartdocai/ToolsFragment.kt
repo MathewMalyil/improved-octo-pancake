@@ -41,6 +41,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import java.util.Calendar
 import android.app.Activity
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import com.mmalyil.smartdocai.api.ChatApiHelper
 import com.mmalyil.smartdocai.model.ChatMessage
@@ -48,6 +49,7 @@ import com.mmalyil.smartdocai.model.ChatRequest
 import com.mmalyil.smartdocai.util.estimateTokens
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.mmalyil.smartdocai.util.UsageManager
 
 
 class ToolsFragment : Fragment() {
@@ -196,7 +198,15 @@ class ToolsFragment : Fragment() {
 
        return view }
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
+        val usageText = view.findViewById<TextView>(R.id.tvUsageText)
+        val usageBar = view.findViewById<ProgressBar>(R.id.usageProgressBar)
+        val aiSourceText = view.findViewById<TextView>(R.id.tvAiSource)
+
+        UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
+    }
 
     private fun openFilePicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -387,7 +397,7 @@ class ToolsFragment : Fragment() {
         val service = ChatApiHelper.chatService
 
         val messages = listOf(
-            ChatMessage("system", "You are GPT-4o. Always reply clearly, concisely, and only in the same language as the user's input. Never switch to another language.") ,
+            ChatMessage("system", "You are GPT-4o. Always reply clearly, concisely, and only in the same language as the user's input. Never switch to another language."),
             ChatMessage("user", "Here is the document text:\n$extractedText"),
             ChatMessage("user", prompt)
         )
@@ -403,6 +413,9 @@ class ToolsFragment : Fragment() {
                 val response = service.getChatReply(request)
                 val aiReply = response.choices.firstOrNull()?.message?.content ?: "No reply"
 
+                val context = requireContext() // ✅ Make sure we have a non-null Context
+
+                // ✅ Save AI reply in DB
                 viewModel.insertFile(
                     fileUri = fileUri,
                     fileName = fileName,
@@ -410,11 +423,18 @@ class ToolsFragment : Fragment() {
                     aiResponse = aiReply
                 )
 
+                // ✅ Estimate tokens
                 val estimatedTokens = estimateTokens(prompt, aiReply)
-                if (modelName.startsWith("gpt")) {
-                    GPTUsageManager.incrementUsage(requireContext(), "gpt-4")
-                } else {
-                    GPTUsageManager.incrementUsage(requireContext(), "groq")
+
+                // ✅ Save model used
+                val modelUsed = response.modelUsed ?: modelName
+                UsageManager.getPrefs(context).edit().putString("lastModelUsed", modelUsed).apply()
+
+                // ✅ Count usage
+                when {
+                    modelUsed.startsWith("gpt-4") -> UsageManager.recordUsage(context, estimatedTokens)
+                    modelUsed.startsWith("gpt-3.5") -> UsageManager.incrementGpt35Usage(context, estimatedTokens)
+                    else -> UsageManager.recordUsage(context, estimatedTokens) // Groq
                 }
 
                 withContext(Dispatchers.Main) {
@@ -431,7 +451,6 @@ class ToolsFragment : Fragment() {
                     if (modelName == "gpt-4" && isProUser()) {
                         aiResponseDisplay.text = "GPT-4 failed. Retrying with Groq..."
 
-                        // Retry with Groq fallback
                         analyzeWithAI(
                             prompt = prompt,
                             modelName = "llama3-8b-8192",
@@ -448,9 +467,7 @@ class ToolsFragment : Fragment() {
                 }
             }
         }
-
     }
-
 
     private fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
         val content = buildExportContent(includeDoc, includeAI)
@@ -533,8 +550,11 @@ class ToolsFragment : Fragment() {
     }
 
     private fun isProUser(): Boolean {
+
         val prefs = requireContext().getSharedPreferences("billingPrefs", 0)
         return prefs.getBoolean("isPro", false)
+
+
     }
 
     /**
