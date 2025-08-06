@@ -12,6 +12,9 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import android.widget.LinearLayout
+import androidx.activity.enableEdgeToEdge
+import androidx.core.content.ContentProviderCompat.requireContext
+import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
 
 // This is the main activity for the SmartDocAI application
 
@@ -39,17 +42,26 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+
+        enableEdgeToEdge()  // ← solves the issue instantly
+
         setContentView(R.layout.activity_main)
 
         supportActionBar?.title = "Send Feedback"
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
-        val prefs = getSharedPreferences("onboarding", MODE_PRIVATE)
-        val hasSeenIntro = prefs.getBoolean("seen", false)
-        if (!hasSeenIntro) {
-            startActivity(Intent(this, IntroActivity::class.java))
-            prefs.edit().putBoolean("seen", true).apply()
+        // ✅ Use updated preference key
+        val prefs = getSharedPreferences("prefs", MODE_PRIVATE)
+        val hasCompletedOnboarding = prefs.getBoolean("onboarding_complete", false)
+
+        if (!hasCompletedOnboarding) {
+            // ✅ Launch your new Compose-based onboarding
+            val intent = Intent(this, OnboardingActivity::class.java)
+            intent.putExtra("replay", true)
+            startActivity(intent)
             finish()
+            return
         }
 
 

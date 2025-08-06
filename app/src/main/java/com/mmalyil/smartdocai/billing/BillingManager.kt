@@ -97,8 +97,23 @@ class BillingManager(
             if (purchase.products.contains(PRO_PRODUCT_ID) &&
                 purchase.purchaseState == Purchase.PurchaseState.PURCHASED
             ) {
+                // Grant user entitlement
                 UsageManager.setPro(context, true)
                 Log.d("BillingManager", "✅ Pro subscription activated.")
+
+                // ✅ IMPORTANT: Acknowledge the purchase if not already acknowledged
+                if (!purchase.isAcknowledged) {
+                    val params = AcknowledgePurchaseParams.newBuilder()
+                        .setPurchaseToken(purchase.purchaseToken)
+                        .build()
+                    billingClient.acknowledgePurchase(params) { billingResult ->
+                        if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
+                            Log.d("BillingManager", "✅ Purchase acknowledged.")
+                        } else {
+                            Log.w("BillingManager", "Failed to acknowledge: ${billingResult.debugMessage}")
+                        }
+                    }
+                }
             }
         }
     }

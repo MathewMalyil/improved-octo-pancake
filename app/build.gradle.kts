@@ -41,15 +41,8 @@ android {
         }
 
     }
-    // ✅ Place here: outside defaultConfig
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("armeabi-v7a", "arm64-v8a")
-            isUniversalApk = false
-        }
-    }
+
+
 
     buildFeatures {
         viewBinding = true
@@ -78,19 +71,19 @@ android {
         }
     }
 
-    // Optional: Enable shrinker for production
-    /*
+
     buildTypes {
         release {
-            minifyEnabled = true
-            shrinkResources = true
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
     }
-    */
+
+
 }
 
 dependencies {

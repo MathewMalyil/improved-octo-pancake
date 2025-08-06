@@ -119,6 +119,10 @@ class ToolsFragment : Fragment() {
         exportShareButton = view.findViewById(R.id.btnExportShare)
         btnPickImage = view.findViewById(R.id.btnPickImage)
 
+        val btnScanDocument = view.findViewById<Button>(R.id.btnScanDocument)
+        btnScanDocument.setOnClickListener {
+            triggerScanFromFab()  // Reuse your existing logic
+        }
         scannedFileViewModel = ScannedFileViewModel(
             ScannedFileRepository(AppDatabase.getDatabase(requireContext()).scannedFileDao())
         )

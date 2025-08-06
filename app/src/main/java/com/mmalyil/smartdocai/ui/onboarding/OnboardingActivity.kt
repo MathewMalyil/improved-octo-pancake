@@ -17,10 +17,18 @@ class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val isReplay = intent.getBooleanExtra("replay", false)
+        val prefs = getSharedPreferences("prefs", MODE_PRIVATE)
+        val alreadyCompleted = prefs.getBoolean("onboarding_complete", false)
+
+        if (alreadyCompleted && !isReplay) {
+            startActivity(Intent(this, MainActivity::class.java))
+            finish()
+            return
+        }
+
         setContent {
             SmartDocAITheme {
-
-                // ✅ MUST be inside setContent
                 var screen by remember { mutableStateOf(1) }
 
                 when (screen) {
@@ -28,11 +36,7 @@ class OnboardingActivity : ComponentActivity() {
                     2 -> OnboardingScreen2 { screen = 3 }
                     3 -> OnboardingScreen3 { screen = 4 }
                     4 -> OnboardingScreen4 {
-                        // ✅ Optional: Save flag to skip onboarding next time
-                        val prefs = getSharedPreferences("prefs", MODE_PRIVATE)
                         prefs.edit().putBoolean("onboarding_complete", true).apply()
-
-                        // ✅ Go to main app
                         startActivity(Intent(this, MainActivity::class.java))
                         finish()
                     }

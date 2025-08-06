@@ -15,7 +15,8 @@ import android.content.Intent
 import android.net.Uri
 
 
-import com.mmalyil.smartdocai.IntroActivity
+import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
+
 // SettingsFragment.kt
 
 class SettingsFragment : Fragment() {
@@ -27,7 +28,9 @@ class SettingsFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_settings, container, false)
 
         view.findViewById<Button>(R.id.btnReplayOnboarding).setOnClickListener {
-            startActivity(Intent(requireContext(), IntroActivity::class.java))
+            val intent = Intent(requireContext(), OnboardingActivity::class.java)
+            intent.putExtra("replay", true)
+            startActivity(intent)
         }
 
         view.findViewById<Button>(R.id.btnHelpFaq).setOnClickListener {

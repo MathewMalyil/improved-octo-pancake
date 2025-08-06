@@ -2,6 +2,7 @@
 <androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:fitsSystemWindows="true"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -66,14 +67,38 @@
                     android:orientation="vertical"
                     android:padding="12dp">
 
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Upload or Scan Input"
+                        android:textStyle="bold"
+                        android:textSize="16sp"
+                        android:paddingTop="8dp"
+                        android:paddingBottom="4dp"/>
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/selectPdfButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Upload PDF or Scan Image"
+                        android:text="Upload PDF Document"
                         app:icon="@drawable/ic_upload"
                         app:iconPadding="8dp"
-                        app:iconGravity="textStart" />
+                        app:iconGravity="textStart"
+                        android:showDividers="middle"
+                        android:divider="?android:attr/dividerHorizontal"
+                        android:dividerPadding="8dp"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnScanDocument"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Scan Document"
+                        app:icon="@drawable/ic_camera"
+                        app:iconPadding="8dp"
+                        app:iconGravity="textStart"
+                        android:showDividers="middle"
+                        android:divider="?android:attr/dividerHorizontal"
+                        android:dividerPadding="8dp"/>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnPickImage"
@@ -82,7 +107,12 @@
                         android:text="Pick Image for OCR"
                         app:icon="@drawable/ic_image"
                         app:iconPadding="8dp"
-                        app:iconGravity="textStart" />
+                        app:iconGravity="textStart"
+                        android:showDividers="middle"
+                        android:divider="?android:attr/dividerHorizontal"
+                        android:dividerPadding="8dp"/>
+
+
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -222,6 +252,7 @@
                 app:iconGravity="textStart" />
 
         </LinearLayout>
+
     </ScrollView>
 
     <!-- ✅ FAB: Upload/Scan only -->

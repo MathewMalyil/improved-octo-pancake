@@ -4,23 +4,22 @@
 
     <!-- Required permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- For Android 10+ -->
+
+    <!-- For legacy devices (Android 12 and below) -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- Android 13+ scoped storage permissions -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
-
-
+    <!-- Camera features -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-
-
 
     <application
         android:allowBackup="true"
@@ -35,6 +34,7 @@
         tools:targetApi="31"
         tools:ignore="GoogleAppIndexingWarning">
 
+        <!-- Receivers -->
         <receiver android:name=".UsageResetReceiver" />
 
         <receiver android:name=".BootReceiver" android:exported="true">
@@ -42,29 +42,20 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-        <activity android:name=".IntroActivity" />
 
+        <!-- Activities -->
         <activity android:name=".ScanActivity" />
-
         <activity android:name=".AIChatActivity" />
-
         <activity android:name=".model.ScannedFileDetailActivity" />
-
         <activity android:name=".FeedbackActivity" />
-
         <activity android:name=".HelpFaqActivity" />
-
         <activity android:name=".BillingActivity" />
-
         <activity android:name=".PrivacyPolicyActivity" />
-
         <activity android:name=".TermsOfServiceActivity" />
-
-
 
         <activity
             android:name=".ui.onboarding.OnboardingActivity"
-            android:exported="true"> <!-- Optional if targeting Android 12+ -->
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -75,8 +66,6 @@
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
-
-            <!-- PDF intent filter (optional) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -84,7 +73,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Add this if you plan to use FileProvider -->
+        <!-- FileProvider -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.mmalyil.smartdocai.fileprovider"
