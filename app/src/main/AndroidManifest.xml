@@ -31,6 +31,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SmartDocAI"
         android:requestLegacyExternalStorage="true"
+
+        android:name=".SmartDocAIApp"
+
+
         tools:targetApi="31"
         tools:ignore="GoogleAppIndexingWarning">
 
@@ -49,7 +53,9 @@
         <activity android:name=".model.ScannedFileDetailActivity" />
         <activity android:name=".FeedbackActivity" />
         <activity android:name=".HelpFaqActivity" />
-        <activity android:name=".BillingActivity" />
+        <activity android:name=".BillingActivity"
+            android:exported="false"
+            android:launchMode="singleTop"/>
         <activity android:name=".PrivacyPolicyActivity" />
         <activity android:name=".TermsOfServiceActivity" />
 

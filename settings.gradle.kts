@@ -3,6 +3,14 @@ pluginManagement {
         google()
         gradlePluginPortal()
         mavenCentral()
+
+        // ✅ Required for docx4j
+        maven(url = "https://repo.docx4java.org/public")
+
+        // ✅ Required for Google Docs/Drive API artifacts
+        maven(url = "https://maven.google.com")
+
+        maven(url = "https://repo1.maven.org/maven2") // ✅ REQUIRED for google-api-services-*
     }
 
     plugins {

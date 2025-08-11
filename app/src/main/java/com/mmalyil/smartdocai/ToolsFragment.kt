@@ -50,6 +50,29 @@ import com.mmalyil.smartdocai.util.estimateTokens
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.mmalyil.smartdocai.util.UsageManager
+import com.google.android.gms.auth.api.signin.*
+import com.google.android.gms.common.api.Scope
+
+import com.mmalyil.smartdocai.util.DocumentUtils
+
+import com.mmalyil.smartdocai.BuildConfig
+
+import android.accounts.Account
+import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.UserRecoverableAuthException
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
+
+
+import com.google.android.gms.common.api.ApiException
+
+
+
+
+
 
 
 class ToolsFragment : Fragment() {
@@ -71,6 +94,7 @@ class ToolsFragment : Fragment() {
     private var aiAnswer = ""
     private var selectedFileName = ""
     private var selectedFileUri = ""
+
     private val PICK_DOCUMENT_REQUEST_CODE = 1001
     private lateinit var scannedFileViewModel: ScannedFileViewModel
 
@@ -92,10 +116,397 @@ class ToolsFragment : Fragment() {
         }
     }
 
+    private val RC_GOOGLE_SIGN_IN = 1001
+
+    private val RC_RECOVER_AUTH = 1002
+
+    private val http by lazy { OkHttpClient() }
+
+    private var pendingAccount: GoogleSignInAccount? = null
+    private var pendingToken: String? = null
+
+    // Call this from your Upload FAB (you can wire it like "Import from Google Docs")
+    private fun showUploadOptionsDialog() {
+        val base = mutableListOf("Upload File", "Scan Image")
+        if (BuildConfig.USE_GOOGLE_DOCS) base += "Import from Google Docs"
+        val options = base.toTypedArray()
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("Choose Action")
+            .setItems(options) { _, which ->
+                when (options[which]) {
+                    "Upload File" -> openFilePicker()
+                    "Scan Image" -> imagePickerLauncher.launch("image/*")
+                    "Import from Google Docs" -> initiateGoogleSignIn()
+                }
+            }
+            .show()
+    }
+
+    private fun showDocsFallbackDialog() {
+        if (!BuildConfig.USE_GOOGLE_DOCS) {
+            toast("Unable to read this file locally.")
+            return
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle("Couldn’t read this file")
+            .setMessage("Try importing via Google Docs instead?")
+            .setPositiveButton("Import via Google Docs") { _, _ -> initiateGoogleSignIn() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // Sign-in launcher
+    // Sign-in launcher
+    private val signInLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        if (res.resultCode != Activity.RESULT_OK || res.data == null) {
+            toast("Sign-in canceled")
+            return@registerForActivityResult
+        }
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(res.data)
+                .getResult(com.google.android.gms.common.api.ApiException::class.java)
+
+            // Remember account for possible recover flow
+            pendingAccount = account
+
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    val token = getAccessToken(account) // may throw UserRecoverableAuthException
+                    pendingToken = token
+
+                    val items = listDriveFiles(token)
+                    showDriveChooser(items) { id, mime ->
+                        CoroutineScope(Dispatchers.Main).launch {
+                            try {
+                                handleDrivePick(token, id, mime)
+                            } catch (e: Exception) {
+                                toast("Open failed: ${e.message}")
+                            }
+                        }
+                    }
+                } catch (e: UserRecoverableAuthException) {
+                    recoverAuthLauncher.launch(e.intent)
+                } catch (e: Exception) {
+                    toast("Drive listing failed: ${e.message}")
+                }
+            }
+        } catch (e: com.google.android.gms.common.api.ApiException) {
+            toast("Google Sign-In failed: ${e.statusCode}")
+        }
+    }
+
+    // Recoverable auth launcher
+    private val recoverAuthLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        if (res.resultCode != Activity.RESULT_OK) {
+            toast("Permission not granted")
+            return@registerForActivityResult
+        }
+        val account = pendingAccount ?: run { toast("No account"); return@registerForActivityResult }
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val token = getAccessToken(account)
+                pendingToken = token
+
+                val items = listDriveFiles(token)
+                showDriveChooser(items) { id, mime ->
+                    CoroutineScope(Dispatchers.Main).launch {
+                        try {
+                            handleDrivePick(token, id, mime)
+                        } catch (e: Exception) {
+                            toast("Open failed: ${e.message}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                toast("Authorization failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun initiateGoogleSignIn() {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(
+                Scope("https://www.googleapis.com/auth/drive.readonly"),
+                Scope("https://www.googleapis.com/auth/documents.readonly")
+            )
+            .build()
+        val client = GoogleSignIn.getClient(requireActivity(), gso)
+        signInLauncher.launch(client.signInIntent)
+    }
+
+    private suspend fun getAccessToken(account: GoogleSignInAccount): String {
+        val scope = "oauth2:https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/documents.readonly"
+        pendingAccount = account
+        return withContext(Dispatchers.IO) {
+            @Suppress("DEPRECATION")
+            GoogleAuthUtil.getToken(requireContext(), account.account as Account, scope)
+        }
+    }
+
+    // 1) List LOTS of files across My Drive + Shared drives + Shared with me,
+// including Google Docs/Sheets/Slides AND real PDFs/DOCX/PPTX/XLSX.
+    private suspend fun listDriveFiles(token: String): List<Triple<String, String, String>> {
+        val baseUrl = "https://www.googleapis.com/drive/v3/files"
+        val pageSize = 200
+
+        // Broad: all non-folder items. We'll resolve shortcuts client-side.
+        val q = """
+(trashed = false) and (mimeType != 'application/vnd.google-apps.folder') and 
+(sharedWithMe = true or 'me' in owners or 'me' in writers or 'me' in readers)
+""".trimIndent()
+        val fields = "nextPageToken, files(id,name,mimeType,shortcutDetails(targetId,targetMimeType),modifiedTime)"
+
+        val out = mutableListOf<Triple<String,String,String>>()
+        var pageToken: String? = null
+        do {
+            val url = buildString {
+                append(baseUrl)
+                append("?q=" + Uri.encode(q))
+                append("&fields=" + Uri.encode(fields))
+                append("&orderBy=modifiedTime desc")
+                append("&pageSize=$pageSize")
+                append("&corpora=allDrives")
+                append("&includeItemsFromAllDrives=true")
+                append("&supportsAllDrives=true")
+                if (!pageToken.isNullOrBlank()) append("&pageToken=$pageToken")
+            }
+
+            val req = Request.Builder().url(url)
+                .addHeader("Authorization", "Bearer $token")
+                .build()
+
+            val body = withContext(Dispatchers.IO) {
+                http.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) error("Drive list failed: ${r.code}")
+                    r.body?.string().orEmpty()
+                }
+            }
+
+            val json = JSONObject(body)
+            val files = json.optJSONArray("files") ?: JSONArray()
+            for (i in 0 until files.length()) {
+                val f = files.getJSONObject(i)
+                // If it’s a shortcut, use the target
+                val shortcut = f.optJSONObject("shortcutDetails")
+                val id   = shortcut?.optString("targetId") ?: f.getString("id")
+                val mime = shortcut?.optString("targetMimeType") ?: f.getString("mimeType")
+                val name = f.getString("name")
+                out += Triple(name, id, mime)
+            }
+            pageToken = json.optString("nextPageToken").takeIf { it.isNotBlank() }
+        } while (pageToken != null)
+
+        // Optional: client-side filter to show only types we support analyzing
+        return out.filter { mime ->
+            val m = mime.third
+            m == "application/vnd.google-apps.document" ||
+                    m == "application/vnd.google-apps.spreadsheet" ||
+                    m == "application/vnd.google-apps.presentation" ||
+                    m == "application/pdf" ||
+                    m == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+                    m == "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+                    m == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+                    m == "application/vnd.ms-excel" ||
+                    m == "application/vnd.ms-powerpoint"
+        }
+    }
+
+    private fun showDriveChooser(
+        items: List<Triple<String, String, String>>,
+        onPick: (id: String, mime: String) -> Unit
+    ) {
+        if (items.isEmpty()) { toast("No matching Drive files found."); return }
+        val names = items.map { it.first }.toTypedArray()
+        AlertDialog.Builder(requireContext())
+            .setTitle("Select a Drive file (${items.size})")
+            .setItems(names) { _, which -> onPick(items[which].second, items[which].third) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // 2) Convert Google-native files before parsing, so Sheets/Slides also work.
+    private suspend fun handleDrivePick(token: String, fileId: String, mime: String) {
+        when (mime) {
+            // Google Docs → export plain text
+            "application/vnd.google-apps.document" -> {
+                val text = exportGoogleDocToText(token, fileId)
+                extractedText = if (text.isBlank()) "[No text in this Google Doc]" else text
+                withContext(Dispatchers.Main) {
+                    showExtractedText("Google Doc loaded")
+                    maybeAutoAnalyze()
+                }
+            }
+
+            // Google Sheets → export CSV (first sheet), then show as text
+            "application/vnd.google-apps.spreadsheet" -> {
+                val url = "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=text/csv"
+                val req = Request.Builder().url(url)
+                    .addHeader("Authorization", "Bearer $token")
+                    .build()
+                val csv = withContext(Dispatchers.IO) {
+                    http.newCall(req).execute().use { r ->
+                        if (!r.isSuccessful) error("Export failed: ${r.code}")
+                        r.body?.string().orEmpty()
+                    }
+                }
+                withContext(Dispatchers.Main) { handleResult("CSV", csv) }
+            }
+
+            // Google Slides → export PPTX, then parse locally via POI
+            "application/vnd.google-apps.presentation" -> {
+                val url = "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                val req = Request.Builder().url(url)
+                    .addHeader("Authorization", "Bearer $token")
+                    .build()
+                val bytes = withContext(Dispatchers.IO) {
+                    http.newCall(req).execute().use { r ->
+                        if (!r.isSuccessful) error("Export failed: ${r.code}")
+                        r.body?.bytes() ?: ByteArray(0)
+                    }
+                }
+                val tmp = File.createTempFile("slides_", ".pptx", requireContext().cacheDir)
+                withContext(Dispatchers.IO) { tmp.outputStream().use { it.write(bytes) } }
+                val text = DocumentUtils.extractTextFromPptx(requireContext(), Uri.fromFile(tmp))
+                withContext(Dispatchers.Main) { handleResult("PPTX", text) }
+            }
+
+            // Direct-download types
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel",
+            "application/vnd.ms-powerpoint" -> {
+                val bytes = downloadFileBytes(token, fileId)
+                val tmp = File.createTempFile("drive_dl_", guessExtension(mime), requireContext().cacheDir)
+                withContext(Dispatchers.IO) { tmp.outputStream().use { it.write(bytes) } }
+                val uri = Uri.fromFile(tmp)
+
+                val text = when (mime) {
+                    "application/pdf" -> extractPdfBlocking(uri)
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
+                        DocumentUtils.extractTextFromDocx(requireContext(), uri)
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "application/vnd.ms-powerpoint" ->
+                        DocumentUtils.extractTextFromPptx(requireContext(), uri)
+                    else -> // xlsx/xls
+                        DocumentUtils.extractTextFromXlsx(requireContext(), uri)
+                }
+                withContext(Dispatchers.Main) { handleResult(mimeShort(mime), text) }
+            }
+
+            else -> withContext(Dispatchers.Main) { toast("Unsupported Drive type: $mime") }
+        }
+    }
+
+    private suspend fun downloadFileBytes(token: String, fileId: String): ByteArray {
+        val url = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media&supportsAllDrives=true"
+        val req = Request.Builder().url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
+        return withContext(Dispatchers.IO) {
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) error("Download failed: ${resp.code}")
+                resp.body?.bytes() ?: ByteArray(0)
+            }
+        }
+    }
+
+    private fun extractPdfBlocking(uri: Uri): String = try {
+        val input = requireContext().contentResolver.openInputStream(uri)
+        val doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(input)
+        val text = com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
+        doc.close()
+        text
+    } catch (e: Exception) {
+        "Failed to read PDF: ${e.message}"
+    }
+
+    private fun guessExtension(mime: String) = when (mime) {
+        "application/pdf" -> ".pdf"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx"
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> ".pptx"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> ".xlsx"
+        else -> ".bin"
+    }
+
+    private fun mimeShort(mime: String) = when (mime) {
+        "application/pdf" -> "PDF"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "DOCX"
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "PPTX"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "XLSX"
+        else -> "File"
+    }
 
 
 
 
+
+
+
+    private suspend fun exportGoogleDocToText(token: String, fileId: String): String {
+        val url = "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=text/plain"
+        val req = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
+        return withContext(Dispatchers.IO) {
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) error("Export failed: ${resp.code}")
+                resp.body?.string().orEmpty()
+            }
+        }
+    }
+
+
+
+
+
+
+    // Placeholder until Phase 2
+    private fun loadGoogleDocs(account: GoogleSignInAccount) {
+        Toast.makeText(requireContext(), "(TODO) Ready to fetch Google Docs...", Toast.LENGTH_SHORT)
+            .show()
+    }
+
+
+    private val docPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                requireContext().contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) { /* some providers don't grant persistable; ignore */
+            }
+            handlePickedDocument(uri)
+        } else {
+            toast("No file selected")
+        }
+    }
+
+    private fun openFilePicker() {
+        val mimeTypes = arrayOf(
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",      // .docx
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",   // .pptx
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",           // .xlsx
+            "text/csv",
+            "image/*"
+        )
+        docPickerLauncher.launch(mimeTypes)
+    }
+
+    fun triggerPickImageFromFab() {
+        Toast.makeText(requireContext(), "Image picker launched", Toast.LENGTH_SHORT).show()
+    }
 
 
     override fun onCreateView(
@@ -108,7 +519,7 @@ class ToolsFragment : Fragment() {
         // Bind views
         selectPdfButton = view.findViewById(R.id.selectPdfButton)
         analyzeButton = view.findViewById(R.id.analyzeButton)
-      //  modelGroup = view.findViewById(R.id.modelSelection)
+        //  modelGroup = view.findViewById(R.id.modelSelection)
         pdfTextDisplay = view.findViewById(R.id.pdfTextDisplay)
         aiResponseDisplay = view.findViewById(R.id.aiResponseDisplay)
         promptInput = view.findViewById(R.id.promptInput)
@@ -188,7 +599,8 @@ class ToolsFragment : Fragment() {
 
         val fabUploadScan = view.findViewById<FloatingActionButton>(R.id.fabUploadScan)
         fabUploadScan.setOnClickListener {
-            openFilePicker()
+            showUploadOptionsDialog()
+
         }
 
         val btnOpenAIChat = view.findViewById<Button>(R.id.btnOpenAIChat)
@@ -200,7 +612,8 @@ class ToolsFragment : Fragment() {
 
 
 
-       return view }
+        return view
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -212,32 +625,14 @@ class ToolsFragment : Fragment() {
         UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
     }
 
-    private fun openFilePicker() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            putExtra(
-                Intent.EXTRA_MIME_TYPES, arrayOf(
-                    "application/pdf",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-                    "text/csv",
-                    "image/*"
-                )
-            )
-        }
-        filePickerLauncher.launch(intent) // ✅ use launcher
-    }
 
     private fun handlePickedDocument(uri: Uri) {
         selectedFileUri = uri.toString()
 
-        val cursor = requireContext().contentResolver.query(uri, null, null, null, null)
-        cursor?.use {
-            if (it.moveToFirst()) {
-                selectedFileName =
-                    it.getString(it.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+        // Resolve display name
+        requireContext().contentResolver.query(uri, null, null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                selectedFileName = c.getString(c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
             }
         }
 
@@ -245,47 +640,87 @@ class ToolsFragment : Fragment() {
         val name = selectedFileName.lowercase()
 
         when {
-            type?.contains("pdf") == true -> extractTextFromPdf(uri)
+            // PDF
+            type?.contains("pdf") == true || name.endsWith(".pdf") -> extractTextFromPdf(uri)
 
+            // DOCX
             type?.contains("wordprocessingml") == true || name.endsWith(".docx") -> {
-                extractedText = DocumentUtils.extractTextFromDocx(requireContext(), uri)
-                showExtractedText("DOCX loaded")
+                CoroutineScope(Dispatchers.IO).launch {
+                    val text = runCatching {
+                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromDocx(requireContext(), uri)
+                    }.getOrElse { "Failed to read DOCX: ${it.message}" }
+                    withContext(Dispatchers.Main) { handleResult("DOCX", text) }
+                }
             }
 
+            // PPTX
             type?.contains("presentationml") == true || name.endsWith(".pptx") -> {
-                extractedText = DocumentUtils.extractTextFromPptx(requireContext(), uri)
-                showExtractedText("PPTX loaded")
+                CoroutineScope(Dispatchers.IO).launch {
+                    val text = runCatching {
+                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromPptx(requireContext(), uri)
+                    }.getOrElse { "Failed to read PPTX: ${it.message}" }
+                    withContext(Dispatchers.Main) { handleResult("PPTX", text) }
+                }
             }
 
+            // XLSX
             type?.contains("spreadsheetml") == true ||
                     type == "application/vnd.ms-excel" ||
-                    name.endsWith(".xlsx") -> {
-                extractedText = DocumentUtils.extractTextFromXlsx(requireContext(), uri)
-                showExtractedText("XLSX loaded")
+                    name.endsWith(".xlsx") || name.endsWith(".xls") -> {
+                CoroutineScope(Dispatchers.IO).launch {
+                    val text = runCatching {
+                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromXlsx(requireContext(), uri)
+                    }.getOrElse { "Failed to read XLSX: ${it.message}" }
+                    withContext(Dispatchers.Main) { handleResult("XLSX", text) }
+                }
             }
 
+            // CSV
             type == "text/csv" || name.endsWith(".csv") -> {
-                extractedText = DocumentUtils.extractTextFromCsv(requireContext(), uri)
-                showExtractedText("CSV loaded")
+                CoroutineScope(Dispatchers.IO).launch {
+                    val text = runCatching {
+                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromCsv(requireContext(), uri)
+                    }.getOrElse { "Failed to read CSV: ${it.message}" }
+                    withContext(Dispatchers.Main) { handleResult("CSV", text) }
+                }
             }
 
             else -> toast("Unsupported file: $type")
         }
-
-        Toast.makeText(requireContext(), "Picked: $selectedFileName", Toast.LENGTH_SHORT).show()
-
-        val prompt = promptInput.text.toString().trim()
-        if (prompt.isNotEmpty() && extractedText.isNotEmpty()) {
-            analyzeSmartlyWithQuota(
-                context = requireContext(),
-                prompt = prompt,
-                extractedText = extractedText,
-                fileName = selectedFileName,
-                fileUri = selectedFileUri,
-                viewModel = scannedFileViewModel
-            )
-        }
     }
+
+
+
+    // Single place to decide fallback vs success
+    private fun handleResult(kind: String, text: String) {
+        val isError = text.startsWith("Failed to read", ignoreCase = true) ||
+                text.contains("null input stream", ignoreCase = true)
+
+        if (isError) {
+            // Show why it failed (temporary)
+            Toast.makeText(requireContext(), text, Toast.LENGTH_LONG).show()
+            showDocsFallbackDialog()
+            return
+        }
+
+        extractedText = if (text.isBlank()) "[No text found in this $kind]" else text
+        showExtractedText("$kind loaded")
+        maybeAutoAnalyze()
+    }
+
+        private fun maybeAutoAnalyze() {
+            val prompt = promptInput.text.toString().trim()
+            if (prompt.isNotEmpty() && extractedText.isNotEmpty()) {
+                analyzeSmartlyWithQuota(
+                    context = requireContext(),
+                    prompt = prompt,
+                    extractedText = extractedText,
+                    fileName = selectedFileName,
+                    fileUri = selectedFileUri,
+                    viewModel = scannedFileViewModel
+                )
+            }
+        }
 
 
     private fun processImageForOCR(uri: Uri) {
@@ -534,9 +969,7 @@ class ToolsFragment : Fragment() {
         openFilePicker()
     }
 
-    fun triggerPickImageFromFab() {
-        imagePickerLauncher.launch("image/*")
-    }
+
 
     private val scanLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
