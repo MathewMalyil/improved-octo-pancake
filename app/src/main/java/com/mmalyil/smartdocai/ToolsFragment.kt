@@ -34,7 +34,7 @@ import com.mmalyil.smartdocai.model.AppDatabase
 import com.mmalyil.smartdocai.model.ScannedFileRepository
 import com.mmalyil.smartdocai.model.ScannedFileViewModel
 import android.provider.OpenableColumns
-import android.util.Log
+
 import com.mmalyil.smartdocai.util.GPTUsageManager
 import android.content.Context
 import android.app.AlarmManager
@@ -42,11 +42,11 @@ import android.app.PendingIntent
 import java.util.Calendar
 import android.app.Activity
 import android.widget.ProgressBar
-import android.widget.ScrollView
+
 import com.mmalyil.smartdocai.api.ChatApiHelper
 import com.mmalyil.smartdocai.model.ChatMessage
 import com.mmalyil.smartdocai.model.ChatRequest
-import com.mmalyil.smartdocai.util.estimateTokens
+
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.mmalyil.smartdocai.util.UsageManager
@@ -66,13 +66,9 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
+import kotlin.io.use
 
-import com.google.android.gms.common.api.ApiException
-
-
-
-
-
+import kotlinx.coroutines.*
 
 
 class ToolsFragment : Fragment() {
@@ -206,7 +202,8 @@ class ToolsFragment : Fragment() {
             toast("Permission not granted")
             return@registerForActivityResult
         }
-        val account = pendingAccount ?: run { toast("No account"); return@registerForActivityResult }
+        val account =
+            pendingAccount ?: run { toast("No account"); return@registerForActivityResult }
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 val token = getAccessToken(account)
@@ -241,7 +238,8 @@ class ToolsFragment : Fragment() {
     }
 
     private suspend fun getAccessToken(account: GoogleSignInAccount): String {
-        val scope = "oauth2:https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/documents.readonly"
+        val scope =
+            "oauth2:https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/documents.readonly"
         pendingAccount = account
         return withContext(Dispatchers.IO) {
             @Suppress("DEPRECATION")
@@ -260,9 +258,10 @@ class ToolsFragment : Fragment() {
 (trashed = false) and (mimeType != 'application/vnd.google-apps.folder') and 
 (sharedWithMe = true or 'me' in owners or 'me' in writers or 'me' in readers)
 """.trimIndent()
-        val fields = "nextPageToken, files(id,name,mimeType,shortcutDetails(targetId,targetMimeType),modifiedTime)"
+        val fields =
+            "nextPageToken, files(id,name,mimeType,shortcutDetails(targetId,targetMimeType),modifiedTime)"
 
-        val out = mutableListOf<Triple<String,String,String>>()
+        val out = mutableListOf<Triple<String, String, String>>()
         var pageToken: String? = null
         do {
             val url = buildString {
@@ -294,7 +293,7 @@ class ToolsFragment : Fragment() {
                 val f = files.getJSONObject(i)
                 // If it’s a shortcut, use the target
                 val shortcut = f.optJSONObject("shortcutDetails")
-                val id   = shortcut?.optString("targetId") ?: f.getString("id")
+                val id = shortcut?.optString("targetId") ?: f.getString("id")
                 val mime = shortcut?.optString("targetMimeType") ?: f.getString("mimeType")
                 val name = f.getString("name")
                 out += Triple(name, id, mime)
@@ -321,7 +320,9 @@ class ToolsFragment : Fragment() {
         items: List<Triple<String, String, String>>,
         onPick: (id: String, mime: String) -> Unit
     ) {
-        if (items.isEmpty()) { toast("No matching Drive files found."); return }
+        if (items.isEmpty()) {
+            toast("No matching Drive files found."); return
+        }
         val names = items.map { it.first }.toTypedArray()
         AlertDialog.Builder(requireContext())
             .setTitle("Select a Drive file (${items.size})")
@@ -345,7 +346,8 @@ class ToolsFragment : Fragment() {
 
             // Google Sheets → export CSV (first sheet), then show as text
             "application/vnd.google-apps.spreadsheet" -> {
-                val url = "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=text/csv"
+                val url =
+                    "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=text/csv"
                 val req = Request.Builder().url(url)
                     .addHeader("Authorization", "Bearer $token")
                     .build()
@@ -360,7 +362,8 @@ class ToolsFragment : Fragment() {
 
             // Google Slides → export PPTX, then parse locally via POI
             "application/vnd.google-apps.presentation" -> {
-                val url = "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                val url =
+                    "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 val req = Request.Builder().url(url)
                     .addHeader("Authorization", "Bearer $token")
                     .build()
@@ -384,7 +387,11 @@ class ToolsFragment : Fragment() {
             "application/vnd.ms-excel",
             "application/vnd.ms-powerpoint" -> {
                 val bytes = downloadFileBytes(token, fileId)
-                val tmp = File.createTempFile("drive_dl_", guessExtension(mime), requireContext().cacheDir)
+                val tmp = File.createTempFile(
+                    "drive_dl_",
+                    guessExtension(mime),
+                    requireContext().cacheDir
+                )
                 withContext(Dispatchers.IO) { tmp.outputStream().use { it.write(bytes) } }
                 val uri = Uri.fromFile(tmp)
 
@@ -392,9 +399,11 @@ class ToolsFragment : Fragment() {
                     "application/pdf" -> extractPdfBlocking(uri)
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
                         DocumentUtils.extractTextFromDocx(requireContext(), uri)
+
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                     "application/vnd.ms-powerpoint" ->
                         DocumentUtils.extractTextFromPptx(requireContext(), uri)
+
                     else -> // xlsx/xls
                         DocumentUtils.extractTextFromXlsx(requireContext(), uri)
                 }
@@ -406,7 +415,8 @@ class ToolsFragment : Fragment() {
     }
 
     private suspend fun downloadFileBytes(token: String, fileId: String): ByteArray {
-        val url = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media&supportsAllDrives=true"
+        val url =
+            "https://www.googleapis.com/drive/v3/files/$fileId?alt=media&supportsAllDrives=true"
         val req = Request.Builder().url(url)
             .addHeader("Authorization", "Bearer $token")
             .build()
@@ -445,11 +455,6 @@ class ToolsFragment : Fragment() {
     }
 
 
-
-
-
-
-
     private suspend fun exportGoogleDocToText(token: String, fileId: String): String {
         val url = "https://www.googleapis.com/drive/v3/files/$fileId/export?mimeType=text/plain"
         val req = Request.Builder()
@@ -463,10 +468,6 @@ class ToolsFragment : Fragment() {
             }
         }
     }
-
-
-
-
 
 
     // Placeholder until Phase 2
@@ -646,7 +647,9 @@ class ToolsFragment : Fragment() {
             // DOCX
             type?.contains("wordprocessingml") == true || name.endsWith(".docx") -> {
                 CoroutineScope(Dispatchers.IO).launch {
+                    com.mmalyil.smartdocai.util.PoiKnobs.relax()  // <— add this
                     val text = runCatching {
+                        com.mmalyil.smartdocai.util.PoiSetup.prepare()   // <<< add
                         com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromDocx(requireContext(), uri)
                     }.getOrElse { "Failed to read DOCX: ${it.message}" }
                     withContext(Dispatchers.Main) { handleResult("DOCX", text) }
@@ -656,19 +659,22 @@ class ToolsFragment : Fragment() {
             // PPTX
             type?.contains("presentationml") == true || name.endsWith(".pptx") -> {
                 CoroutineScope(Dispatchers.IO).launch {
+                    com.mmalyil.smartdocai.util.PoiKnobs.relax()  // <— add this
                     val text = runCatching {
+                        com.mmalyil.smartdocai.util.PoiSetup.prepare()   // <<< add
                         com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromPptx(requireContext(), uri)
                     }.getOrElse { "Failed to read PPTX: ${it.message}" }
                     withContext(Dispatchers.Main) { handleResult("PPTX", text) }
                 }
             }
 
-            // XLSX
-            type?.contains("spreadsheetml") == true ||
-                    type == "application/vnd.ms-excel" ||
-                    name.endsWith(".xlsx") || name.endsWith(".xls") -> {
+            // XLSX (and old .xls)
+            (type?.contains("spreadsheetml") == true || type == "application/vnd.ms-excel" ||
+                    name.endsWith(".xlsx") || name.endsWith(".xls")) -> {
                 CoroutineScope(Dispatchers.IO).launch {
+                    com.mmalyil.smartdocai.util.PoiKnobs.relax()  // <— add this
                     val text = runCatching {
+                        com.mmalyil.smartdocai.util.PoiSetup.prepare()   // <<< add
                         com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromXlsx(requireContext(), uri)
                     }.getOrElse { "Failed to read XLSX: ${it.message}" }
                     withContext(Dispatchers.Main) { handleResult("XLSX", text) }
@@ -679,7 +685,9 @@ class ToolsFragment : Fragment() {
             type == "text/csv" || name.endsWith(".csv") -> {
                 CoroutineScope(Dispatchers.IO).launch {
                     val text = runCatching {
-                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromCsv(requireContext(), uri)
+                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromCsv(
+                            requireContext(), uri
+                        )
                     }.getOrElse { "Failed to read CSV: ${it.message}" }
                     withContext(Dispatchers.Main) { handleResult("CSV", text) }
                 }
@@ -688,8 +696,6 @@ class ToolsFragment : Fragment() {
             else -> toast("Unsupported file: $type")
         }
     }
-
-
 
     // Single place to decide fallback vs success
     private fun handleResult(kind: String, text: String) {
@@ -708,19 +714,19 @@ class ToolsFragment : Fragment() {
         maybeAutoAnalyze()
     }
 
-        private fun maybeAutoAnalyze() {
-            val prompt = promptInput.text.toString().trim()
-            if (prompt.isNotEmpty() && extractedText.isNotEmpty()) {
-                analyzeSmartlyWithQuota(
-                    context = requireContext(),
-                    prompt = prompt,
-                    extractedText = extractedText,
-                    fileName = selectedFileName,
-                    fileUri = selectedFileUri,
-                    viewModel = scannedFileViewModel
-                )
-            }
+    private fun maybeAutoAnalyze() {
+        val prompt = promptInput.text.toString().trim()
+        if (prompt.isNotEmpty() && extractedText.isNotEmpty()) {
+            analyzeSmartlyWithQuota(
+                context = requireContext(),
+                prompt = prompt,
+                extractedText = extractedText,
+                fileName = selectedFileName,
+                fileUri = selectedFileUri,
+                viewModel = scannedFileViewModel
+            )
         }
+    }
 
 
     private fun processImageForOCR(uri: Uri) {
@@ -824,6 +830,7 @@ class ToolsFragment : Fragment() {
     }
 
 
+
     private fun analyzeWithAI(
         prompt: String,
         modelName: String,
@@ -833,10 +840,10 @@ class ToolsFragment : Fragment() {
         fileUri: String,
         viewModel: ScannedFileViewModel
     ) {
-        val service = ChatApiHelper.chatService
-
         val messages = listOf(
-            ChatMessage("system", "You are GPT-4o. Always reply clearly, concisely, and only in the same language as the user's input. Never switch to another language."),
+            ChatMessage(role = "system",
+                content = "You are GPT-4o. Always reply clearly, concisely, and only in the same language as the user's input."
+            ),
             ChatMessage("user", "Here is the document text:\n$extractedText"),
             ChatMessage("user", prompt)
         )
@@ -849,12 +856,35 @@ class ToolsFragment : Fragment() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = service.getChatReply(request)
-                val aiReply = response.choices.firstOrNull()?.message?.content ?: "No reply"
+                val reply = ChatApiHelper.chatService.getChatReply(request)
 
-                val context = requireContext() // ✅ Make sure we have a non-null Context
+                android.util.Log.d(
+                    "AI_DEBUG",
+                    "Unified reply: content='${reply.content}', model='${reply.modelUsed}', rawLen=${reply.raw?.length ?: 0}"
+                )
 
-                // ✅ Save AI reply in DB
+                val raw = reply.raw.orEmpty()
+
+// ✅ Make it NON-NULL
+                val aiReply: String =
+                    reply.content?.takeIf { it.isNotBlank() }
+                        ?: raw.let { if (it.isNotBlank()) extractAiText(it) else null }?.takeIf { it.isNotBlank() }
+                        ?: "[No content returned from AI]"
+
+// ✅ Also NON-NULL
+                val modelUsed: String =
+                    reply.modelUsed?.takeIf { it.isNotBlank() }
+                        ?: run {
+                            try {
+                                org.json.JSONObject(raw).optString("model").takeIf { it.isNotBlank() }
+                            } catch (_: Exception) { null }
+                        }
+                        ?: modelName
+
+// …now use aiReply and modelUsed everywhere below
+
+
+                // 3) Save to DB (IO thread ok)
                 viewModel.insertFile(
                     fileUri = fileUri,
                     fileName = fileName,
@@ -862,51 +892,145 @@ class ToolsFragment : Fragment() {
                     aiResponse = aiReply
                 )
 
-                // ✅ Estimate tokens
-                val estimatedTokens = estimateTokens(prompt, aiReply)
+                // 4) Track usage
+                val ctx = requireContext().applicationContext
+                val estimated = com.mmalyil.smartdocai.util.estimateTokens(prompt, aiReply)
+                com.mmalyil.smartdocai.util.UsageManager.getPrefs(ctx)
+                    .edit().putString("lastModelUsed", modelUsed).apply()
 
-                // ✅ Save model used
-                val modelUsed = response.modelUsed ?: modelName
-                UsageManager.getPrefs(context).edit().putString("lastModelUsed", modelUsed).apply()
-
-                // ✅ Count usage
                 when {
-                    modelUsed.startsWith("gpt-4") -> UsageManager.recordUsage(context, estimatedTokens)
-                    modelUsed.startsWith("gpt-3.5") -> UsageManager.incrementGpt35Usage(context, estimatedTokens)
-                    else -> UsageManager.recordUsage(context, estimatedTokens) // Groq
+                    modelUsed.startsWith("gpt-4") ->
+                        com.mmalyil.smartdocai.util.UsageManager.recordUsage(ctx, estimated)
+                    modelUsed.startsWith("gpt-3.5") ->
+                        com.mmalyil.smartdocai.util.UsageManager.incrementGpt35Usage(ctx, estimated)
+                    else ->
+                        com.mmalyil.smartdocai.util.UsageManager.recordUsage(ctx, estimated)
                 }
 
+                // 5) UI update on main
                 withContext(Dispatchers.Main) {
                     aiResponseDisplay.text = aiReply
+                    aiResponseDisplay.visibility = View.VISIBLE
                     aiAnswer = aiReply
                     toast("AI analysis complete and saved")
                 }
 
             } catch (e: Exception) {
+                val msg = e.localizedMessage ?: e.toString()
+                android.util.Log.e("AI_ERROR", "Model: $modelName, Source: $source, Error: $msg", e)
                 withContext(Dispatchers.Main) {
-                    val message = e.localizedMessage ?: "Unknown error"
-                    Log.e("AI_ERROR", "Model: $modelName, Source: $source, Error: $message")
-
-                    if (modelName == "gpt-4" && isProUser()) {
-                        aiResponseDisplay.text = "GPT-4 failed. Retrying with Groq..."
-
-                        analyzeWithAI(
-                            prompt = prompt,
-                            modelName = "llama3-8b-8192",
-                            source = "groq",
-                            extractedText = extractedText,
-                            fileName = fileName,
-                            fileUri = fileUri,
-                            viewModel = viewModel
-                        )
-                    } else {
-                        aiResponseDisplay.text = "Error: $message"
-                        toast("AI Error: $message")
-                    }
+                    aiResponseDisplay.text = "Error: $msg"
+                    aiResponseDisplay.visibility = View.VISIBLE
+                    toast("AI Error: $msg")
                 }
             }
         }
     }
+
+    // Safe JSON extractor that checks multiple possible keys
+    private fun extractAiTextSafe(raw: String): String {
+        return try {
+            val root = JSONObject(raw)
+
+            // OpenAI-style choices[0].message.content
+            root.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+
+            // Alt formats
+            root.optString("reply")?.takeIf { it.isNotBlank() }?.let { return it }
+            root.optString("message")?.takeIf { it.isNotBlank() }?.let { return it }
+            root.optString("output")?.takeIf { it.isNotBlank() }?.let { return it }
+
+            // Fallback
+            ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    fun extractAiText(rawJson: String?): String {
+        if (rawJson.isNullOrBlank()) return "[No content returned]"
+        return try {
+            val root = JSONObject(rawJson)
+
+            // 0) Common error envelope
+            root.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }?.let { return it }
+
+            // 1) OpenAI Chat format: choices[0].message.content
+            root.optJSONArray("choices")?.let { choices ->
+                if (choices.length() > 0) {
+                    val first = choices.optJSONObject(0)
+                    // a) chat format
+                    first?.optJSONObject("message")?.optString("content")?.takeIf { it.isNotBlank() }?.let { return it }
+                    // b) text format (some proxies put .text at the top level of a choice)
+                    first?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
+                    // c) responses API style: choices[0].delta/content parts
+                    first?.optJSONArray("content")?.let { parts ->
+                        val sb = StringBuilder()
+                        for (i in 0 until parts.length()) {
+                            val part = parts.optJSONObject(i)
+                            // text parts
+                            part?.optString("text")?.takeIf { it.isNotBlank() }?.let { sb.append(it) }
+                            // tool/text variants
+                            part?.optJSONObject("text")?.optString("value")?.takeIf { it.isNotBlank() }?.let { sb.append(it) }
+                        }
+                        if (sb.isNotEmpty()) return sb.toString()
+                    }
+                }
+            }
+
+            // 2) OpenAI Responses API top-level: output_text OR content[0].text/value
+            root.optJSONArray("output_text")?.let { arr ->
+                if (arr.length() > 0) arr.optString(0)?.takeIf { it.isNotBlank() }?.let { return it }
+            }
+            root.optString("output_text")?.takeIf { it.isNotBlank() }?.let { return it }
+            root.optJSONArray("content")?.let { contentArr ->
+                if (contentArr.length() > 0) {
+                    val first = contentArr.optJSONObject(0)
+                    first?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
+                    first?.optJSONObject("text")?.optString("value")?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+            }
+
+            // 3) Anthropic-like: content: [{type:"text", text:"..."}]
+            root.optJSONArray("content")?.let { arr ->
+                val sb = StringBuilder()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i)
+                    if (obj?.optString("type") == "text") {
+                        obj.optString("text")?.takeIf { it.isNotBlank() }?.let { sb.append(it) }
+                    }
+                }
+                if (sb.isNotEmpty()) return sb.toString()
+            }
+
+            // 4) Simple proxy: { content: "..." }
+            root.optString("content")?.takeIf { it.isNotBlank() }?.let { return it }
+
+            // 5) Some backends: { data: "..."} or { result: "..."}
+            root.optString("data")?.takeIf { it.isNotBlank() }?.let { return it }
+            root.optString("result")?.takeIf { it.isNotBlank() }?.let { return it }
+
+            // 6) Last-ditch: find any non-empty string field
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val v = root.opt(k)
+                if (v is String && v.isNotBlank() && k != "id" && k != "model") return v
+            }
+
+            "[No content in response]"
+        } catch (e: Exception) {
+            "[Parse error: ${e.message}]"
+        }
+    }
+
+
+
 
     private fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
         val content = buildExportContent(includeDoc, includeAI)

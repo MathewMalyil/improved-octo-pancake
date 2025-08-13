@@ -57,8 +57,14 @@ suspend fun analyzeWithAI(
             ChatApiHelper.chatService.getChatReply(request)
         }
 
-        val responseText = reply.choices.firstOrNull()?.message?.content ?: "No reply"
-        val modelUsed = reply.modelUsed ?: selectedModel
+        // Make these NON-NULL immediately
+        val responseText: String =
+            reply.content?.takeIf { it.isNotBlank() }
+                ?: "[No content returned from AI]"
+
+        val modelUsed: String =
+            reply.modelUsed?.takeIf { it.isNotBlank() } ?: selectedModel
+
 
         // ✅ Track last used model
         UsageManager.getPrefs(context).edit()

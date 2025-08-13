@@ -28,8 +28,8 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.4"
+        versionCode = 15
+        versionName = "1.7"
 
 
         // 🚩 Feature flag for Google Docs
@@ -90,13 +90,22 @@ android {
 
 
     }
-    buildTypes {
-        debug { buildConfigField ("boolean", "USE_GOOGLE_DOCS", "true") }
 
+    buildTypes {
+        debug {
+            buildConfigField("boolean", "USE_GOOGLE_DOCS", "true")
+            // leave shrink/minify off in debug by default
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
         release {
-            buildConfigField("boolean", "USE_GOOGLE_DOCS", "true") //enable
-            isMinifyEnabled = true
-            isShrinkResources = true
+            buildConfigField("boolean", "USE_GOOGLE_DOCS", "true")
+
+            // 🚨 Turn OFF minify & shrink to match the working behavior on device
+            isMinifyEnabled = false
+            isShrinkResources = false
+
+            // You can keep the file — it’s ignored when minify=false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -104,27 +113,13 @@ android {
         }
     }
 
+    // Keep this minimal. Don’t force/strip random things that POI needs.
     configurations.all {
-        exclude(group = "org.apache.poi", module = "poi-ooxml-lite")
-            exclude (group = "commons-logging", module = "commons-logging")
+        // This one prevents an unwanted SLF4J impl from sneaking in
         exclude(group = "org.apache.logging.log4j", module = "log4j-slf4j-impl")
-
-
-        resolutionStrategy {
-            force("org.apache.poi:poi:5.2.5")
-            force("org.apache.poi:poi-ooxml-full:5.2.5")
-            force("org.apache.xmlbeans:xmlbeans:5.1.1")
-            force("org.apache.logging.log4j:log4j-api:2.21.1")
-        }
-
     }
 }
 
-
-   // configurations.all {
-       // exclude (group="org.apache.logging.log4j")
-       // exclude (group="org.slf4j")
-   // }
 
 
 dependencies {
@@ -173,9 +168,15 @@ dependencies {
     implementation("com.madgag:scpkix-jdk15on:1.47.0.1")
 
     // Networking
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.9.3")
+
+
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+    implementation("com.squareup.retrofit2:converter-scalars:2.11.0")
+
 
     // UI & Onboarding
     implementation("com.github.AppIntro:AppIntro:6.3.1")
@@ -197,33 +198,34 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 
-  //implementation("androidx.multidex:multidex:2.0.1")
+    //implementation("androidx.multidex:multidex:2.0.1")
 
 
-
-        // ✅ Android GMS Auth (already likely present)
+    // ✅ Android GMS Auth (already likely present)
     implementation("com.google.android.gms:play-services-auth:21.0.0")
 
 
-        // Apache POI (keep these)
+    // Apache POI – DOCX, PPTX, XLSX support (OOXML)
+    implementation("org.apache.poi:poi:5.2.5")
     implementation("org.apache.poi:poi-ooxml:5.2.5")
-    implementation("org.apache.poi:poi-ooxml-full:5.2.5")
 
-
+// Needed for PPTX, DOCX text extraction (XSLF, XWPF)
+    implementation("org.apache.poi:poi-ooxml-lite:5.2.5") // optional if size matters
+    // POI deps for OPC/ZIP/XML parsing
     implementation("org.apache.xmlbeans:xmlbeans:5.1.1")
+    implementation("org.apache.commons:commons-compress:1.26.1")
+    implementation("com.github.virtuald:curvesapi:1.07")
+
+    implementation("org.tukaani:xz:1.9")
+
+    // StAX (Woodstox)
     implementation("com.fasterxml.woodstox:woodstox-core:6.5.1")
     implementation("org.codehaus.woodstox:stax2-api:4.2.1")
-
-    // Optional helpers (one copy only)
-    implementation("org.apache.commons:commons-lang3:3.14.0")
-    implementation("org.apache.commons:commons-collections4:4.4")
-    implementation("org.apache.commons:commons-compress:1.26.1")
-    implementation("commons-io:commons-io:2.11.0")
-
     implementation("javax.xml.stream:stax-api:1.0-2")
 
+    // Log4j API (used by POI; API only, not the impl)
     implementation("org.apache.logging.log4j:log4j-api:2.20.0")
 
-
-    add("coreLibraryDesugaring", "com.android.tools:desugar_jdk_libs:2.0.4")
+    // Desugaring
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

@@ -1,20 +1,24 @@
 package com.mmalyil.smartdocai.util
 
-
-
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import org.apache.poi.xslf.usermodel.XMLSlideShow
-import org.apache.poi.xslf.usermodel.XSLFShape
-import org.apache.poi.xslf.usermodel.XSLFTextShape
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
-import java.lang.StringBuilder
+
+// DOCX
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 
-import android.util.Log
+// PPTX
+import org.apache.poi.xslf.usermodel.XMLSlideShow
+import org.apache.poi.xslf.usermodel.XSLFTextShape
 
+// XLSX
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import org.apache.poi.ss.usermodel.DataFormatter
+import org.apache.poi.ss.usermodel.Sheet
+import org.apache.poi.ss.usermodel.Row
+import org.apache.poi.ss.usermodel.Cell
 
 object DocumentUtils {
 
@@ -26,8 +30,11 @@ object DocumentUtils {
                 XWPFDocument(input).use { doc ->
                     buildString {
                         for (p in doc.paragraphs) {
-                            val t = p.text?.trim().orEmpty()
-                            if (t.isNotEmpty()) append(t).append('\n')
+                            val t = (p.text ?: "").trim()
+                            if (t.isNotEmpty()) {
+                                append(t)
+                                append('\n')
+                            }
                         }
                     }
                 }
@@ -43,11 +50,14 @@ object DocumentUtils {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 XMLSlideShow(input).use { ppt ->
                     buildString {
-                        ppt.slides.forEach { slide ->
-                            slide.shapes.forEach { shape ->
+                        for (slide in ppt.slides) {
+                            for (shape in slide.shapes) {
                                 if (shape is XSLFTextShape) {
-                                    val t = shape.text?.trim().orEmpty()
-                                    if (t.isNotEmpty()) append(t).append('\n')
+                                    val t = (shape.text ?: "").trim()
+                                    if (t.isNotEmpty()) {
+                                        append(t)
+                                        append('\n')
+                                    }
                                 }
                             }
                         }
@@ -64,15 +74,27 @@ object DocumentUtils {
         return try {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 XSSFWorkbook(input).use { wb ->
+                    val fmt = DataFormatter()
                     buildString {
-                        for (sheet in wb) {
-                            for (row in sheet) {
+                        val sheetCount = wb.numberOfSheets
+                        for (s in 0 until sheetCount) {
+                            val sheet: Sheet = wb.getSheetAt(s) ?: continue
+                            val firstRow = sheet.firstRowNum
+                            val lastRow = sheet.lastRowNum
+                            for (r in firstRow..lastRow) {
+                                val row: Row? = sheet.getRow(r)
+                                if (row == null) continue
                                 var wrote = false
-                                for (cell in row) {
-                                    val v = cell.toString().trim()
-                                    if (v.isNotEmpty()) {
-                                        append(v).append(" | ")
-                                        wrote = true
+                                val lastCell = (row.lastCellNum.toInt().coerceAtLeast(0))
+                                for (c in 0 until lastCell) {
+                                    val cell: Cell? = row.getCell(c)
+                                    if (cell != null) {
+                                        val v = fmt.formatCellValue(cell).trim()
+                                        if (v.isNotEmpty()) {
+                                            append(v)
+                                            append(" | ")
+                                            wrote = true
+                                        }
                                     }
                                 }
                                 if (wrote) append('\n')
@@ -92,9 +114,10 @@ object DocumentUtils {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 BufferedReader(InputStreamReader(input)).use { r ->
                     buildString {
-                        var line = r.readLine()
+                        var line: String? = r.readLine()
                         while (line != null) {
-                            append(line).append('\n')
+                            append(line)
+                            append('\n')
                             line = r.readLine()
                         }
                     }
