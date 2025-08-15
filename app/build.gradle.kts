@@ -28,7 +28,7 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
+        versionCode = 17
         versionName = "1.7"
 
 
@@ -113,6 +113,12 @@ android {
         }
     }
 
+    bundle {
+        abi {
+            enableSplit = true
+        }
+    }
+
     // Keep this minimal. Don’t force/strip random things that POI needs.
     configurations.all {
         // This one prevents an unwanted SLF4J impl from sneaking in
@@ -155,15 +161,15 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.1")
 
     // ML Kit
-    implementation("com.google.mlkit:text-recognition:16.0.0")
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // File & permissions
     implementation("com.github.dhaval2404:imagepicker:2.1")
     implementation("com.karumi:dexter:6.2.3")
 
     // PDF & document support
-    implementation("com.itextpdf:itextpdf:5.5.13.3")
+    implementation("com.itextpdf:itextpdf:5.5.13.4")
     implementation("com.tom-roush:pdfbox-android:1.8.10.3")
     implementation("com.madgag:scpkix-jdk15on:1.47.0.1")
 
@@ -184,8 +190,7 @@ dependencies {
     // Play Integrity
     implementation("com.google.android.play:integrity:1.3.0")
 
-    // MediaPipe
-    implementation("com.google.mediapipe:tasks-vision:0.10.26")
+
 
     // Compose
     implementation("androidx.compose.material3:material3:1.2.0")
@@ -210,7 +215,7 @@ dependencies {
     implementation("org.apache.poi:poi-ooxml:5.2.5")
 
 // Needed for PPTX, DOCX text extraction (XSLF, XWPF)
-    implementation("org.apache.poi:poi-ooxml-lite:5.2.5") // optional if size matters
+   // implementation("org.apache.poi:poi-ooxml-lite:5.2.5") // optional if size matters
     // POI deps for OPC/ZIP/XML parsing
     implementation("org.apache.xmlbeans:xmlbeans:5.1.1")
     implementation("org.apache.commons:commons-compress:1.26.1")

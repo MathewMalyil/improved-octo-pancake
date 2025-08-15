@@ -1,50 +1,54 @@
--keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*
--keep class org.apache.poi.** { *; }
--dontwarn org.apache.poi.**
--dontwarn java.awt.**
--dontwarn org.osgi.**
--dontwarn aQute.bnd.annotation.spi.**
+# Keep generic signatures & annotations (Retrofit/Gson reflection)
+-keepattributes Signature, *Annotation*, InnerClasses, EnclosingMethod, SourceFile, LineNumberTable
 
-# --- Silence optional libs not packaged (XMLBeans → Saxon, StAX validation, OSGi/BND) ---
--dontwarn net.sf.saxon.**
--dontwarn org.codehaus.stax2.validation.**
--dontwarn aQute.bnd.annotation.spi.**
--dontwarn org.osgi.framework.**
-
-# (you likely already have these; ok if duplicated)
--dontwarn org.apache.xmlbeans.**
--dontwarn org.openxmlformats.schemas.**
--dontwarn org.apache.poi.**
--dontwarn okhttp3.**
--dontwarn okio.**
--dontwarn retrofit2.**
--dontwarn com.google.gson.**
-
-# --- Silence optional libs not packaged ---
--dontwarn net.sf.saxon.**
--dontwarn org.codehaus.stax2.validation.**
--dontwarn aQute.bnd.annotation.spi.**
--dontwarn org.osgi.framework.**
-
-# (you probably already have these)
--dontwarn org.apache.xmlbeans.**
--dontwarn org.openxmlformats.schemas.**
--dontwarn org.apache.poi.**
--dontwarn okhttp3.**
--dontwarn okio.**
--dontwarn retrofit2.**
--dontwarn com.google.gson.**
-
-# Keep JSON models/annotations
+# --- Your models & API (Gson/Retrofit) ---
 -keep class com.mmalyil.smartdocai.model.** { *; }
--keepclassmembers class * { @com.google.gson.annotations.SerializedName <fields>; }
-
-# Keep Retrofit interfaces and annotations
 -keep interface com.mmalyil.smartdocai.api.** { *; }
+-keepclassmembers class * { @com.google.gson.annotations.SerializedName <fields>; }
 -keepclasseswithmembers class * { @retrofit2.http.* <methods>; }
 
-# Keep generic signatures & annotations
--keepattributes Signature, *Annotation*, InnerClasses, EnclosingMethod
+# Retrofit / OkHttp / Gson libs
+-dontwarn retrofit2.**
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn com.google.gson.**
+-keep class retrofit2.** { *; }
+-keep interface retrofit2.** { *; }
+-keep class okhttp3.** { *; }
+-keep class com.google.gson.** { *; }
 
-# Optional: retain line numbers
--keepattributes SourceFile,LineNumberTable
+# --- Apache POI + XMLBeans + OOXML ---
+-keep class org.apache.poi.** { *; }
+-keep class org.openxmlformats.schemas.** { *; }
+-keep class org.apache.xmlbeans.** { *; }
+-dontwarn org.apache.poi.**
+-dontwarn org.apache.xmlbeans.**
+-dontwarn org.openxmlformats.schemas.**
+
+# StAX / Woodstox used by POI
+-keep class javax.xml.stream.** { *; }
+-keep class org.codehaus.stax2.** { *; }
+-keep class com.ctc.wstx.** { *; }
+-dontwarn javax.xml.stream.**
+-dontwarn org.codehaus.stax2.**
+-dontwarn com.ctc.wstx.**
+
+# Silence desktop-only/optional bits referenced by POI/log4j
+-dontwarn java.awt.**
+-dontwarn org.osgi.framework.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn aQute.bnd.annotation.spi.**
+
+# ML Kit / CameraX (safe to keep)
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
+-keep class androidx.camera.** { *; }
+-dontwarn androidx.camera.**
+
+# PdfBox-Android
+-keep class com.tom_roush.** { *; }
+-dontwarn com.tom_roush.**
+
+# Your app entry points
+-keep public class com.mmalyil.smartdocai.**Activity { *; }
+-keep public class com.mmalyil.smartdocai.SmartDocAIApp { *; }
