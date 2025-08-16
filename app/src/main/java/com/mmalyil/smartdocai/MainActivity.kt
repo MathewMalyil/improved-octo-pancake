@@ -2,19 +2,14 @@ package com.mmalyil.smartdocai
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
-
-import android.widget.Toast
-
 import android.content.Intent
-
 import com.google.android.material.bottomnavigation.BottomNavigationView
-
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import android.widget.LinearLayout
 import androidx.activity.enableEdgeToEdge
-import androidx.core.content.ContentProviderCompat.requireContext
 import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
+import androidx.core.os.bundleOf
 
 // This is the main activity for the SmartDocAI application
 
@@ -65,8 +60,6 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-
-
         // Initialize BottomNavigationView and set up item selection listener
 
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
@@ -81,6 +74,7 @@ class MainActivity : AppCompatActivity() {
             }
             selectedFragment?.let {
                 supportFragmentManager.beginTransaction()
+                    .setReorderingAllowed(true)
                     .replace(R.id.contentFrame, it, it::class.java.simpleName)
                     .commit()
                 true
@@ -90,10 +84,10 @@ class MainActivity : AppCompatActivity() {
         // Load HomeFragment on first launch
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
+                .setReorderingAllowed(true)
                 .replace(R.id.contentFrame, HomeFragment(), HomeFragment::class.java.simpleName)
                 .commit()
         }
-
 
 
         val fab = findViewById<FloatingActionButton>(R.id.fab)
@@ -103,68 +97,41 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-
-
     private fun showFabActionSheet() {
         val bottomSheet = layoutInflater.inflate(R.layout.dialog_fab_actions, null)
+        val dialog = BottomSheetDialog(this).apply { setContentView(bottomSheet) }
 
-        val dialog = BottomSheetDialog(this)
-        dialog.setContentView(bottomSheet)
+        // helper to switch to Tools and then send the action
+        fun goToToolsAndAsk(action: String) {
+            // 1) switch tabs first so ToolsFragment is (re)created
+            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
+            nav.selectedItemId = R.id.nav_tools
 
+            // 2) post result on next loop so listener in ToolsFragment(onCreate) is ready
+            window.decorView.post {
+                supportFragmentManager.setFragmentResult(
+                    "toolsFabRequest",
+                    bundleOf("action" to action)
+                )
+            }
+
+            dialog.dismiss()
+        }
+
+        // ⬇️ these MUST be OUTSIDE the function
         bottomSheet.findViewById<LinearLayout>(R.id.actionUpload)?.setOnClickListener {
-            val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
-
-            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
-            nav.selectedItemId = R.id.nav_tools
-
-// Delay trigger just a bit to let fragment load
-            nav.postDelayed({
-                val toolsFragment = supportFragmentManager.findFragmentByTag(ToolsFragment::class.java.simpleName)
-                if (toolsFragment is ToolsFragment) {
-                    toolsFragment.triggerUploadFromFab()
-                } else {
-                    Toast.makeText(this, "Please try again", Toast.LENGTH_SHORT).show()
-                }
-            }, 150)
-            dialog.dismiss()
+            goToToolsAndAsk("upload")
         }
-
         bottomSheet.findViewById<LinearLayout>(R.id.actionScan)?.setOnClickListener {
-            val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
-            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
-            nav.selectedItemId = R.id.nav_tools
-// Delay trigger just a bit to let fragment load
-            nav.postDelayed({
-                val toolsFragment = supportFragmentManager.findFragmentByTag(ToolsFragment::class.java.simpleName)
-                if (toolsFragment is ToolsFragment) {
-                    toolsFragment.triggerScanFromFab()
-                } else {
-                    Toast.makeText(this, "Please try again", Toast.LENGTH_SHORT).show()
-                }
-            }, 150)
-            dialog.dismiss()
+            goToToolsAndAsk("scan")
         }
-
         bottomSheet.findViewById<LinearLayout>(R.id.actionPickImage)?.setOnClickListener {
-            val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
-            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
-            nav.selectedItemId = R.id.nav_tools
-// Delay trigger just a bit to let fragment load
-            nav.postDelayed({
-                val toolsFragment = supportFragmentManager.findFragmentByTag(ToolsFragment::class.java.simpleName)
-                if (toolsFragment is ToolsFragment) {
-                    toolsFragment.triggerPickImageFromFab()
-                } else {
-                    Toast.makeText(this, "Please try again", Toast.LENGTH_SHORT).show()
-                }
-            }, 150)
-            dialog.dismiss()
+            goToToolsAndAsk("pickImage")
         }
 
         dialog.show()
     }
 }
-
 
 
 

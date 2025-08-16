@@ -93,13 +93,13 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("boolean", "USE_GOOGLE_DOCS", "true")
+            buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
             // leave shrink/minify off in debug by default
             isMinifyEnabled = false
             isShrinkResources = false
         }
         release {
-            buildConfigField("boolean", "USE_GOOGLE_DOCS", "true")
+            buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
 
             // 🚨 Turn OFF minify & shrink to match the working behavior on device
             isMinifyEnabled = false
@@ -152,7 +152,7 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.6.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // CameraX
     implementation("androidx.camera:camera-core:1.3.1")
@@ -207,7 +207,7 @@ dependencies {
 
 
     // ✅ Android GMS Auth (already likely present)
-    implementation("com.google.android.gms:play-services-auth:21.0.0")
+    implementation("com.google.android.gms:play-services-auth:21.1.1")
 
 
     // Apache POI – DOCX, PPTX, XLSX support (OOXML)

@@ -42,11 +42,9 @@ import android.app.PendingIntent
 import java.util.Calendar
 import android.app.Activity
 import android.widget.ProgressBar
-
 import com.mmalyil.smartdocai.api.ChatApiHelper
 import com.mmalyil.smartdocai.model.ChatMessage
 import com.mmalyil.smartdocai.model.ChatRequest
-
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.mmalyil.smartdocai.util.UsageManager
@@ -58,17 +56,20 @@ import com.mmalyil.smartdocai.util.DocumentUtils
 import com.mmalyil.smartdocai.BuildConfig
 
 import android.accounts.Account
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.GoogleAuthUtil
 import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import kotlinx.coroutines.tasks.await
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-
+import kotlin.coroutines.resumeWithException
 import kotlin.io.use
 
-import kotlinx.coroutines.*
+
 
 
 class ToolsFragment : Fragment() {
@@ -86,6 +87,13 @@ class ToolsFragment : Fragment() {
     private lateinit var btnExportTxt: Button
     private lateinit var btnExportPdf: Button
 
+    private val TAG = "SmartDocAI/Tools"
+
+    private lateinit var docPickerLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
+    private lateinit var imagePickerLauncher: androidx.activity.result.ActivityResultLauncher<String>
+
+
+
     private var extractedText = ""
     private var aiAnswer = ""
     private var selectedFileName = ""
@@ -94,23 +102,7 @@ class ToolsFragment : Fragment() {
     private val PICK_DOCUMENT_REQUEST_CODE = 1001
     private lateinit var scannedFileViewModel: ScannedFileViewModel
 
-    private val imagePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri -> uri?.let { processImageForOCR(it) } }
 
-    private val filePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result: ActivityResult ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.data?.let { uri ->
-                requireContext().contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-                handlePickedDocument(uri)
-            }
-        }
-    }
 
     private val RC_GOOGLE_SIGN_IN = 1001
 
@@ -120,6 +112,8 @@ class ToolsFragment : Fragment() {
 
     private var pendingAccount: GoogleSignInAccount? = null
     private var pendingToken: String? = null
+
+
 
     // Call this from your Upload FAB (you can wire it like "Import from Google Docs")
     private fun showUploadOptionsDialog() {
@@ -428,14 +422,19 @@ class ToolsFragment : Fragment() {
         }
     }
 
-    private fun extractPdfBlocking(uri: Uri): String = try {
-        val input = requireContext().contentResolver.openInputStream(uri)
-        val doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(input)
-        val text = com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
-        doc.close()
-        text
-    } catch (e: Exception) {
-        "Failed to read PDF: ${e.message}"
+    private fun extractPdfBlocking(uri: Uri): String {
+        val appCtx = context?.applicationContext
+            ?: return "Failed to read PDF: no context"
+
+        return try {
+            appCtx.contentResolver.openInputStream(uri)?.use { input ->
+                com.tom_roush.pdfbox.pdmodel.PDDocument.load(input).use { doc ->
+                    com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
+                }
+            } ?: "Failed to read PDF: null input stream"
+        } catch (e: Exception) {
+            "Failed to read PDF: ${e.message}"
+        }
     }
 
     private fun guessExtension(mime: String) = when (mime) {
@@ -477,21 +476,7 @@ class ToolsFragment : Fragment() {
     }
 
 
-    private val docPickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                requireContext().contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: SecurityException) { /* some providers don't grant persistable; ignore */
-            }
-            handlePickedDocument(uri)
-        } else {
-            toast("No file selected")
-        }
-    }
+
 
     private fun openFilePicker() {
         val mimeTypes = arrayOf(
@@ -506,10 +491,57 @@ class ToolsFragment : Fragment() {
     }
 
     fun triggerPickImageFromFab() {
-        Toast.makeText(requireContext(), "Image picker launched", Toast.LENGTH_SHORT).show()
+        imagePickerLauncher.launch("image/*")
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
+        // 1) Register the document picker EARLY
+        docPickerLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            android.util.Log.d(TAG, "OpenDocument result uri = $uri")
+            if (uri != null) {
+                try {
+                    requireContext().contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) { /* some providers don't support persistable perms */ }
+                handlePickedDocument(uri)
+            } else {
+                toast("No file selected")
+            }
+        }
+
+        // 2) Register the image picker EARLY
+        imagePickerLauncher = registerForActivityResult(
+            ActivityResultContracts.GetContent()
+        ) { uri ->
+            android.util.Log.d(TAG, "GetContent image uri = $uri")
+            uri?.let { processImageForOCR(it) }
+        }
+
+        // 3) Listen for FAB actions BEFORE view exists
+        parentFragmentManager.setFragmentResultListener("toolsFabRequest", this) { _, bundle ->
+            when (bundle.getString("action")) {
+                "upload"    -> {
+                    android.util.Log.d(TAG, "triggerUploadFromFab()")
+                    triggerUploadFromFab()
+                }
+                "scan"      -> {
+                    android.util.Log.d(TAG, "triggerScanFromFab()")
+                    triggerScanFromFab()
+                }
+                "pickImage" -> {
+                    android.util.Log.d(TAG, "triggerPickImageFromFab()")
+                    triggerPickImageFromFab()
+                }
+            }
+            // Prevent re-trigger after config change
+            parentFragmentManager.clearFragmentResult("toolsFabRequest")
+        }
+    }
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -624,6 +656,8 @@ class ToolsFragment : Fragment() {
         val aiSourceText = view.findViewById<TextView>(R.id.tvAiSource)
 
         UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
+
+
     }
 
 
@@ -641,55 +675,64 @@ class ToolsFragment : Fragment() {
         val name = selectedFileName.lowercase()
 
         when {
+
+            // ✅ null-safe type check
+            type?.startsWith("image/") == true ||
+                    name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") -> {
+                processImageForOCR(uri)
+            }
+
             // PDF
             type?.contains("pdf") == true || name.endsWith(".pdf") -> extractTextFromPdf(uri)
 
             // DOCX
             type?.contains("wordprocessingml") == true || name.endsWith(".docx") -> {
-                CoroutineScope(Dispatchers.IO).launch {
-                    com.mmalyil.smartdocai.util.PoiKnobs.relax()  // <— add this
-                    val text = runCatching {
-                        com.mmalyil.smartdocai.util.PoiSetup.prepare()   // <<< add
-                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromDocx(requireContext(), uri)
-                    }.getOrElse { "Failed to read DOCX: ${it.message}" }
-                    withContext(Dispatchers.Main) { handleResult("DOCX", text) }
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val appCtx = context?.applicationContext ?: return@launch
+                    val text = withContext(Dispatchers.IO) {
+                        com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                        com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                        DocumentUtils.extractTextFromDocx(appCtx, uri)
+                    }
+                    handleResult("DOCX", text)
                 }
             }
 
             // PPTX
             type?.contains("presentationml") == true || name.endsWith(".pptx") -> {
-                CoroutineScope(Dispatchers.IO).launch {
-                    com.mmalyil.smartdocai.util.PoiKnobs.relax()  // <— add this
-                    val text = runCatching {
-                        com.mmalyil.smartdocai.util.PoiSetup.prepare()   // <<< add
-                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromPptx(requireContext(), uri)
-                    }.getOrElse { "Failed to read PPTX: ${it.message}" }
-                    withContext(Dispatchers.Main) { handleResult("PPTX", text) }
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val appCtx = context?.applicationContext ?: return@launch
+                    val text = withContext(Dispatchers.IO) {
+                        com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                        com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                        DocumentUtils.extractTextFromPptx(appCtx, uri)
+                    }
+                    handleResult("PPTX", text)
                 }
             }
 
-            // XLSX (and old .xls)
+            // XLSX (and .xls)
             (type?.contains("spreadsheetml") == true || type == "application/vnd.ms-excel" ||
                     name.endsWith(".xlsx") || name.endsWith(".xls")) -> {
-                CoroutineScope(Dispatchers.IO).launch {
-                    com.mmalyil.smartdocai.util.PoiKnobs.relax()  // <— add this
-                    val text = runCatching {
-                        com.mmalyil.smartdocai.util.PoiSetup.prepare()   // <<< add
-                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromXlsx(requireContext(), uri)
-                    }.getOrElse { "Failed to read XLSX: ${it.message}" }
-                    withContext(Dispatchers.Main) { handleResult("XLSX", text) }
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val appCtx = context?.applicationContext ?: return@launch
+                    val text = withContext(Dispatchers.IO) {
+                        com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                        com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                        DocumentUtils.extractTextFromXlsx(appCtx, uri)
+                    }
+                    handleResult("XLSX", text)
                 }
             }
 
             // CSV
             type == "text/csv" || name.endsWith(".csv") -> {
-                CoroutineScope(Dispatchers.IO).launch {
-                    val text = runCatching {
-                        com.mmalyil.smartdocai.util.DocumentUtils.extractTextFromCsv(
-                            requireContext(), uri
-                        )
-                    }.getOrElse { "Failed to read CSV: ${it.message}" }
-                    withContext(Dispatchers.Main) { handleResult("CSV", text) }
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val appCtx = context?.applicationContext ?: return@launch
+                    val text = withContext(Dispatchers.IO) {
+                        DocumentUtils.extractTextFromCsv(appCtx, uri)
+                    }
+                    handleResult("CSV", text)
                 }
             }
 
@@ -730,35 +773,45 @@ class ToolsFragment : Fragment() {
 
 
     private fun processImageForOCR(uri: Uri) {
-        try {
-            val inputImage = InputImage.fromFilePath(requireContext(), uri)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            recognizer.process(inputImage)
-                .addOnSuccessListener {
-                    extractedText = it.text
-                    pdfTextDisplay.text = it.text
-                    toast("Text extracted from image successfully!")
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ctx = context ?: return@launch
+            val text = withContext(Dispatchers.IO) {
+                try {
+                    val img = InputImage.fromFilePath(ctx, uri)
+                    TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                        .process(img).await()
+                        .text
+                } catch (e: Exception) {
+                    "[OCR failed: ${e.message}]"
                 }
-                .addOnFailureListener { toast("OCR failed: ${it.message}") }
-        } catch (e: Exception) {
-            toast("Failed to load image: ${e.message}")
+            }
+            if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+            extractedText = text
+            pdfTextDisplay.text = text
+            toast("Text extracted from image")
         }
     }
 
     private fun extractTextFromPdf(uri: Uri) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val input = requireContext().contentResolver.openInputStream(uri)
-                val doc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(input)
-                val text = com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
-                doc.close()
-                withContext(Dispatchers.Main) {
-                    extractedText = text
-                    showExtractedText("PDF loaded")
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) { toast("Error reading PDF: ${e.message}") }
+        // Grab a safe context up front; if we're already detached, just bail.
+        val appCtx = context?.applicationContext ?: return
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                // All I/O off the main thread, and everything .use{}-scoped so it closes safely
+                appCtx.contentResolver.openInputStream(uri)?.use { input ->
+                    com.tom_roush.pdfbox.pdmodel.PDDocument.load(input).use { doc ->
+                        com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
+                    }
+                } ?: throw IllegalStateException("Unable to open input stream")
             }
+
+            // Only touch UI if the Fragment view is still alive
+            if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+
+            extractedText = text
+            showExtractedText("PDF loaded")
+            toast("PDF extracted")
         }
     }
 
@@ -1085,8 +1138,15 @@ class ToolsFragment : Fragment() {
         toast(message)
     }
 
+
     private fun toast(msg: String) {
-        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+        if (!isAdded) return
+        val ctx = context ?: return
+        val owner = viewLifecycleOwnerLiveData.value ?: return
+        owner.lifecycleScope.launch(Dispatchers.Main) {
+            if (!isAdded || !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun triggerUploadFromFab() {
