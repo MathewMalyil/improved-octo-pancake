@@ -164,9 +164,6 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
-    // File & permissions
-    implementation("com.github.dhaval2404:imagepicker:2.1")
-    implementation("com.karumi:dexter:6.2.3")
 
     // PDF & document support
     implementation("com.itextpdf:itextpdf:5.5.13.4")
@@ -233,4 +230,9 @@ dependencies {
 
     // Desugaring
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
+// Helpful but optional updates
+    implementation("androidx.activity:activity-ktx:1.9.2")
+    implementation("androidx.fragment:fragment-ktx:1.8.2")
+
 }

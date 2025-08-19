@@ -7,7 +7,6 @@ import androidx.fragment.app.Fragment
 import android.app.Activity.RESULT_OK
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import com.google.mlkit.vision.common.InputImage
@@ -34,7 +33,6 @@ import com.mmalyil.smartdocai.model.AppDatabase
 import com.mmalyil.smartdocai.model.ScannedFileRepository
 import com.mmalyil.smartdocai.model.ScannedFileViewModel
 import android.provider.OpenableColumns
-
 import com.mmalyil.smartdocai.util.GPTUsageManager
 import android.content.Context
 import android.app.AlarmManager
@@ -50,12 +48,13 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.mmalyil.smartdocai.util.UsageManager
 import com.google.android.gms.auth.api.signin.*
 import com.google.android.gms.common.api.Scope
-
 import com.mmalyil.smartdocai.util.DocumentUtils
 
 import com.mmalyil.smartdocai.BuildConfig
 
 import android.accounts.Account
+import android.widget.Spinner
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.GoogleAuthUtil
@@ -66,7 +65,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.coroutines.resumeWithException
+
 import kotlin.io.use
 
 
@@ -90,8 +89,11 @@ class ToolsFragment : Fragment() {
     private val TAG = "SmartDocAI/Tools"
 
     private lateinit var docPickerLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
-    private lateinit var imagePickerLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    // Single image picker (Photo Picker)
+    private lateinit var imagePickerLauncher: androidx.activity.result.ActivityResultLauncher<PickVisualMediaRequest>
 
+    // 1) Add a second launcher for legacy image picking via SAF (no permissions)
+    private lateinit var imageOpenDocLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
 
 
     private var extractedText = ""
@@ -113,11 +115,13 @@ class ToolsFragment : Fragment() {
     private var pendingAccount: GoogleSignInAccount? = null
     private var pendingToken: String? = null
 
-
+    // Field (nullable instead of lateinit)
+    private var loadingOverlay: View? = null
+    private var loadingSpinner: ProgressBar? = null
 
     // Call this from your Upload FAB (you can wire it like "Import from Google Docs")
     private fun showUploadOptionsDialog() {
-        val base = mutableListOf("Upload File", "Scan Image")
+        val base = mutableListOf("Upload File", "Pick Image", "Scan with Camera")
         if (BuildConfig.USE_GOOGLE_DOCS) base += "Import from Google Docs"
         val options = base.toTypedArray()
 
@@ -126,7 +130,8 @@ class ToolsFragment : Fragment() {
             .setItems(options) { _, which ->
                 when (options[which]) {
                     "Upload File" -> openFilePicker()
-                    "Scan Image" -> imagePickerLauncher.launch("image/*")
+                    "Pick Image" -> pickImageHybrid()
+                    "Scan with Camera" -> triggerScanFromFab()
                     "Import from Google Docs" -> initiateGoogleSignIn()
                 }
             }
@@ -491,13 +496,13 @@ class ToolsFragment : Fragment() {
     }
 
     fun triggerPickImageFromFab() {
-        imagePickerLauncher.launch("image/*")
+        pickImageHybrid()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1) Register the document picker EARLY
+        // 1) Register the document picker EARLY (SAF)
         docPickerLauncher = registerForActivityResult(
             ActivityResultContracts.OpenDocument()
         ) { uri ->
@@ -514,12 +519,29 @@ class ToolsFragment : Fragment() {
             }
         }
 
-        // 2) Register the image picker EARLY
+        // 2a) Register the modern Photo Picker (Android 13+, API 33+)
         imagePickerLauncher = registerForActivityResult(
-            ActivityResultContracts.GetContent()
+            ActivityResultContracts.PickVisualMedia()
         ) { uri ->
-            android.util.Log.d(TAG, "GetContent image uri = $uri")
+            android.util.Log.d(TAG, "PickVisualMedia (single) uri = $uri")
             uri?.let { processImageForOCR(it) }
+        }
+
+        // 2b) Register the fallback image picker (SAF OpenDocument) for API < 33
+        imageOpenDocLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            android.util.Log.d(TAG, "OpenDocument (image fallback) uri = $uri")
+            if (uri != null) {
+                try {
+                    requireContext().contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) { /* ok if not supported */ }
+                processImageForOCR(uri)
+            } else {
+                toast("No image selected")
+            }
         }
 
         // 3) Listen for FAB actions BEFORE view exists
@@ -535,13 +557,27 @@ class ToolsFragment : Fragment() {
                 }
                 "pickImage" -> {
                     android.util.Log.d(TAG, "triggerPickImageFromFab()")
-                    triggerPickImageFromFab()
+                    triggerPickImageFromFab()   // will call the hybrid below
                 }
             }
             // Prevent re-trigger after config change
             parentFragmentManager.clearFragmentResult("toolsFabRequest")
         }
     }
+
+    private fun pickImageHybrid() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            imagePickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+        } else {
+            imageOpenDocLauncher.launch(arrayOf("image/*"))
+        }
+    }
+
+
+
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -626,9 +662,7 @@ class ToolsFragment : Fragment() {
             if (!isChecked && !chkIncludeDoc.isChecked) chkIncludeAI.isChecked = true
         }
 
-        btnPickImage.setOnClickListener {
-            imagePickerLauncher.launch("image/*")
-        }
+        btnPickImage.setOnClickListener { pickImageHybrid() }
 
         val fabUploadScan = view.findViewById<FloatingActionButton>(R.id.fabUploadScan)
         fabUploadScan.setOnClickListener {
@@ -655,13 +689,41 @@ class ToolsFragment : Fragment() {
         val usageBar = view.findViewById<ProgressBar>(R.id.usageProgressBar)
         val aiSourceText = view.findViewById<TextView>(R.id.tvAiSource)
 
+        loadingOverlay = view.findViewById(R.id.loadingOverlay)
+        loadingSpinner = view.findViewById(R.id.loadingSpinner)
+
+        loadingOverlay?.visibility = View.VISIBLE
+        loadingOverlay?.postDelayed({ loadingOverlay?.visibility = View.GONE }, 1000)
+
+
         UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
 
 
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        loadingOverlay = null
+        loadingSpinner = null
+    }
+
+
+    // Safe show/hide
+    private fun showLoading(show: Boolean) {
+        val overlay = loadingOverlay ?: return
+        // always run on main
+        view?.post {
+            if (show) {
+                overlay.visibility = View.VISIBLE
+                overlay.bringToFront()
+            } else {
+                overlay.visibility = View.GONE
+            }
+        }
+    }
 
     private fun handlePickedDocument(uri: Uri) {
+        showLoading(true)
         selectedFileUri = uri.toString()
 
         // Resolve display name
@@ -674,69 +736,104 @@ class ToolsFragment : Fragment() {
         val type = requireContext().contentResolver.getType(uri)
         val name = selectedFileName.lowercase()
 
-        when {
+        fun onDone(kind: String, text: String) {
+            handleResult(kind, text)
+            showLoading(false)
+        }
 
-            // ✅ null-safe type check
+        when {
             type?.startsWith("image/") == true ||
                     name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") -> {
-                processImageForOCR(uri)
+                // processImageForOCR already does IO off main; just ensure we hide when done
+                viewLifecycleOwner.lifecycleScope.launch {
+                    processImageForOCR(uri)   // see B) below for adding show/hide inside
+                    showLoading(false)
+                }
             }
 
-            // PDF
-            type?.contains("pdf") == true || name.endsWith(".pdf") -> extractTextFromPdf(uri)
+            type?.contains("pdf") == true || name.endsWith(".pdf") -> {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        val text = withContext(Dispatchers.IO) { extractPdfBlocking(uri) }
+                        onDone("PDF", text)
+                    } catch (e: Exception) {
+                        showLoading(false)
+                        toast("PDF read error: ${e.message}")
+                    }
+                }
+            }
 
-            // DOCX
             type?.contains("wordprocessingml") == true || name.endsWith(".docx") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val appCtx = context?.applicationContext ?: return@launch
-                    val text = withContext(Dispatchers.IO) {
-                        com.mmalyil.smartdocai.util.PoiKnobs.relax()
-                        com.mmalyil.smartdocai.util.PoiSetup.prepare()
-                        DocumentUtils.extractTextFromDocx(appCtx, uri)
+                    try {
+                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val text = withContext(Dispatchers.IO) {
+                            com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                            com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                            DocumentUtils.extractTextFromDocx(appCtx, uri)
+                        }
+                        onDone("DOCX", text)
+                    } catch (e: Exception) {
+                        showLoading(false)
+                        toast("DOCX read error: ${e.message}")
                     }
-                    handleResult("DOCX", text)
                 }
             }
 
-            // PPTX
             type?.contains("presentationml") == true || name.endsWith(".pptx") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val appCtx = context?.applicationContext ?: return@launch
-                    val text = withContext(Dispatchers.IO) {
-                        com.mmalyil.smartdocai.util.PoiKnobs.relax()
-                        com.mmalyil.smartdocai.util.PoiSetup.prepare()
-                        DocumentUtils.extractTextFromPptx(appCtx, uri)
+                    try {
+                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val text = withContext(Dispatchers.IO) {
+                            com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                            com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                            DocumentUtils.extractTextFromPptx(appCtx, uri)
+                        }
+                        onDone("PPTX", text)
+                    } catch (e: Exception) {
+                        showLoading(false)
+                        toast("PPTX read error: ${e.message}")
                     }
-                    handleResult("PPTX", text)
                 }
             }
 
-            // XLSX (and .xls)
             (type?.contains("spreadsheetml") == true || type == "application/vnd.ms-excel" ||
                     name.endsWith(".xlsx") || name.endsWith(".xls")) -> {
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val appCtx = context?.applicationContext ?: return@launch
-                    val text = withContext(Dispatchers.IO) {
-                        com.mmalyil.smartdocai.util.PoiKnobs.relax()
-                        com.mmalyil.smartdocai.util.PoiSetup.prepare()
-                        DocumentUtils.extractTextFromXlsx(appCtx, uri)
+                    try {
+                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val text = withContext(Dispatchers.IO) {
+                            com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                            com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                            DocumentUtils.extractTextFromXlsx(appCtx, uri)
+                        }
+                        onDone("XLSX", text)
+                    } catch (e: Exception) {
+                        showLoading(false)
+                        toast("XLSX read error: ${e.message}")
                     }
-                    handleResult("XLSX", text)
                 }
             }
 
-            // CSV
             type == "text/csv" || name.endsWith(".csv") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val appCtx = context?.applicationContext ?: return@launch
-                    val text = withContext(Dispatchers.IO) {
-                        DocumentUtils.extractTextFromCsv(appCtx, uri)
+                    try {
+                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val text = withContext(Dispatchers.IO) {
+                            DocumentUtils.extractTextFromCsv(appCtx, uri)
+                        }
+                        onDone("CSV", text)
+                    } catch (e: Exception) {
+                        showLoading(false)
+                        toast("CSV read error: ${e.message}")
                     }
-                    handleResult("CSV", text)
                 }
             }
 
-            else -> toast("Unsupported file: $type")
+            else -> {
+                showLoading(false)
+                toast("Unsupported file: $type")
+            }
         }
     }
 
@@ -773,8 +870,9 @@ class ToolsFragment : Fragment() {
 
 
     private fun processImageForOCR(uri: Uri) {
+        showLoading(true)
         viewLifecycleOwner.lifecycleScope.launch {
-            val ctx = context ?: return@launch
+            val ctx = context ?: return@launch.also { showLoading(false) }
             val text = withContext(Dispatchers.IO) {
                 try {
                     val img = InputImage.fromFilePath(ctx, uri)
@@ -785,35 +883,37 @@ class ToolsFragment : Fragment() {
                     "[OCR failed: ${e.message}]"
                 }
             }
-            if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+            if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                showLoading(false); return@launch
+            }
             extractedText = text
             pdfTextDisplay.text = text
             toast("Text extracted from image")
+            showLoading(false)
         }
     }
 
     private fun extractTextFromPdf(uri: Uri) {
-        // Grab a safe context up front; if we're already detached, just bail.
         val appCtx = context?.applicationContext ?: return
-
+        showLoading(true)
         viewLifecycleOwner.lifecycleScope.launch {
             val text = withContext(Dispatchers.IO) {
-                // All I/O off the main thread, and everything .use{}-scoped so it closes safely
                 appCtx.contentResolver.openInputStream(uri)?.use { input ->
                     com.tom_roush.pdfbox.pdmodel.PDDocument.load(input).use { doc ->
                         com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
                     }
                 } ?: throw IllegalStateException("Unable to open input stream")
             }
-
-            // Only touch UI if the Fragment view is still alive
-            if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
-
+            if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                showLoading(false); return@launch
+            }
             extractedText = text
             showExtractedText("PDF loaded")
             toast("PDF extracted")
+            showLoading(false)
         }
     }
+
 
     private fun analyzeSmartlyWithQuota(
         context: Context,

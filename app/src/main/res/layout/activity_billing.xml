@@ -20,7 +20,7 @@
         android:id="@+id/btnUpgrade"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Upgrade to GPT-4o Pro (₹199/month)" />
+        android:text="Upgrade to GPT-4o Pro" />
 
     <Button
         android:id="@+id/btnBack"
