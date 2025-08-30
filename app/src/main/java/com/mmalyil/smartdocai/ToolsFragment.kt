@@ -49,11 +49,8 @@ import com.mmalyil.smartdocai.util.UsageManager
 import com.google.android.gms.auth.api.signin.*
 import com.google.android.gms.common.api.Scope
 import com.mmalyil.smartdocai.util.DocumentUtils
-
 import com.mmalyil.smartdocai.BuildConfig
-
 import android.accounts.Account
-import android.widget.Spinner
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -65,9 +62,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-
 import kotlin.io.use
-
+import android.content.ClipData
 
 
 
@@ -1188,21 +1184,22 @@ class ToolsFragment : Fragment() {
     private fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
         val content = buildExportContent(includeDoc, includeAI)
         val file = File(requireContext().getExternalFilesDir(null), "SmartDocAI_Export.pdf")
+
         val document = Document()
-        PdfWriter.getInstance(document, FileOutputStream(file))
-        document.open()
-        document.add(Paragraph(content))
-        document.close()
-        val uri = FileProvider.getUriForFile(
-            requireContext(),
-            "com.mmalyil.smartdocai.fileprovider",
-            file
-        )
+        FileOutputStream(file).use { fos ->
+            PdfWriter.getInstance(document, fos)
+            document.open()
+            document.add(Paragraph(content))
+            document.close() // Document isn't Closeable, so close it manually
+        }
+
+        val uri = getFileUri(requireContext(), file.name)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI PDF Export")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
         }
         startActivity(Intent.createChooser(intent, "Share PDF via"))
     }
@@ -1211,19 +1208,18 @@ class ToolsFragment : Fragment() {
         val content = buildExportContent(includeDoc, includeAI)
         val file = File(requireContext().getExternalFilesDir(null), "SmartDocAI_Export.txt")
         file.writeText(content)
-        val uri = FileProvider.getUriForFile(
-            requireContext(),
-            "com.mmalyil.smartdocai.fileprovider",
-            file
-        )
+
+        val uri = getFileUri(requireContext(), file.name)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI TXT Export")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
         }
         startActivity(Intent.createChooser(intent, "Share TXT via"))
     }
+
 
     private fun buildExportContent(includeDoc: Boolean, includeAI: Boolean): String {
         val builder = StringBuilder()
@@ -1304,6 +1300,27 @@ class ToolsFragment : Fragment() {
             calendar.timeInMillis,
             AlarmManager.INTERVAL_DAY,
             pendingIntent
+        )
+    }
+
+
+
+    fun getFileUri(context: Context, fileName: String, subDir: String = ""): Uri {
+        // Store inside your app-specific external files dir (safe under scoped storage)
+        val dir = if (subDir.isNotEmpty()) {
+            File(context.getExternalFilesDir(null), subDir)
+        } else {
+            context.getExternalFilesDir(null)
+        }
+        if (dir != null && !dir.exists()) dir.mkdirs()
+
+        val file = File(dir, fileName)
+
+        // Match authority declared in manifest: "${applicationId}.fileprovider"
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
         )
     }
 }

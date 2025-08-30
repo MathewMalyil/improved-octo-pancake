@@ -5,72 +5,100 @@
     android:id="@+id/chatRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?android:attr/windowBackground"
+    android:background="?attr/colorSurface"
     android:padding="8dp">
 
-    <!-- RecyclerView for chat messages -->
+    <!-- Messages -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chatRecyclerView"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:overScrollMode="never"
         android:clipToPadding="false"
-        android:paddingBottom="8dp"
-        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-        app:layout_constraintTop_toTopOf="parent"
+        android:paddingTop="8dp"
+        android:paddingBottom="80dp"
+    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+    app:layout_constraintTop_toTopOf="parent"
+    app:layout_constraintBottom_toTopOf="@+id/modelChip"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Model chip -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/modelChip"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+        app:cardCornerRadius="16dp"
+        app:strokeWidth="0dp"
         app:layout_constraintBottom_toTopOf="@+id/inputLayout"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        android:layout_marginBottom="6dp"
+        android:layout_marginStart="4dp">
 
+        <TextView
+            android:id="@+id/modelUsedText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="GPT-4o"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"/>
+    </com.google.android.material.card.MaterialCardView>
 
-    <TextView
-        android:id="@+id/modelUsedText"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="Model: -"
-        android:textColor="@android:color/white"
-        android:padding="8dp"
-        android:textSize="14sp"
-        android:gravity="center"
-        app:layout_constraintTop_toBottomOf="@id/chatRecyclerView"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
-
-    <LinearLayout
+    <!-- Input bar -->
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/inputLayout"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
+        app:cardElevation="4dp"
+        app:cardUseCompatPadding="true"
+        app:cardCornerRadius="24dp"
+        app:strokeWidth="0dp"
+        android:padding="6dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Text input -->
-        <EditText
-            android:id="@+id/messageInput"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:minHeight="48dp"
-            android:hint="Type a message..."
-            android:background="@drawable/chat_input_bg"
-            android:padding="12dp"
-            android:textColor="@android:color/black"
-            android:textColorHint="#888888" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <!-- Send button -->
-        <ImageButton
-            android:id="@+id/sendButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="?attr/colorPrimary"
-            android:background="@drawable/round_button"
-            android:src="@android:drawable/ic_menu_send"
-            android:contentDescription="Send" />
-    </LinearLayout>
+            <EditText
+                android:id="@+id/messageInput"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:hint="Ask about PDFs, Word, Excel, PPT…"
+                android:background="@android:color/transparent"
+                android:paddingStart="16dp"
+                android:paddingEnd="12dp"
+                android:inputType="textCapSentences|textAutoCorrect"
+                android:maxLines="4"
+                android:imeOptions="actionSend"
+                />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/sendButton"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton.Icon"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                app:icon="@android:drawable/ic_menu_send"
+                app:iconTint="?attr/colorOnPrimary"
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="24dp"
+                android:contentDescription="Send"/>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

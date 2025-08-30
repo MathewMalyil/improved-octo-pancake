@@ -42,7 +42,7 @@ class SettingsFragment : Fragment() {
         }
 
         view.findViewById<Button>(R.id.btnPrivacyPolicy).setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://docs.google.com/document/d/12ymF8jNmpgU9ncWeo7C0aDdIXzvu4jJsY8FTLC_CVTE/edit?usp=sharinglace with your doc link"))
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://mathewmalyil.github.io/smartdocai-privacy/"))
 
             startActivity(intent)
 

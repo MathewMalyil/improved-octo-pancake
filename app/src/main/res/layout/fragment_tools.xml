@@ -80,7 +80,7 @@
                         android:id="@+id/selectPdfButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Upload PDF Document"
+                        android:text="Upload Documents"
                         app:icon="@drawable/ic_upload"
                         app:iconPadding="8dp"
                         app:iconGravity="textStart"

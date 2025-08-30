@@ -2,19 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Required permissions -->
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-
-    <!-- Camera features -->
-
-    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- Camera capabilities (not strictly required, but fine) -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <application
+        android:name=".SmartDocAIApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -23,33 +22,59 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.SmartDocAI"
-        android:name=".SmartDocAIApp"
-
-
-
         tools:ignore="GoogleAppIndexingWarning">
 
         <!-- Receivers -->
-        <receiver android:name=".UsageResetReceiver" />
+        <!-- No intent-filter => keep it internal -->
+        <receiver
+            android:name=".UsageResetReceiver"
+            android:exported="false" />
 
-        <receiver android:name=".BootReceiver" android:exported="true">
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
         <!-- Activities -->
-        <activity android:name=".ScanActivity" />
-        <activity android:name=".AIChatActivity" />
-        <activity android:name=".model.ScannedFileDetailActivity" />
-        <activity android:name=".FeedbackActivity" />
-        <activity android:name=".HelpFaqActivity" />
-        <activity android:name=".BillingActivity"
-            android:exported="false"
-            android:launchMode="singleTop"/>
-        <activity android:name=".PrivacyPolicyActivity" />
-        <activity android:name=".TermsOfServiceActivity" />
+        <!-- No intent-filter, keep private -->
+        <activity
+            android:name=".ScanActivity"
+            android:exported="false" />
 
+        <activity
+            android:name=".AIChatActivity"
+            android:exported="false"
+            android:windowSoftInputMode="stateVisible|adjustResize" />
+
+        <activity
+            android:name=".model.ScannedFileDetailActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".FeedbackActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".HelpFaqActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".BillingActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <activity
+            android:name=".PrivacyPolicyActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".TermsOfServiceActivity"
+            android:exported="false" />
+
+        <!-- Launcher -->
         <activity
             android:name=".ui.onboarding.OnboardingActivity"
             android:exported="true">
@@ -59,6 +84,7 @@
             </intent-filter>
         </activity>
 
+        <!-- View PDFs from outside -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -70,15 +96,16 @@
             </intent-filter>
         </activity>
 
-        <!-- FileProvider -->
+        <!-- FileProvider: use ${applicationId} to avoid hard-coding -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.mmalyil.smartdocai.fileprovider"
+            android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
     </application>
 </manifest>

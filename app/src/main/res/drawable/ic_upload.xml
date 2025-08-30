@@ -1,9 +1,15 @@
+<!-- res/drawable/ic_file_upload_doc.xml -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="960"
-    android:viewportHeight="960">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <!-- Document shape with folded corner (based on insert_drive_file) -->
   <path
-      android:pathData="M440,640v-326L336,418l-56,-58 200,-200 200,200 -56,58 -104,-104v326h-80ZM240,800q-33,0 -56.5,-23.5T160,720v-120h80v120h480v-120h80v120q0,33 -23.5,56.5T720,800L240,800Z"
-      android:fillColor="#1f1f1f"/>
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M14,2H6C4.9,2 4,2.9 4,4v16c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2V8l-6,-6zM13,9V3.5L18.5,9H13z" />
+  <!-- Upload arrow placed inside the document -->
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M12,8 L8,12 H10.5 V16 H13.5 V12 H16 L12,8 Z" />
 </vector>

@@ -23,6 +23,6 @@ class PrivacyPolicyActivity : AppCompatActivity() {
         webView.webViewClient = WebViewClient()
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
-        webView.loadUrl("https://docs.google.com/document/d/12ymF8jNmpgU9ncWeo7C0aDdIXzvu4jJsY8FTLC_CVTE/edit?usp=sharinglace with your doc link")
+        webView.loadUrl("https://mathewmalyil.github.io/smartdocai-privacy/")
     }
 }

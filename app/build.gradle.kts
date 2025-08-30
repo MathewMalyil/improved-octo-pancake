@@ -7,12 +7,11 @@ plugins {
 }
 
 val localProperties = Properties().apply {
-    val localPropsFile = rootProject.file("local.properties")
-    if (localPropsFile.exists()) {
-        load(localPropsFile.inputStream())
-    }
+    val f = rootProject.file("local.properties")
+    if (f.exists()) load(f.inputStream())
 }
 
+// ✅ Room schema export (for future migrations)
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
@@ -21,30 +20,24 @@ android {
     namespace = "com.mmalyil.smartdocai"
     compileSdk = 35
 
-    val groqApiKey = localProperties["GROQ_API_KEY"] ?: "MISSING_KEY"
-    val openAiApiKey = localProperties["OPENAI_API_KEY"] ?: "DUMMY_OPENAI_KEY"
+    val groqApiKey = (localProperties["GROQ_API_KEY"] ?: "MISSING_KEY").toString()
+    val openAiApiKey = (localProperties["OPENAI_API_KEY"] ?: "DUMMY_OPENAI_KEY").toString()
 
     defaultConfig {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.7"
+        versionCode = 20
+        versionName = "1.9"
 
-
-        // 🚩 Feature flag for Google Docs
-        buildConfigField ("boolean", "USE_GOOGLE_DOCS", "false")
-
-
+        // 🚩 Feature flags
+        buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 🔐 Keys (placeholders if local.properties missing)
         buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
-        javaCompileOptions {
-            annotationProcessorOptions {
-                arguments += mapOf("room.schemaLocation" to "$projectDir/schemas")
-            }
-        }
     }
 
     buildFeatures {
@@ -53,8 +46,10 @@ android {
         compose = true
     }
     composeOptions {
+        // Keep aligned with your Compose libs (1.5.x UI is fine with 1.5.10)
         kotlinCompilerExtensionVersion = "1.5.10"
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -63,15 +58,17 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-    sourceSets {
-        getByName("main").java.srcDirs("build/generated/ksp/main/kotlin")
-    }
+
+    // ❌ Not needed; KSP wires sources automatically and this can cause dupes
+    // sourceSets { getByName("main").java.srcDirs("build/generated/ksp/main/kotlin") }
+
     packaging {
         jniLibs {
+            // Use modern packaging for Play
             useLegacyPackaging = false
         }
         resources {
-            // EITHER exclude duplicates:
+            // Prevent META-INF collisions from POI/XmlBeans/etc.
             excludes += setOf(
                 "META-INF/DEPENDENCIES",
                 "META-INF/LICENSE",
@@ -81,52 +78,47 @@ android {
                 "META-INF/ASL2.0",
                 "META-INF/*.kotlin_module"
             )
-
-            // OR (alternative) keep only the first copy of a file:
+            // Or use pickFirsts if a specific file keeps colliding:
             // pickFirsts += listOf("META-INF/DEPENDENCIES")
-
-
         }
-
-
     }
 
     buildTypes {
         debug {
             buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
-            // leave shrink/minify off in debug by default
             isMinifyEnabled = false
             isShrinkResources = false
         }
         release {
             buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
 
-            // 🚨 Turn OFF minify & shrink to match the working behavior on device
+            // Keep off to avoid POI/XmlBeans obfuscation issues (you can revisit later)
             isMinifyEnabled = false
             isShrinkResources = false
 
-            // You can keep the file — it’s ignored when minify=false
+            // Keep a proguard file ready if you turn minify on later
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
+            // ✅ Make sure you’ve set up a proper signingConfig in your project for Play
+            // signingConfig = signingConfigs.getByName("release")
         }
     }
 
     bundle {
-        abi {
-            enableSplit = true
-        }
+        abi { enableSplit = true }
     }
 
-    // Keep this minimal. Don’t force/strip random things that POI needs.
+    // Keep POI logging clean; avoid bringing a SLF4J impl accidentally
     configurations.all {
-        // This one prevents an unwanted SLF4J impl from sneaking in
         exclude(group = "org.apache.logging.log4j", module = "log4j-slf4j-impl")
     }
+
+    // Optional: don’t fail build on minor lint (can enable before publish if clean)
+    // lint { abortOnError = false }
 }
-
-
 
 dependencies {
     // Core Android
@@ -164,22 +156,17 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
-
-    // PDF & document support
+    // PDF & documents
     implementation("com.itextpdf:itextpdf:5.5.13.4")
     implementation("com.tom-roush:pdfbox-android:1.8.10.3")
     implementation("com.madgag:scpkix-jdk15on:1.47.0.1")
 
     // Networking
-
-
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.retrofit2:converter-scalars:2.11.0")
-
 
     // UI & Onboarding
     implementation("com.github.AppIntro:AppIntro:6.3.1")
@@ -187,9 +174,7 @@ dependencies {
     // Play Integrity
     implementation("com.google.android.play:integrity:1.3.0")
 
-
-
-    // Compose
+    // Compose (matches compiler 1.5.10)
     implementation("androidx.compose.material3:material3:1.2.0")
     implementation("androidx.activity:activity-compose:1.8.0")
     implementation("androidx.compose.material:material-icons-extended:1.5.4")
@@ -200,39 +185,29 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 
-    //implementation("androidx.multidex:multidex:2.0.1")
-
-
-    // ✅ Android GMS Auth (already likely present)
+    // Google Sign-In (for future Google Docs import)
     implementation("com.google.android.gms:play-services-auth:21.1.1")
 
-
-    // Apache POI – DOCX, PPTX, XLSX support (OOXML)
+    // Apache POI – DOCX/PPTX/XLSX
     implementation("org.apache.poi:poi:5.2.5")
     implementation("org.apache.poi:poi-ooxml:5.2.5")
-
-// Needed for PPTX, DOCX text extraction (XSLF, XWPF)
-   // implementation("org.apache.poi:poi-ooxml-lite:5.2.5") // optional if size matters
-    // POI deps for OPC/ZIP/XML parsing
     implementation("org.apache.xmlbeans:xmlbeans:5.1.1")
     implementation("org.apache.commons:commons-compress:1.26.1")
     implementation("com.github.virtuald:curvesapi:1.07")
-
     implementation("org.tukaani:xz:1.9")
 
-    // StAX (Woodstox)
+    // StAX
     implementation("com.fasterxml.woodstox:woodstox-core:6.5.1")
     implementation("org.codehaus.woodstox:stax2-api:4.2.1")
     implementation("javax.xml.stream:stax-api:1.0-2")
 
-    // Log4j API (used by POI; API only, not the impl)
+    // Log4j API only (no impl)
     implementation("org.apache.logging.log4j:log4j-api:2.20.0")
 
     // Desugaring
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
-// Helpful but optional updates
+    // Helpful AndroidX updates
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("androidx.fragment:fragment-ktx:1.8.2")
-
 }
