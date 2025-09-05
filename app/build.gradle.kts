@@ -27,8 +27,8 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "1.9"
+        versionCode = 21
+        versionName = "2.0"
 
         // 🚩 Feature flags
         buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
@@ -210,4 +210,18 @@ dependencies {
     // Helpful AndroidX updates
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("androidx.fragment:fragment-ktx:1.8.2")
+
+
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+
+
+        implementation(platform("androidx.compose:compose-bom:2025.01.00")) // or your current stable
+        implementation("androidx.compose.ui:ui")
+
+        implementation("androidx.compose.foundation:foundation") // <-- pager lives here
+        implementation("androidx.compose.ui:ui-tooling-preview")
+        debugImplementation("androidx.compose.ui:ui-tooling")
+
+
 }

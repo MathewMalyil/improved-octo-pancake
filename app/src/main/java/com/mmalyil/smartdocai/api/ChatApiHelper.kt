@@ -9,7 +9,6 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import okhttp3.Request
 import okhttp3.Response
-import okio.Timeout
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
@@ -52,6 +51,13 @@ object ChatApiHelper {
     private val gson: Gson = GsonBuilder()
         .serializeNulls()
         .disableHtmlEscaping()
+
+        // 🔴 Add this line to actually use your custom deserializer
+        .registerTypeAdapter(
+            com.mmalyil.smartdocai.model.ChatUnifiedResponse::class.java,
+            ChatUnifiedDeserializer()
+        )
+
         .create()
 
     private val client = OkHttpClient.Builder()
@@ -73,6 +79,12 @@ object ChatApiHelper {
         .addConverterFactory(GsonConverterFactory.create(gson))   // then gson
         .client(client)
         .build()
+
+
+    /** Expose Retrofit base URL for diagnostics */
+    val baseUrl: String
+        get() = retrofit.baseUrl().toString()
+
 
     val chatService: ChatProxyService by lazy {
         retrofit.create(ChatProxyService::class.java)

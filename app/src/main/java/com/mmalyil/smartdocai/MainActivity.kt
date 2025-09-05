@@ -8,62 +8,51 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import android.widget.LinearLayout
 import androidx.activity.enableEdgeToEdge
-import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
 import androidx.core.os.bundleOf
-
-// This is the main activity for the SmartDocAI application
-
-
-// MainActivity.kt
-
-
-// Constants for API keys
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+import androidx.lifecycle.lifecycleScope
+import com.mmalyil.smartdocai.prefs.OnboardingPrefs
+import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-
-        enableEdgeToEdge()  // ← solves the issue instantly
-
+        enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
         supportActionBar?.title = "Send Feedback"
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
-        // ✅ Use updated preference key
-        val prefs = getSharedPreferences("prefs", MODE_PRIVATE)
-        val hasCompletedOnboarding = prefs.getBoolean("onboarding_complete", false)
+        // 1) Gate with DataStore once (no legacy SharedPreferences)
+        lifecycleScope.launch {
+            val seen = OnboardingPrefs.hasSeen(this@MainActivity).first()
+            if (!seen) {
+                startActivity(Intent(this@MainActivity, OnboardingActivity::class.java))
+                // Don't finish() — let user come back here after onboarding
+                return@launch
+            } else {
+                // 2) Normal UI init only after onboarding is seen
+                initUi(savedInstanceState)
 
-        if (!hasCompletedOnboarding) {
-            // ✅ Launch your new Compose-based onboarding
-            val intent = Intent(this, OnboardingActivity::class.java)
-            intent.putExtra("replay", true)
-            startActivity(intent)
-            finish()
-            return
+                // 3) If onboarding asked to open Upload, handle it now
+                maybeHandleDeepLinkFromOnboarding(intent)
+            }
         }
+    }
 
+    // If your Activity is relaunched with a new Intent (rare here),
+    // this will still catch the extras.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // keep the new Intent so getIntent() returns it
+        setIntent(intent)
+        maybeHandleDeepLinkFromOnboarding(intent)
+    }
 
-        // Initialize BottomNavigationView and set up item selection listener
-
+    private fun initUi(savedInstanceState: Bundle?) {
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
-
         bottomNav.setOnItemSelectedListener { item ->
             val selectedFragment = when (item.itemId) {
                 R.id.nav_home -> HomeFragment()
@@ -81,7 +70,6 @@ class MainActivity : AppCompatActivity() {
             } ?: false
         }
 
-        // Load HomeFragment on first launch
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
                 .setReorderingAllowed(true)
@@ -89,36 +77,43 @@ class MainActivity : AppCompatActivity() {
                 .commit()
         }
 
-
         val fab = findViewById<FloatingActionButton>(R.id.fab)
-        fab.setOnClickListener {
-            showFabActionSheet()
-        }
+        fab.setOnClickListener { showFabActionSheet() }
     }
 
+    private fun maybeHandleDeepLinkFromOnboarding(intent: Intent) {
+        val openUpload = intent.getBooleanExtra("openUpload", false)
+        if (!openUpload) return
+
+        findViewById<BottomNavigationView>(R.id.bottomNav).selectedItemId = R.id.nav_tools
+
+        window.decorView.post {
+            supportFragmentManager.setFragmentResult(
+                "toolsFabRequest",
+                bundleOf("action" to "upload")
+            )
+        }
+
+        // clear the flag so it doesn't retrigger
+        intent.removeExtra("openUpload")
+    }
 
     private fun showFabActionSheet() {
         val bottomSheet = layoutInflater.inflate(R.layout.dialog_fab_actions, null)
         val dialog = BottomSheetDialog(this).apply { setContentView(bottomSheet) }
 
-        // helper to switch to Tools and then send the action
         fun goToToolsAndAsk(action: String) {
-            // 1) switch tabs first so ToolsFragment is (re)created
             val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
             nav.selectedItemId = R.id.nav_tools
-
-            // 2) post result on next loop so listener in ToolsFragment(onCreate) is ready
             window.decorView.post {
                 supportFragmentManager.setFragmentResult(
                     "toolsFabRequest",
                     bundleOf("action" to action)
                 )
             }
-
             dialog.dismiss()
         }
 
-        // ⬇️ these MUST be OUTSIDE the function
         bottomSheet.findViewById<LinearLayout>(R.id.actionUpload)?.setOnClickListener {
             goToToolsAndAsk("upload")
         }
@@ -132,6 +127,3 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 }
-
-
-

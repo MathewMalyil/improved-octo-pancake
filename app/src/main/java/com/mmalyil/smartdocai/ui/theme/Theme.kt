@@ -12,4 +12,5 @@ fun SmartDocAITheme(content: @Composable () -> Unit) {
         typography = Typography(),
         content = content
     )
+
 }

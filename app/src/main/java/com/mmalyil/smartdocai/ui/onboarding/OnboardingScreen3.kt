@@ -12,7 +12,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun OnboardingScreen3(onNextClick: () -> Unit) {
+fun OnboardingScreen3(
+    onNextClick: () -> Unit,
+    onTryNow: (() -> Unit)? = null // ← NEW (optional)
+) {
     Surface(
         modifier = Modifier
             .fillMaxSize()
@@ -31,7 +34,7 @@ fun OnboardingScreen3(onNextClick: () -> Unit) {
                 imageVector = Icons.Filled.Star,
                 contentDescription = "Upgrade Icon",
                 modifier = Modifier.size(100.dp),
-                tint = Color(0xFFFFC107) // Gold
+                tint = Color(0xFFFFC107)
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -57,14 +60,31 @@ fun OnboardingScreen3(onNextClick: () -> Unit) {
 
             Spacer(modifier = Modifier.weight(1f))
 
-            Button(
-                onClick = onNextClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = MaterialTheme.shapes.medium
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Next", style = MaterialTheme.typography.bodyLarge)
+                if (onTryNow != null) {
+                    OutlinedButton(
+                        onClick = { onTryNow() }, // safe call
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text("Try Upload")
+                    }
+                }
+
+                Button(
+                    onClick = onNextClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text("Next", style = MaterialTheme.typography.bodyLarge)
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

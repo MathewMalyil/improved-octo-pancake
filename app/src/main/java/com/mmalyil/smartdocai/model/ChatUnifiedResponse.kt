@@ -5,7 +5,7 @@ package com.mmalyil.smartdocai.model
 import com.google.gson.annotations.SerializedName
 
 data class ChatUnifiedResponse(
-    @SerializedName("content")   val content: String?,
-    @SerializedName("modelUsed") val modelUsed: String?,
-    @SerializedName("raw")       val raw: String?
+    @SerializedName("content")   val content: String = "",
+    @SerializedName("modelUsed") val modelUsed:  String = "",
+    @SerializedName("raw")       val raw:  String = ""
 )

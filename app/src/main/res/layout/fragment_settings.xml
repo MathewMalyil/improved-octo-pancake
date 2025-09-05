@@ -52,6 +52,19 @@
                     app:backgroundTint="?attr/colorPrimary" />
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnShowGuidedWalkthrough"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Show Guided Walkthrough (Tools)"
+                    android:textStyle="bold"
+                    app:cornerRadius="16dp"
+                    app:iconPadding="8dp"
+                    app:iconGravity="start"
+                    app:backgroundTint="?attr/colorPrimary"
+                    android:layout_marginTop="10dp" />
+
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnHelpFaq"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

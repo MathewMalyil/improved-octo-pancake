@@ -64,8 +64,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.io.use
 import android.content.ClipData
+import android.graphics.RectF
 
+import androidx.core.view.doOnPreDraw
+import kotlinx.coroutines.flow.first
+import org.apache.commons.lang3.StringUtils.overlay
 
+import androidx.core.view.doOnPreDraw
+import kotlinx.coroutines.flow.first
 
 class ToolsFragment : Fragment() {
 
@@ -85,6 +91,7 @@ class ToolsFragment : Fragment() {
     private val TAG = "SmartDocAI/Tools"
 
     private lateinit var docPickerLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
+
     // Single image picker (Photo Picker)
     private lateinit var imagePickerLauncher: androidx.activity.result.ActivityResultLauncher<PickVisualMediaRequest>
 
@@ -101,7 +108,6 @@ class ToolsFragment : Fragment() {
     private lateinit var scannedFileViewModel: ScannedFileViewModel
 
 
-
     private val RC_GOOGLE_SIGN_IN = 1001
 
     private val RC_RECOVER_AUTH = 1002
@@ -115,6 +121,11 @@ class ToolsFragment : Fragment() {
     private var loadingOverlay: View? = null
     private var loadingSpinner: ProgressBar? = null
 
+    private var suppressGuideThisSession = false
+
+
+    // at class level
+    private var coachOverlay: com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay? = null
     // Call this from your Upload FAB (you can wire it like "Import from Google Docs")
     private fun showUploadOptionsDialog() {
         val base = mutableListOf("Upload File", "Pick Image", "Scan with Camera")
@@ -477,8 +488,6 @@ class ToolsFragment : Fragment() {
     }
 
 
-
-
     private fun openFilePicker() {
         val mimeTypes = arrayOf(
             "application/pdf",
@@ -508,7 +517,8 @@ class ToolsFragment : Fragment() {
                     requireContext().contentResolver.takePersistableUriPermission(
                         uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
-                } catch (_: SecurityException) { /* some providers don't support persistable perms */ }
+                } catch (_: SecurityException) { /* some providers don't support persistable perms */
+                }
                 handlePickedDocument(uri)
             } else {
                 toast("No file selected")
@@ -533,7 +543,8 @@ class ToolsFragment : Fragment() {
                     requireContext().contentResolver.takePersistableUriPermission(
                         uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
-                } catch (_: SecurityException) { /* ok if not supported */ }
+                } catch (_: SecurityException) { /* ok if not supported */
+                }
                 processImageForOCR(uri)
             } else {
                 toast("No image selected")
@@ -543,14 +554,16 @@ class ToolsFragment : Fragment() {
         // 3) Listen for FAB actions BEFORE view exists
         parentFragmentManager.setFragmentResultListener("toolsFabRequest", this) { _, bundle ->
             when (bundle.getString("action")) {
-                "upload"    -> {
+                "upload" -> {
                     android.util.Log.d(TAG, "triggerUploadFromFab()")
                     triggerUploadFromFab()
                 }
-                "scan"      -> {
+
+                "scan" -> {
                     android.util.Log.d(TAG, "triggerScanFromFab()")
                     triggerScanFromFab()
                 }
+
                 "pickImage" -> {
                     android.util.Log.d(TAG, "triggerPickImageFromFab()")
                     triggerPickImageFromFab()   // will call the hybrid below
@@ -570,8 +583,6 @@ class ToolsFragment : Fragment() {
             imageOpenDocLauncher.launch(arrayOf("image/*"))
         }
     }
-
-
 
 
     override fun onCreateView(
@@ -695,12 +706,80 @@ class ToolsFragment : Fragment() {
         UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
 
 
+        view.doOnPreDraw {
+            if (suppressGuideThisSession) return@doOnPreDraw
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                val seen = com.mmalyil.smartdocai.prefs.CoachPrefs
+                    .hasSeenCoach(requireContext())
+                    .first()
+                if (seen) return@launch
+
+                fun rectOf(v: View): RectF {
+                    val r = android.graphics.Rect()
+                    v.getGlobalVisibleRect(r)
+                    val rootLoc = IntArray(2); view.getLocationOnScreen(rootLoc)
+                    return RectF(
+                        (r.left - rootLoc[0]).toFloat(),
+                        (r.top - rootLoc[1]).toFloat(),
+                        (r.right - rootLoc[0]).toFloat(),
+                        (r.bottom - rootLoc[1]).toFloat()
+                    )
+                }
+
+                val steps = listOf(
+                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                        rectOf(selectPdfButton),
+                        "Tap here to upload PDFs, DOCX, PPTX, XLSX or images."
+                    ),
+                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                        rectOf(analyzeButton),
+                        "Then analyze with AI to summarize or extract."
+                    ),
+                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                        rectOf(exportShareButton),
+                        "Export or share your results anytime."
+                    )
+                )
+
+                val root = view as? ViewGroup ?: return@launch
+
+                coachOverlay = com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay(
+                    requireContext(),
+                    steps
+                ) {
+                    // onFinish
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), true)
+                    }
+                    coachOverlay?.let { root.removeView(it) }
+                    coachOverlay = null
+                    Toast.makeText(
+                        requireContext(),
+                        "Tip: Replay from Settings anytime.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                root.addView(
+                    coachOverlay,
+                    ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                )
+            }
+        }
     }
 
+
+
     override fun onDestroyView() {
+        (view as? ViewGroup)?.let { parent ->
+            coachOverlay?.let { parent.removeView(it) }
+        }
+        coachOverlay = null
         super.onDestroyView()
-        loadingOverlay = null
-        loadingSpinner = null
     }
 
 
@@ -1323,4 +1402,8 @@ class ToolsFragment : Fragment() {
             file
         )
     }
+
+
+
+
 }

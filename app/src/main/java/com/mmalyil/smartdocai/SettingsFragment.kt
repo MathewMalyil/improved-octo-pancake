@@ -13,9 +13,14 @@ import android.widget.Button
 
 import android.content.Intent
 import android.net.Uri
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.button.MaterialButton
+import com.mmalyil.smartdocai.prefs.CoachPrefs
 
 
 import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
+import kotlinx.coroutines.launch
 
 // SettingsFragment.kt
 
@@ -32,6 +37,23 @@ class SettingsFragment : Fragment() {
             intent.putExtra("replay", true)
             startActivity(intent)
         }
+        // 2) Show the guided walkthrough (coach-marks) again in Tools
+        //    Make sure you added a button with id @+id/btnShowGuidedWalkthrough in fragment_settings.xml
+        view.findViewById<Button>(R.id.btnShowGuidedWalkthrough)?.setOnClickListener {
+            viewLifecycleOwner.lifecycleScope.launch {
+                // Reset the one-time flag
+                CoachPrefs.setCoachSeen(requireContext(), false)
+
+                // Switch to Tools tab so the overlay appears immediately
+                requireActivity()
+                    .findViewById<BottomNavigationView>(R.id.bottomNav)
+                    .selectedItemId = R.id.nav_tools
+            }
+        }
+
+
+
+
 
         view.findViewById<Button>(R.id.btnHelpFaq).setOnClickListener {
             startActivity(Intent(requireContext(), HelpFaqActivity::class.java))

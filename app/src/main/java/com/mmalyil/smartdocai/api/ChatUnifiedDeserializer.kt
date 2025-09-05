@@ -1,53 +1,69 @@
-// app/src/main/java/com/mmalyil/smartdocai/api/ChatApiHelper.kt
 package com.mmalyil.smartdocai.api
 
 import com.google.gson.*
 import com.mmalyil.smartdocai.model.ChatUnifiedResponse
-import okhttp3.Interceptor
-import okhttp3.OkHttpClient
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.lang.reflect.Type
 
-// api/ChatApiHelper.kt (inside ChatUnifiedDeserializer)
-// ChatUnifiedDeserializer.kt (same file you already have)
-// api/ChatApiHelper.kt (keep your existing imports)
 class ChatUnifiedDeserializer : JsonDeserializer<ChatUnifiedResponse> {
-    override fun deserialize(json: JsonElement, typeOfT: Type, ctx: JsonDeserializationContext): ChatUnifiedResponse {
+    override fun deserialize(
+        json: JsonElement,
+        typeOfT: Type,
+        ctx: JsonDeserializationContext
+    ): ChatUnifiedResponse {
         val root = json.asJsonObject
         val raw = root.toString()
 
-        // OpenAI-like: choices[0].message.content
+        fun modelFrom(o: JsonObject): String {
+            return o.get("modelUsed")?.asString
+                ?: o.get("model")?.asString
+                ?: ""
+        }
+
+        // 1) OpenAI/Groq: choices[0].message.content
         root.getAsJsonArray("choices")?.takeIf { it.size() > 0 }?.let { arr ->
             val first = arr[0].asJsonObject
             val msg = first.getAsJsonObject("message")
-            val content = msg?.get("content")?.asString ?: ""
-            val modelUsed = root.get("modelUsed")?.asString
-                ?: root.get("model")?.asString
-                ?: ""
-            return ChatUnifiedResponse(content = content, modelUsed = modelUsed, raw = raw)
+            val content = msg?.get("content")?.asString
+            if (!content.isNullOrBlank()) {
+                return ChatUnifiedResponse(content, modelFrom(root), raw)
+            }
+            // 2) choices[0].text
+            val choiceText = first.get("text")?.asString
+            if (!choiceText.isNullOrBlank()) {
+                return ChatUnifiedResponse(choiceText, modelFrom(root), raw)
+            }
         }
 
-        // Direct content
+        // 3) Direct content
         root.get("content")?.asString?.let { direct ->
-            val modelUsed = root.get("modelUsed")?.asString
-                ?: root.get("model")?.asString
-                ?: ""
-            return ChatUnifiedResponse(content = direct, modelUsed = modelUsed, raw = raw)
+            if (direct.isNotBlank()) {
+                return ChatUnifiedResponse(direct, modelFrom(root), raw)
+            }
         }
 
-        // message.content at root
+        // 4) message.content at root
         root.getAsJsonObject("message")?.get("content")?.asString?.let { mc ->
-            val modelUsed = root.get("modelUsed")?.asString
-                ?: root.get("model")?.asString
-                ?: ""
-            return ChatUnifiedResponse(content = mc, modelUsed = modelUsed, raw = raw)
+            if (mc.isNotBlank()) {
+                return ChatUnifiedResponse(mc, modelFrom(root), raw)
+            }
         }
 
-        // Fallback
-        val modelUsed = root.get("modelUsed")?.asString
-            ?: root.get("model")?.asString
-            ?: ""
-        return ChatUnifiedResponse(content = "", modelUsed = modelUsed, raw = raw)
+        // 5) Root text
+        root.get("text")?.asString?.let { t ->
+            if (t.isNotBlank()) {
+                return ChatUnifiedResponse(t, modelFrom(root), raw)
+            }
+        }
+
+        // 6) Error message (provider error surfaces to user)
+        root.getAsJsonObject("error")?.let { errObj ->
+            val msg = errObj.get("message")?.asString ?: errObj.toString()
+            if (msg.isNotBlank()) {
+                return ChatUnifiedResponse(msg, modelFrom(root), raw)
+            }
+        }
+
+        // Fallback: nothing usable
+        return ChatUnifiedResponse("", modelFrom(root), raw)
     }
 }
