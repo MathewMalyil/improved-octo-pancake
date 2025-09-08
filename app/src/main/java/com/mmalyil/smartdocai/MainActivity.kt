@@ -14,6 +14,9 @@ import com.mmalyil.smartdocai.prefs.OnboardingPrefs
 import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.lifecycle.repeatOnLifecycle
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -21,6 +24,19 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                com.mmalyil.smartdocai.prefs.ThemePrefs
+                    .isDarkMode(this@MainActivity)
+                    .collect { enabled ->
+                        AppCompatDelegate.setDefaultNightMode(
+                            if (enabled) AppCompatDelegate.MODE_NIGHT_YES
+                            else AppCompatDelegate.MODE_NIGHT_NO
+                        )
+                    }
+            }
+        }
 
         supportActionBar?.title = "Send Feedback"
         supportActionBar?.setDisplayHomeAsUpEnabled(true)

@@ -9,5 +9,8 @@
     <color name="colorBackground">#121212</color>
 
     <color name="colorOnBackground">#FFFFFF</color>
+    <!-- ✅ add these -->
+    <color name="colorError">#CF6679</color>
+    <color name="colorOnError">#000000</color>
 
 </resources>

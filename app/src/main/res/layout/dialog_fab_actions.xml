@@ -6,9 +6,9 @@
     android:fitsSystemWindows="true"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@android:color/white">
+    android:background="?attr/colorSurface">
 
-    <!-- 🔹 Action Card Container -->
+    <!-- Action Card Container -->
     <LinearLayout
         android:id="@+id/actionContainer"
         android:layout_width="match_parent"
@@ -18,7 +18,7 @@
         android:elevation="4dp"
         android:padding="8dp">
 
-        <!-- 🔸 Upload Document -->
+        <!-- Upload Document -->
         <LinearLayout
             android:id="@+id/actionUpload"
             android:layout_width="match_parent"
@@ -26,26 +26,26 @@
             android:orientation="horizontal"
             android:padding="12dp"
             android:gravity="center_vertical"
-            android:background="?attr/selectableItemBackground"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:focusable="true">
 
             <ImageView
-                android:src="@drawable/ic_upload"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:layout_marginEnd="12dp"
+                android:src="@drawable/ic_upload"
                 app:tint="?attr/colorPrimary" />
 
             <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:text="Upload Document"
                 android:textSize="16sp"
-                android:textColor="@android:color/black"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:textColor="?attr/colorOnSurface" />
         </LinearLayout>
 
-        <!-- 🔸 Scan Document -->
+        <!-- Scan Document -->
         <LinearLayout
             android:id="@+id/actionScan"
             android:layout_width="match_parent"
@@ -53,26 +53,26 @@
             android:orientation="horizontal"
             android:padding="12dp"
             android:gravity="center_vertical"
-            android:background="?attr/selectableItemBackground"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:focusable="true">
 
             <ImageView
-                android:src="@drawable/ic_camera"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:layout_marginEnd="12dp"
+                android:src="@drawable/ic_camera"
                 app:tint="?attr/colorPrimary" />
 
             <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:text="Scan Document"
                 android:textSize="16sp"
-                android:textColor="@android:color/black"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:textColor="?attr/colorOnSurface" />
         </LinearLayout>
 
-        <!-- 🔸 Pick Image for OCR -->
+        <!-- Pick Image for OCR -->
         <LinearLayout
             android:id="@+id/actionPickImage"
             android:layout_width="match_parent"
@@ -80,24 +80,23 @@
             android:orientation="horizontal"
             android:padding="12dp"
             android:gravity="center_vertical"
-            android:background="?attr/selectableItemBackground"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:focusable="true">
 
             <ImageView
-                android:src="@drawable/ic_image"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:layout_marginEnd="12dp"
+                android:src="@drawable/ic_image"
                 app:tint="?attr/colorPrimary" />
 
             <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:text="Pick Image for OCR"
                 android:textSize="16sp"
-                android:textColor="@android:color/black"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:textColor="?attr/colorOnSurface" />
         </LinearLayout>
     </LinearLayout>
-
 </LinearLayout>

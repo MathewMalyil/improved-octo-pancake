@@ -27,8 +27,8 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
-        versionName = "2.0"
+        versionCode = 22
+        versionName = "2.1"
 
         // 🚩 Feature flags
         buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")

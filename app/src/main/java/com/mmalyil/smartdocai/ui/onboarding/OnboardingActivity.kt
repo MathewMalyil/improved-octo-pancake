@@ -40,7 +40,11 @@ class OnboardingActivity : ComponentActivity() {
         val isReplay = intent?.getBooleanExtra("replay", false) ?: false
 
         setContent {
-            SmartDocAITheme {
+            val darkMode by com.mmalyil.smartdocai.prefs.ThemePrefs
+                .isDarkMode(this)
+                .collectAsState(initial = false)
+
+            com.mmalyil.smartdocai.ui.theme.SmartDocAITheme(darkTheme = darkMode) {
                 val scope = rememberCoroutineScope()
                 val pagerState = rememberPagerState(pageCount = { 4 })
                 var isLastPage by remember { mutableStateOf(false) }
@@ -58,7 +62,7 @@ class OnboardingActivity : ComponentActivity() {
                                     TextButton(onClick = {
                                         scope.launch {
                                             OnboardingPrefs.setSeen(this@OnboardingActivity, true)
-                                            goToMain(openUpload = false)   // ← don’t finish(), navigate
+                                            goToMain(openUpload = false)
                                         }
                                     }) { Text("Skip") }
                                 }
@@ -74,16 +78,12 @@ class OnboardingActivity : ComponentActivity() {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Dots(
-                                    current = pagerState.currentPage,
-                                    total = pagerState.pageCount
-                                )
-
+                                Dots(current = pagerState.currentPage, total = pagerState.pageCount)
                                 Button(onClick = {
                                     scope.launch {
                                         if (isLastPage) {
                                             OnboardingPrefs.setSeen(this@OnboardingActivity, true)
-                                            goToMain(openUpload = false)   // ← go to main on Done
+                                            goToMain(openUpload = false)
                                         } else {
                                             pagerState.animateScrollToPage(pagerState.currentPage + 1)
                                         }
@@ -100,27 +100,24 @@ class OnboardingActivity : ComponentActivity() {
                             .padding(padding)
                     ) { page ->
                         when (page) {
-                            0 -> OnboardingScreen1(
-                                onNextClick = { scope.launch { pagerState.animateScrollToPage(1) } }
-                            )
-                            1 -> OnboardingScreen2(
-                                onNextClick = { scope.launch { pagerState.animateScrollToPage(2) } }
-                            )
+                            0 -> OnboardingScreen1 { scope.launch { pagerState.animateScrollToPage(1) } }
+                            1 -> OnboardingScreen2 { scope.launch { pagerState.animateScrollToPage(2) } }
                             2 -> OnboardingScreen3(
                                 onNextClick = { scope.launch { pagerState.animateScrollToPage(3) } },
                                 onTryNow = {
                                     scope.launch {
                                         OnboardingPrefs.setSeen(this@OnboardingActivity, true)
-                                        goToMain(openUpload = true)       // ← jump into Upload
+                                        goToMain(openUpload = true)
                                     }
                                 }
                             )
-                            3 -> OnboardingScreen4(onGetStarted = {
+
+                            3 -> OnboardingScreen4 {
                                 scope.launch {
                                     OnboardingPrefs.setSeen(this@OnboardingActivity, true)
                                     goToMain(openUpload = false)
                                 }
-                            })
+                            }
                         }
                     }
                 }
@@ -129,17 +126,19 @@ class OnboardingActivity : ComponentActivity() {
     }
 }
 
-@Composable
-private fun Dots(current: Int, total: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        repeat(total) { idx ->
-            val filled = idx == current
-            val alpha = if (filled) 1f else 0.35f
-            Surface(
-                modifier = Modifier.size(if (filled) 10.dp else 8.dp),
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = alpha)
-            ) {}
+
+
+    @Composable
+    private fun Dots(current: Int, total: Int) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(total) { idx ->
+                val filled = idx == current
+                val alpha = if (filled) 1f else 0.35f
+                Surface(
+                    modifier = Modifier.size(if (filled) 10.dp else 8.dp),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+                ) {}
+            }
         }
     }
-}
