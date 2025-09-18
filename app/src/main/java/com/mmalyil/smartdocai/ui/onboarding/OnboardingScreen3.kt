@@ -14,12 +14,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun OnboardingScreen3(
     onNextClick: () -> Unit,
-    onTryNow: (() -> Unit)? = null // ← NEW (optional)
+    onTryNow: (() -> Unit)? = null
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
@@ -28,37 +27,50 @@ fun OnboardingScreen3(
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(Modifier.height(40.dp))
 
             Icon(
                 imageVector = Icons.Filled.Star,
                 contentDescription = "Upgrade Icon",
                 modifier = Modifier.size(100.dp),
-                tint = Color(0xFFFFC107)
+                // Use theme color so it adapts to light/dark. If you want “gold”, keep the hex.
+                tint = MaterialTheme.colorScheme.primary
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(Modifier.height(32.dp))
 
             Text(
                 text = "Power Up with Pro",
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color.Black,
+                color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(Modifier.height(20.dp))
 
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(horizontal = 12.dp)
             ) {
-                Text("🚀 Access GPT-4 for deep analysis", style = MaterialTheme.typography.bodyLarge)
-                Text("📊 More token limits", style = MaterialTheme.typography.bodyLarge)
-                Text("⚡ Faster response times", style = MaterialTheme.typography.bodyLarge)
-                Text("🛡️ Priority AI access", style = MaterialTheme.typography.bodyLarge)
+                Text("🚀 Access GPT-4 for deep analysis",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text("📊 Higher token limits",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text("⚡ Faster responses",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text("🛡️ Priority AI access",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
 
             Row(
                 Modifier.fillMaxWidth(),
@@ -66,7 +78,7 @@ fun OnboardingScreen3(
             ) {
                 if (onTryNow != null) {
                     OutlinedButton(
-                        onClick = { onTryNow() }, // safe call
+                        onClick = onTryNow,
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),
@@ -75,7 +87,6 @@ fun OnboardingScreen3(
                         Text("Try Upload")
                     }
                 }
-
                 Button(
                     onClick = onNextClick,
                     modifier = Modifier
@@ -87,7 +98,7 @@ fun OnboardingScreen3(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

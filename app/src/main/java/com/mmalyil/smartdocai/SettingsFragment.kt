@@ -36,10 +36,18 @@ class SettingsFragment : Fragment() {
 
         view.findViewById<Button>(R.id.btnShowGuidedWalkthrough)?.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch {
-                CoachPrefs.setCoachSeen(requireContext(), false)
+                com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), false)
+
+                // switch to Tools
                 requireActivity()
-                    .findViewById<BottomNavigationView>(R.id.bottomNav)
+                    .findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
                     .selectedItemId = R.id.nav_tools
+
+                // ask ToolsFragment to show immediately
+                requireActivity().supportFragmentManager.setFragmentResult(
+                    "replayCoach",
+                    androidx.core.os.bundleOf("replay" to true)
+                )
             }
         }
 

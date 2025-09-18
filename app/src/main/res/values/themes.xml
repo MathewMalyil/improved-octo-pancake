@@ -26,6 +26,9 @@
         <!-- System bars -->
         <item name="android:statusBarColor" tools:targetApi="l">?attr/colorSurface</item>
         <item name="android:navigationBarColor" tools:targetApi="o_mr1">?attr/colorSurface</item>
+
+
+
     </style>
 
     <!-- Overlay applied automatically to BottomSheetDialogs -->

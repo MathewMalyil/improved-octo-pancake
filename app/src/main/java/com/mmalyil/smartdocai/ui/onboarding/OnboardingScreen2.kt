@@ -15,9 +15,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun OnboardingScreen2(onNextClick: () -> Unit) {
     Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
@@ -32,7 +31,7 @@ fun OnboardingScreen2(onNextClick: () -> Unit) {
                 imageVector = Icons.Filled.AutoAwesome,
                 contentDescription = "AI Features",
                 modifier = Modifier.size(100.dp),
-                tint = Color(0xFF4CAF50) // Green
+                tint = MaterialTheme.colorScheme.primary // uses theme color
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -40,7 +39,7 @@ fun OnboardingScreen2(onNextClick: () -> Unit) {
             Text(
                 text = "Everything You Need, In One Place",
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color.Black,
+                color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center
             )
 
@@ -50,10 +49,26 @@ fun OnboardingScreen2(onNextClick: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(horizontal = 12.dp)
             ) {
-                Text("📄 Scan PDFs, DOCX, PPTX ,XLSX & images", style = MaterialTheme.typography.bodyLarge)
-                Text("🤖 AI-powered text & document analysis", style = MaterialTheme.typography.bodyLarge)
-                Text("🧠 Save files for later", style = MaterialTheme.typography.bodyLarge)
-                Text("☁️ Send uploaded document & AI analyzed document separate or together ", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "📄 Scan PDFs, DOCX, PPTX, XLSX & images",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    "🤖 AI-powered text & document analysis",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    "🧠 Save files for later",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    "☁️ Share uploaded or analyzed docs easily",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
 
             Spacer(modifier = Modifier.weight(1f))

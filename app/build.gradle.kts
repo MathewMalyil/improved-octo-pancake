@@ -20,6 +20,9 @@ android {
     namespace = "com.mmalyil.smartdocai"
     compileSdk = 35
 
+    ndkVersion = "28.0.12433566" // any r28 build you have installed is fine
+
+
     val groqApiKey = (localProperties["GROQ_API_KEY"] ?: "MISSING_KEY").toString()
     val openAiApiKey = (localProperties["OPENAI_API_KEY"] ?: "DUMMY_OPENAI_KEY").toString()
 
@@ -27,8 +30,14 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "2.1"
+        versionCode = 23
+        versionName = "2.2"
+
+
+        ndk {
+            // Ship only what you support. This still satisfies Play’s 64-bit (arm64-v8a) requirement.
+            abiFilters += listOf("arm64-v8a")
+        }
 
         // 🚩 Feature flags
         buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
@@ -38,6 +47,8 @@ android {
         // 🔐 Keys (placeholders if local.properties missing)
         buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
+
+
     }
 
     buildFeatures {
@@ -111,14 +122,25 @@ android {
         abi { enableSplit = true }
     }
 
+}
+
     // Keep POI logging clean; avoid bringing a SLF4J impl accidentally
     configurations.all {
+        resolutionStrategy.force(
+            "androidx.camera:camera-core:1.5.0",
+            "androidx.camera:camera-camera2:1.5.0",
+            "androidx.camera:camera-lifecycle:1.5.0",
+            "androidx.camera:camera-view:1.5.0"
+            // add video/mlkit-vision here if you use them
+        )
+
+
         exclude(group = "org.apache.logging.log4j", module = "log4j-slf4j-impl")
     }
 
     // Optional: don’t fail build on minor lint (can enable before publish if clean)
     // lint { abortOnError = false }
-}
+
 
 dependencies {
     // Core Android
@@ -140,17 +162,18 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     // Billing
-    implementation("com.android.billingclient:billing:6.1.0")
+    implementation("com.android.billingclient:billing:7.0.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // CameraX
-    implementation("androidx.camera:camera-core:1.3.1")
-    implementation("androidx.camera:camera-camera2:1.3.1")
-    implementation("androidx.camera:camera-lifecycle:1.3.1")
-    implementation("androidx.camera:camera-view:1.3.1")
+    val camerax = "1.5.0" // or newer stable
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
 
     // ML Kit
     implementation("com.google.mlkit:text-recognition:16.0.1")
@@ -158,7 +181,7 @@ dependencies {
 
     // PDF & documents
     implementation("com.itextpdf:itextpdf:5.5.13.4")
-    implementation("com.tom-roush:pdfbox-android:1.8.10.3")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.madgag:scpkix-jdk15on:1.47.0.1")
 
     // Networking

@@ -65,14 +65,16 @@ import org.json.JSONObject
 import kotlin.io.use
 import android.content.ClipData
 import android.graphics.RectF
-
-import androidx.core.view.doOnPreDraw
-import kotlinx.coroutines.flow.first
-import org.apache.commons.lang3.StringUtils.overlay
-
+import android.os.StrictMode
 import androidx.core.view.doOnPreDraw
 import kotlinx.coroutines.flow.first
 
+
+// ToolsFragment.kt (top)
+import android.net.TrafficStats
+
+import okhttp3.Interceptor
+import java.util.concurrent.TimeUnit
 class ToolsFragment : Fragment() {
 
     private lateinit var selectPdfButton: Button
@@ -112,7 +114,6 @@ class ToolsFragment : Fragment() {
 
     private val RC_RECOVER_AUTH = 1002
 
-    private val http by lazy { OkHttpClient() }
 
     private var pendingAccount: GoogleSignInAccount? = null
     private var pendingToken: String? = null
@@ -126,6 +127,10 @@ class ToolsFragment : Fragment() {
 
     // at class level
     private var coachOverlay: com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay? = null
+
+    // add at class level
+
+    private var isCoachRunning = false
     // Call this from your Upload FAB (you can wire it like "Import from Google Docs")
     private fun showUploadOptionsDialog() {
         val base = mutableListOf("Upload File", "Pick Image", "Scan with Camera")
@@ -435,13 +440,16 @@ class ToolsFragment : Fragment() {
     }
 
     private fun extractPdfBlocking(uri: Uri): String {
-        val appCtx = context?.applicationContext
-            ?: return "Failed to read PDF: no context"
-
+        val appCtx = context?.applicationContext ?: return "Failed to read PDF: no context"
         return try {
             appCtx.contentResolver.openInputStream(uri)?.use { input ->
                 com.tom_roush.pdfbox.pdmodel.PDDocument.load(input).use { doc ->
-                    com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
+                    val stripper = com.tom_roush.pdfbox.text.PDFTextStripper().apply {
+                        sortByPosition = false
+                        startPage = 1
+                        endPage = doc.numberOfPages
+                    }
+                    stripper.getText(doc)
                 }
             } ?: "Failed to read PDF: null input stream"
         } catch (e: Exception) {
@@ -551,27 +559,58 @@ class ToolsFragment : Fragment() {
             }
         }
 
-        // 3) Listen for FAB actions BEFORE view exists
+        // A) toolsFabRequest
         parentFragmentManager.setFragmentResultListener("toolsFabRequest", this) { _, bundle ->
             when (bundle.getString("action")) {
-                "upload" -> {
-                    android.util.Log.d(TAG, "triggerUploadFromFab()")
-                    triggerUploadFromFab()
-                }
-
-                "scan" -> {
-                    android.util.Log.d(TAG, "triggerScanFromFab()")
-                    triggerScanFromFab()
-                }
-
-                "pickImage" -> {
-                    android.util.Log.d(TAG, "triggerPickImageFromFab()")
-                    triggerPickImageFromFab()   // will call the hybrid below
-                }
+                "upload" -> triggerUploadFromFab()
+                "scan" -> triggerScanFromFab()
+                "pickImage" -> triggerPickImageFromFab()
             }
-            // Prevent re-trigger after config change
             parentFragmentManager.clearFragmentResult("toolsFabRequest")
         }
+
+        // B) replayCoach  ✅ separate listener
+        parentFragmentManager.setFragmentResultListener("replayCoach", this) { _, bundle ->
+            if (bundle.getBoolean("replay", false)) {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), false)
+                }
+                view?.let { showWalkthroughNow(it) }
+            }
+        }
+
+
+        // 🔔 Handle files coming from MainActivity (Open with / Share)
+        parentFragmentManager.setFragmentResultListener("externalFile", this) { _, b ->
+            val sharedText = b.getString("text")
+            val uriStr = b.getString("uri")
+            val mime = b.getString("mime") ?: "*/*"
+
+            when {
+                // Case A: shared text (ACTION_SEND with EXTRA_TEXT)
+                !sharedText.isNullOrBlank() -> {
+                    handleSharedText(sharedText)
+                }
+
+                // Case B: file/URI (ACTION_VIEW or ACTION_SEND with EXTRA_STREAM)
+                !uriStr.isNullOrBlank() -> {
+                    val uri = Uri.parse(uriStr)
+                    // visible feedback so it never feels unresponsive
+                    toast("Opening file…")
+                    handlePickedDocument(uri)
+                }
+
+                else -> {
+                    toast("Nothing to open")
+                }
+            }
+
+            // Clear so it doesn't re-trigger on config change
+            parentFragmentManager.clearFragmentResult("externalFile")
+        }
+
+
+
     }
 
     private fun pickImageHybrid() {
@@ -608,19 +647,24 @@ class ToolsFragment : Fragment() {
 
         val btnScanDocument = view.findViewById<Button>(R.id.btnScanDocument)
         btnScanDocument.setOnClickListener {
+            stopWalkthroughIfRunning()
             triggerScanFromFab()  // Reuse your existing logic
         }
         scannedFileViewModel = ScannedFileViewModel(
             ScannedFileRepository(AppDatabase.getDatabase(requireContext()).scannedFileDao())
         )
 
-        selectPdfButton.setOnClickListener { openFilePicker() }
+        selectPdfButton.setOnClickListener {
+            stopWalkthroughIfRunning()
+            openFilePicker() }
 
         analyzeButton.setOnClickListener {
+            stopWalkthroughIfRunning()
             val prompt = promptInput.text.toString().trim()
             if (prompt.isEmpty() || extractedText.isEmpty()) {
                 toast("Please select a file and enter a prompt")
                 return@setOnClickListener
+
             }
             analyzeSmartlyWithQuota(
                 context = requireContext(),
@@ -650,6 +694,7 @@ class ToolsFragment : Fragment() {
         }
 
         exportShareButton.setOnClickListener {
+            stopWalkthroughIfRunning()
             if (extractedText.isEmpty()) {
                 toast("No text to share")
                 return@setOnClickListener
@@ -669,10 +714,13 @@ class ToolsFragment : Fragment() {
             if (!isChecked && !chkIncludeDoc.isChecked) chkIncludeAI.isChecked = true
         }
 
-        btnPickImage.setOnClickListener { pickImageHybrid() }
+        btnPickImage.setOnClickListener {
+            stopWalkthroughIfRunning()
+            pickImageHybrid() }
 
         val fabUploadScan = view.findViewById<FloatingActionButton>(R.id.fabUploadScan)
         fabUploadScan.setOnClickListener {
+            stopWalkthroughIfRunning()
             showUploadOptionsDialog()
 
         }
@@ -707,71 +755,10 @@ class ToolsFragment : Fragment() {
 
 
         view.doOnPreDraw {
-            if (suppressGuideThisSession) return@doOnPreDraw
-
-            viewLifecycleOwner.lifecycleScope.launch {
-                val seen = com.mmalyil.smartdocai.prefs.CoachPrefs
-                    .hasSeenCoach(requireContext())
-                    .first()
-                if (seen) return@launch
-
-                fun rectOf(v: View): RectF {
-                    val r = android.graphics.Rect()
-                    v.getGlobalVisibleRect(r)
-                    val rootLoc = IntArray(2); view.getLocationOnScreen(rootLoc)
-                    return RectF(
-                        (r.left - rootLoc[0]).toFloat(),
-                        (r.top - rootLoc[1]).toFloat(),
-                        (r.right - rootLoc[0]).toFloat(),
-                        (r.bottom - rootLoc[1]).toFloat()
-                    )
-                }
-
-                val steps = listOf(
-                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                        rectOf(selectPdfButton),
-                        "Tap here to upload PDFs, DOCX, PPTX, XLSX or images."
-                    ),
-                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                        rectOf(analyzeButton),
-                        "Then analyze with AI to summarize or extract."
-                    ),
-                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                        rectOf(exportShareButton),
-                        "Export or share your results anytime."
-                    )
-                )
-
-                val root = view as? ViewGroup ?: return@launch
-
-                coachOverlay = com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay(
-                    requireContext(),
-                    steps
-                ) {
-                    // onFinish
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), true)
-                    }
-                    coachOverlay?.let { root.removeView(it) }
-                    coachOverlay = null
-                    Toast.makeText(
-                        requireContext(),
-                        "Tip: Replay from Settings anytime.",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-
-                root.addView(
-                    coachOverlay,
-                    ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                )
-            }
+            showWalkthroughNow(view)
         }
-    }
 
+    }
 
 
     override fun onDestroyView() {
@@ -793,6 +780,10 @@ class ToolsFragment : Fragment() {
                 overlay.bringToFront()
             } else {
                 overlay.visibility = View.GONE
+                overlay.isClickable = false
+                overlay.isFocusable = false
+                overlay.isFocusableInTouchMode = false
+
             }
         }
     }
@@ -804,7 +795,8 @@ class ToolsFragment : Fragment() {
         // Resolve display name
         requireContext().contentResolver.query(uri, null, null, null, null)?.use { c ->
             if (c.moveToFirst()) {
-                selectedFileName = c.getString(c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                selectedFileName =
+                    c.getString(c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
             }
         }
 
@@ -829,7 +821,11 @@ class ToolsFragment : Fragment() {
             type?.contains("pdf") == true || name.endsWith(".pdf") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val text = withContext(Dispatchers.IO) { extractPdfBlocking(uri) }
+                        val text = withContext(Dispatchers.IO) {
+                            relaxVmPolicyDuring {
+                                extractPdfBlocking(uri)
+                            }
+                        }
                         onDone("PDF", text)
                     } catch (e: Exception) {
                         showLoading(false)
@@ -841,11 +837,14 @@ class ToolsFragment : Fragment() {
             type?.contains("wordprocessingml") == true || name.endsWith(".docx") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx =
+                            context?.applicationContext ?: return@launch.also { showLoading(false) }
                         val text = withContext(Dispatchers.IO) {
-                            com.mmalyil.smartdocai.util.PoiKnobs.relax()
-                            com.mmalyil.smartdocai.util.PoiSetup.prepare()
-                            DocumentUtils.extractTextFromDocx(appCtx, uri)
+                            relaxVmPolicyDuring {
+                                com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                                com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                                DocumentUtils.extractTextFromDocx(appCtx, uri)
+                            }
                         }
                         onDone("DOCX", text)
                     } catch (e: Exception) {
@@ -858,11 +857,14 @@ class ToolsFragment : Fragment() {
             type?.contains("presentationml") == true || name.endsWith(".pptx") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx =
+                            context?.applicationContext ?: return@launch.also { showLoading(false) }
                         val text = withContext(Dispatchers.IO) {
-                            com.mmalyil.smartdocai.util.PoiKnobs.relax()
-                            com.mmalyil.smartdocai.util.PoiSetup.prepare()
-                            DocumentUtils.extractTextFromPptx(appCtx, uri)
+                            relaxVmPolicyDuring {
+                                com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                                com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                                DocumentUtils.extractTextFromPptx(appCtx, uri)
+                            }
                         }
                         onDone("PPTX", text)
                     } catch (e: Exception) {
@@ -876,11 +878,14 @@ class ToolsFragment : Fragment() {
                     name.endsWith(".xlsx") || name.endsWith(".xls")) -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx =
+                            context?.applicationContext ?: return@launch.also { showLoading(false) }
                         val text = withContext(Dispatchers.IO) {
-                            com.mmalyil.smartdocai.util.PoiKnobs.relax()
-                            com.mmalyil.smartdocai.util.PoiSetup.prepare()
-                            DocumentUtils.extractTextFromXlsx(appCtx, uri)
+                            relaxVmPolicyDuring {
+                                com.mmalyil.smartdocai.util.PoiKnobs.relax()
+                                com.mmalyil.smartdocai.util.PoiSetup.prepare()
+                                DocumentUtils.extractTextFromXlsx(appCtx, uri)
+                            }
                         }
                         onDone("XLSX", text)
                     } catch (e: Exception) {
@@ -893,9 +898,12 @@ class ToolsFragment : Fragment() {
             type == "text/csv" || name.endsWith(".csv") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx =
+                            context?.applicationContext ?: return@launch.also { showLoading(false) }
                         val text = withContext(Dispatchers.IO) {
-                            DocumentUtils.extractTextFromCsv(appCtx, uri)
+                            relaxVmPolicyDuring {
+                                DocumentUtils.extractTextFromCsv(appCtx, uri)
+                            }
                         }
                         onDone("CSV", text)
                     } catch (e: Exception) {
@@ -926,6 +934,8 @@ class ToolsFragment : Fragment() {
 
         extractedText = if (text.isBlank()) "[No text found in this $kind]" else text
         showExtractedText("$kind loaded")
+
+
         maybeAutoAnalyze()
     }
 
@@ -963,6 +973,8 @@ class ToolsFragment : Fragment() {
             }
             extractedText = text
             pdfTextDisplay.text = text
+
+            analyzeButton.isEnabled = text.isNotBlank()                 // ✅
             toast("Text extracted from image")
             showLoading(false)
         }
@@ -1058,7 +1070,6 @@ class ToolsFragment : Fragment() {
     }
 
 
-
     private fun analyzeWithAI(
         prompt: String,
         modelName: String,
@@ -1069,7 +1080,8 @@ class ToolsFragment : Fragment() {
         viewModel: ScannedFileViewModel
     ) {
         val messages = listOf(
-            ChatMessage(role = "system",
+            ChatMessage(
+                role = "system",
                 content = "You are GPT-4o. Always reply clearly, concisely, and only in the same language as the user's input."
             ),
             ChatMessage("user", "Here is the document text:\n$extractedText"),
@@ -1096,7 +1108,8 @@ class ToolsFragment : Fragment() {
 // ✅ Make it NON-NULL
                 val aiReply: String =
                     reply.content?.takeIf { it.isNotBlank() }
-                        ?: raw.let { if (it.isNotBlank()) extractAiText(it) else null }?.takeIf { it.isNotBlank() }
+                        ?: raw.let { if (it.isNotBlank()) extractAiText(it) else null }
+                            ?.takeIf { it.isNotBlank() }
                         ?: "[No content returned from AI]"
 
 // ✅ Also NON-NULL
@@ -1104,21 +1117,28 @@ class ToolsFragment : Fragment() {
                     reply.modelUsed?.takeIf { it.isNotBlank() }
                         ?: run {
                             try {
-                                org.json.JSONObject(raw).optString("model").takeIf { it.isNotBlank() }
-                            } catch (_: Exception) { null }
+                                org.json.JSONObject(raw).optString("model")
+                                    .takeIf { it.isNotBlank() }
+                            } catch (_: Exception) {
+                                null
+                            }
                         }
                         ?: modelName
 
 // …now use aiReply and modelUsed everywhere below
-
+// Guard: don't save empty or placeholder replies
+                val isEmptyAi = aiReply.isBlank() || aiReply == "[No content returned from AI]"
+                if (!isEmptyAi) {
+                    viewModel.insertFile(
+                        fileUri = fileUri,
+                        fileName = fileName,
+                        content = extractedText,
+                        aiResponse = aiReply
+                    )
+                }
 
                 // 3) Save to DB (IO thread ok)
-                viewModel.insertFile(
-                    fileUri = fileUri,
-                    fileName = fileName,
-                    content = extractedText,
-                    aiResponse = aiReply
-                )
+
 
                 // 4) Track usage
                 val ctx = requireContext().applicationContext
@@ -1129,8 +1149,10 @@ class ToolsFragment : Fragment() {
                 when {
                     modelUsed.startsWith("gpt-4") ->
                         com.mmalyil.smartdocai.util.UsageManager.recordUsage(ctx, estimated)
+
                     modelUsed.startsWith("gpt-3.5") ->
                         com.mmalyil.smartdocai.util.UsageManager.incrementGpt35Usage(ctx, estimated)
+
                     else ->
                         com.mmalyil.smartdocai.util.UsageManager.recordUsage(ctx, estimated)
                 }
@@ -1186,14 +1208,16 @@ class ToolsFragment : Fragment() {
             val root = JSONObject(rawJson)
 
             // 0) Common error envelope
-            root.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }?.let { return it }
+            root.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
+                ?.let { return it }
 
             // 1) OpenAI Chat format: choices[0].message.content
             root.optJSONArray("choices")?.let { choices ->
                 if (choices.length() > 0) {
                     val first = choices.optJSONObject(0)
                     // a) chat format
-                    first?.optJSONObject("message")?.optString("content")?.takeIf { it.isNotBlank() }?.let { return it }
+                    first?.optJSONObject("message")?.optString("content")
+                        ?.takeIf { it.isNotBlank() }?.let { return it }
                     // b) text format (some proxies put .text at the top level of a choice)
                     first?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
                     // c) responses API style: choices[0].delta/content parts
@@ -1202,9 +1226,11 @@ class ToolsFragment : Fragment() {
                         for (i in 0 until parts.length()) {
                             val part = parts.optJSONObject(i)
                             // text parts
-                            part?.optString("text")?.takeIf { it.isNotBlank() }?.let { sb.append(it) }
+                            part?.optString("text")?.takeIf { it.isNotBlank() }
+                                ?.let { sb.append(it) }
                             // tool/text variants
-                            part?.optJSONObject("text")?.optString("value")?.takeIf { it.isNotBlank() }?.let { sb.append(it) }
+                            part?.optJSONObject("text")?.optString("value")
+                                ?.takeIf { it.isNotBlank() }?.let { sb.append(it) }
                         }
                         if (sb.isNotEmpty()) return sb.toString()
                     }
@@ -1213,14 +1239,16 @@ class ToolsFragment : Fragment() {
 
             // 2) OpenAI Responses API top-level: output_text OR content[0].text/value
             root.optJSONArray("output_text")?.let { arr ->
-                if (arr.length() > 0) arr.optString(0)?.takeIf { it.isNotBlank() }?.let { return it }
+                if (arr.length() > 0) arr.optString(0)?.takeIf { it.isNotBlank() }
+                    ?.let { return it }
             }
             root.optString("output_text")?.takeIf { it.isNotBlank() }?.let { return it }
             root.optJSONArray("content")?.let { contentArr ->
                 if (contentArr.length() > 0) {
                     val first = contentArr.optJSONObject(0)
                     first?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
-                    first?.optJSONObject("text")?.optString("value")?.takeIf { it.isNotBlank() }?.let { return it }
+                    first?.optJSONObject("text")?.optString("value")?.takeIf { it.isNotBlank() }
+                        ?.let { return it }
                 }
             }
 
@@ -1256,8 +1284,6 @@ class ToolsFragment : Fragment() {
             "[Parse error: ${e.message}]"
         }
     }
-
-
 
 
     private fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
@@ -1310,6 +1336,8 @@ class ToolsFragment : Fragment() {
     private fun showExtractedText(message: String) {
         pdfTextDisplay.text =
             extractedText.take(1000) + if (extractedText.length > 1000) "..." else ""
+
+        analyzeButton.isEnabled = extractedText.isNotBlank()   // ✅ enable here
         toast(message)
     }
 
@@ -1327,7 +1355,6 @@ class ToolsFragment : Fragment() {
     fun triggerUploadFromFab() {
         openFilePicker()
     }
-
 
 
     private val scanLauncher =
@@ -1383,7 +1410,6 @@ class ToolsFragment : Fragment() {
     }
 
 
-
     fun getFileUri(context: Context, fileName: String, subDir: String = ""): Uri {
         // Store inside your app-specific external files dir (safe under scoped storage)
         val dir = if (subDir.isNotEmpty()) {
@@ -1403,7 +1429,149 @@ class ToolsFragment : Fragment() {
         )
     }
 
+    // call once after views are laid out (you already do this in onViewCreated -> doOnPreDraw)
+    private fun showWalkthroughNow(rootView: View) {
+        if (suppressGuideThisSession || isCoachRunning) return
 
+        // don’t show if already seen
+        viewLifecycleOwner.lifecycleScope.launch {
+            val seen = com.mmalyil.smartdocai.prefs.CoachPrefs.hasSeenCoach(requireContext()).first()
+            if (seen) return@launch
+
+            val r1 = rectOf(selectPdfButton, rootView)
+            val r2 = rectOf(analyzeButton, rootView)
+            val r3 = rectOf(exportShareButton, rootView)
+            if (r1.isEmpty || r2.isEmpty || r3.isEmpty) {
+                rootView.post { showWalkthroughNow(rootView) }
+                return@launch
+            }
+
+            val steps = listOf(
+                com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                    r1, "Tap here to upload PDFs, DOCX, PPTX, XLSX or images."
+                ),
+                com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                    r2, "Then analyze with AI to summarize or extract."
+                ),
+                com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                    r3, "Export or share your results anytime."
+                )
+            )
+
+            val root = rootView as? ViewGroup ?: return@launch
+            coachOverlay?.let { root.removeView(it) }
+
+            coachOverlay = com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay(
+                requireContext(),
+                steps
+            ) {
+                // finished tour
+                isCoachRunning = false
+                coachOverlay?.let { root.removeView(it) }
+                coachOverlay = null
+                viewLifecycleOwner.lifecycleScope.launch {
+                    com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), true)
+                }
+                Toast.makeText(requireContext(), "Tip: Replay from Settings anytime.", Toast.LENGTH_SHORT).show()
+            }
+
+            // prevent loader from blocking the overlay
+            loadingOverlay?.apply {
+                visibility = View.GONE
+                isClickable = false
+                isFocusable = false
+                isFocusableInTouchMode = false
+            }
+
+            root.addView(
+                coachOverlay,
+                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            )
+            isCoachRunning = true
+            root.post { coachOverlay?.show() }
+        }
+    }
+
+    // helper to compute rects
+    private fun rectOf(target: View, root: View): RectF {
+        val r = android.graphics.Rect()
+        target.getGlobalVisibleRect(r)
+        val rootLoc = IntArray(2)
+        root.getLocationOnScreen(rootLoc)
+        return RectF(
+            (r.left - rootLoc[0]).toFloat(),
+            (r.top - rootLoc[1]).toFloat(),
+            (r.right - rootLoc[0]).toFloat(),
+            (r.bottom - rootLoc[1]).toFloat()
+        )
+    }
+
+    // call once after views are laid out (you already do this in onViewCreated -> doOnPreDraw)
+// call once after views are laid out (you already do this in onViewCreated -> doOnPreDraw)
+// STOP the tour immediately if the user starts any real action,
+// so it can’t “stick” over other flows.
+    private fun stopWalkthroughIfRunning() {
+        if (!isCoachRunning) return
+        (view as? ViewGroup)?.let { vg ->
+            coachOverlay?.let { vg.removeView(it) }
+        }
+        coachOverlay = null
+        isCoachRunning = false
+        // we still mark as seen, so it doesn’t bounce back right away
+        viewLifecycleOwner.lifecycleScope.launch {
+            com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), true)
+        }
+    }
+
+    // Reuse the same socket tagging idea
+    private val driveSocketTagging = Interceptor { chain ->
+        TrafficStats.setThreadStatsTag(0x44524956) // 'DRIV'
+        try {
+            chain.proceed(chain.request())
+        } finally {
+            TrafficStats.clearThreadStatsTag()
+        }
+    }
+
+    private val http by lazy {
+        OkHttpClient.Builder()
+            .addNetworkInterceptor(driveSocketTagging)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+
+    private fun <T> relaxVmPolicyDuring(block: () -> T): T {
+        val old = StrictMode.getVmPolicy()
+        return try {
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder(old)
+                    .penaltyLog()       // log StrictMode hits instead of crashing
+                    .build()
+            )
+            block()
+        } finally {
+            StrictMode.setVmPolicy(old)
+        }
+    }
+
+    private fun handleSharedText(text: String) {
+        extractedText = text
+        selectedFileName = "Shared text"
+        selectedFileUri = ""   // none
+
+        // show in UI
+        pdfTextDisplay.text = text
+        analyzeButton.isEnabled = text.isNotBlank()
+        aiResponseDisplay.text = ""
+        aiResponseDisplay.visibility = View.GONE
+
+        toast("Text received")
+        maybeAutoAnalyze()
+    }
 
 
 }

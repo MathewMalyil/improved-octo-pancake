@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.repeatOnLifecycle
 
 
+
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,6 +53,11 @@ class MainActivity : AppCompatActivity() {
                 // 2) Normal UI init only after onboarding is seen
                 initUi(savedInstanceState)
 
+
+                // ✅ handle external file intents on first launch
+                handleIncomingIntent(intent)
+                // keep your existing onboarding deep link:
+
                 // 3) If onboarding asked to open Upload, handle it now
                 maybeHandleDeepLinkFromOnboarding(intent)
             }
@@ -64,8 +70,100 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         // keep the new Intent so getIntent() returns it
         setIntent(intent)
+
+        // ✅ handle when activity is reused
+        handleIncomingIntent(intent)
+
         maybeHandleDeepLinkFromOnboarding(intent)
     }
+
+    // ---------- NEW: external intents ----------
+    private fun handleIncomingIntent(i: Intent?) {
+        if (i == null) return
+        when (i.action) {
+            Intent.ACTION_VIEW -> i.data?.let {
+                forwardToTools(it, i.type ?: guessMime(it), "VIEW")
+            }
+
+            Intent.ACTION_SEND -> {
+                val u = i.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+                val text = i.getStringExtra(Intent.EXTRA_TEXT)
+                when {
+                    u != null -> forwardToTools(u, i.type ?: guessMime(u), "SEND")
+                    !text.isNullOrBlank() -> forwardTextToTools(text) // optional helper
+                }
+            }
+
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val uris = i.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
+                if (uris.isNotEmpty()) {
+                    // forward first for now (or iterate)
+                    forwardToTools(uris.first(), i.type ?: guessMime(uris.first()), "SEND_MULTIPLE")
+                }
+            }
+
+        }
+    }
+
+    private fun forwardToTools(uri: android.net.Uri, mime: String?, source: String) {
+        // visible feedback so it never feels “dead”
+        android.widget.Toast.makeText(this, "Opening file from $source…", android.widget.Toast.LENGTH_SHORT).show()
+
+        // switch to Tools tab
+        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
+            .selectedItemId = R.id.nav_tools
+
+        // deliver to ToolsFragment
+        window.decorView.post {
+            supportFragmentManager.setFragmentResult(
+                "externalFile",
+                androidx.core.os.bundleOf(
+                    "uri" to uri.toString(),
+                    "mime" to (mime ?: "*/*"),
+                    "source" to source
+                )
+            )
+        }
+
+        // clear so back/rotate doesn't retrigger
+        intent?.data = null
+        intent?.removeExtra(Intent.EXTRA_STREAM)
+    }
+
+    private fun forwardTextToTools(text: String) {
+        android.widget.Toast.makeText(this, "Opening shared text…", android.widget.Toast.LENGTH_SHORT).show()
+
+        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
+            .selectedItemId = R.id.nav_tools
+
+        window.decorView.post {
+            supportFragmentManager.setFragmentResult(
+                "externalFile",
+                androidx.core.os.bundleOf("text" to text, "source" to "SEND_TEXT")
+            )
+        }
+
+        // clear so back/rotate doesn't retrigger
+        intent?.removeExtra(Intent.EXTRA_TEXT)
+    }
+
+    private fun guessMime(uri: android.net.Uri): String {
+        val s = uri.toString()
+        return when {
+            s.endsWith(".pdf", ignoreCase = true)  -> "application/pdf"
+            s.endsWith(".docx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            s.endsWith(".pptx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            s.endsWith(".xlsx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            s.endsWith(".csv",  ignoreCase = true) -> "text/csv"
+            else                                   -> "*/*"
+        }
+    }
+
+
+
+    // ... your existing code remains ...
+
+
 
     private fun initUi(savedInstanceState: Bundle?) {
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)

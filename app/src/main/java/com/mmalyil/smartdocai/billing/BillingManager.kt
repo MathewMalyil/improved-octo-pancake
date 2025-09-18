@@ -38,32 +38,40 @@ class BillingManager(
 
     fun launchPurchaseFlow(activity: Activity, productId: String) {
         val params = QueryProductDetailsParams.newBuilder()
-            .setProductList(
-                listOf(
-                    QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(productId)
-                        .setProductType(BillingClient.ProductType.SUBS)
-                        .build()
-                )
-            ).build()
+            .setProductList(listOf(
+                QueryProductDetailsParams.Product.newBuilder()
+                    .setProductId(productId)
+                    .setProductType(BillingClient.ProductType.SUBS)
+                    .build()
+            )).build()
 
-        billingClient.queryProductDetailsAsync(params) { result, productDetailsList ->
-            if (result.responseCode == BillingClient.BillingResponseCode.OK && productDetailsList.isNotEmpty()) {
-                val productDetails = productDetailsList[0]
-                val offerToken = productDetails.subscriptionOfferDetails?.firstOrNull()?.offerToken
-                if (offerToken != null) {
-                    val productDetailsParams = BillingFlowParams.ProductDetailsParams.newBuilder()
-                        .setProductDetails(productDetails)
-                        .setOfferToken(offerToken)
-                        .build()
-
-                    val billingFlowParams = BillingFlowParams.newBuilder()
-                        .setProductDetailsParamsList(listOf(productDetailsParams))
-                        .build()
-
-                    billingClient.launchBillingFlow(activity, billingFlowParams)
-                }
+        billingClient.queryProductDetailsAsync(params) { result, list ->
+            if (result.responseCode != BillingClient.BillingResponseCode.OK || list.isNullOrEmpty()) {
+                Log.w("BillingManager", "No productDetails for $productId: ${result.debugMessage}")
+                return@queryProductDetailsAsync
             }
+
+            val productDetails = list[0]
+
+            // If you know your base plan id: choose by it. Otherwise pick first eligible offer.
+            val offer = productDetails.subscriptionOfferDetails?.firstOrNull()
+            val offerToken = offer?.offerToken ?: run {
+                Log.w("BillingManager", "No offerToken for $productId")
+                return@queryProductDetailsAsync
+            }
+
+            val productParams = BillingFlowParams.ProductDetailsParams.newBuilder()
+                .setProductDetails(productDetails)
+                .setOfferToken(offerToken)
+                .build()
+
+            val flowParams = BillingFlowParams.newBuilder()
+                // Optional anti-fraud / analytics correlation:
+                // .setObfuscatedAccountId(yourUserIdHash)
+                .setProductDetailsParamsList(listOf(productParams))
+                .build()
+
+            billingClient.launchBillingFlow(activity, flowParams)
         }
     }
 
@@ -80,45 +88,68 @@ class BillingManager(
         }
     }
 
-    override fun onPurchasesUpdated(
-        billingResult: BillingResult,
-        purchases: MutableList<Purchase>?
-    ) {
-        if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
-            handlePurchases(purchases)
-            listener.onPurchasesUpdated(purchases)
-        } else {
-            Log.w("BillingManager", "Purchase update failed: ${billingResult.debugMessage}")
+    override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
+        when (result.responseCode) {
+            BillingClient.BillingResponseCode.OK -> {
+                if (purchases != null) {
+                    handlePurchases(purchases)
+                    listener.onPurchasesUpdated(purchases)
+                }
+            }
+            BillingClient.BillingResponseCode.USER_CANCELED -> {
+                Log.i("BillingManager", "User canceled purchase")
+            }
+            BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
+                // User already subscribed on another device/account state; refresh entitlement
+                queryPurchases()
+            }
+            else -> {
+                Log.w("BillingManager", "Purchase failed: ${result.responseCode} ${result.debugMessage}")
+            }
         }
     }
 
     private fun handlePurchases(purchases: List<Purchase>) {
         for (purchase in purchases) {
-            if (purchase.products.contains(PRO_PRODUCT_ID) &&
-                purchase.purchaseState == Purchase.PurchaseState.PURCHASED
-            ) {
-                // Grant user entitlement
-                UsageManager.setPro(context, true)
-                Log.d("BillingManager", "✅ Pro subscription activated.")
+            if (!purchase.products.contains(PRO_PRODUCT_ID)) continue
 
-                // ✅ IMPORTANT: Acknowledge the purchase if not already acknowledged
-                if (!purchase.isAcknowledged) {
-                    val params = AcknowledgePurchaseParams.newBuilder()
-                        .setPurchaseToken(purchase.purchaseToken)
-                        .build()
-                    billingClient.acknowledgePurchase(params) { billingResult ->
-                        if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                            Log.d("BillingManager", "✅ Purchase acknowledged.")
-                        } else {
-                            Log.w("BillingManager", "Failed to acknowledge: ${billingResult.debugMessage}")
+            when (purchase.purchaseState) {
+                Purchase.PurchaseState.PURCHASED -> {
+                    UsageManager.setPro(context, true)
+                    Log.d("BillingManager", "✅ Pro subscription activated.")
+
+                    if (!purchase.isAcknowledged) {
+                        val params = AcknowledgePurchaseParams.newBuilder()
+                            .setPurchaseToken(purchase.purchaseToken)
+                            .build()
+                        billingClient.acknowledgePurchase(params) { br ->
+                            if (br.responseCode == BillingClient.BillingResponseCode.OK) {
+                                Log.d("BillingManager", "✅ Purchase acknowledged.")
+                            } else {
+                                Log.w("BillingManager", "Ack failed: ${br.debugMessage}")
+                            }
                         }
                     }
                 }
+                Purchase.PurchaseState.PENDING -> {
+                    Log.i("BillingManager", "⏳ Purchase pending…")
+                    // Optional: notify UI via listener if you want to show “Pending…”
+                }
+                Purchase.PurchaseState.UNSPECIFIED_STATE -> {
+                    Log.w("BillingManager", "Unspecified purchase state")
+                }
             }
         }
+
     }
 
     interface BillingUpdateListener {
         fun onPurchasesUpdated(purchases: List<Purchase>)
     }
+
+    fun destroy() {
+        try { billingClient.endConnection() } catch (_: Exception) {}
+    }
+
+
 }

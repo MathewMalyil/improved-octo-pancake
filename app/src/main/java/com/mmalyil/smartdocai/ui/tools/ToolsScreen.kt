@@ -1,3 +1,4 @@
+// com/mmalyil/smartdocai/ui/tools/ToolsScreen.kt
 package com.mmalyil.smartdocai.ui.tools
 
 import androidx.compose.foundation.layout.*
@@ -16,6 +17,7 @@ import com.mmalyil.smartdocai.prefs.CoachPrefs
 import com.mmalyil.smartdocai.ui.walkthrough.CoachMarkOverlay
 import com.mmalyil.smartdocai.ui.walkthrough.Spotlight
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.Color
 
 @Composable
 fun ToolsScreen(
@@ -42,7 +44,8 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     uploadSpot = r.toSpotlight(
                         density,
-                        "Tap here to upload PDFs, DOCX, PPTX, XLSX or images."
+                        tip = "Tap here to upload PDFs, DOCX, PPTX, XLSX or images.",
+                        accent = Color(0xFF00BCD4) // cyan
                     )
                 }
         ) { Text("Upload") }
@@ -56,7 +59,9 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     analyzeSpot = r.toSpotlight(
                         density,
-                        "Then analyze with AI to summarize or extract."
+                        tip = "Then analyze with AI to summarize or extract.",
+                        accent = Color(0xFF7C4DFF),   // deep purple → LOUD
+                        preferAbove = false
                     )
                 }
         ) { Text("Analyze with AI") }
@@ -70,7 +75,9 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     exportSpot = r.toSpotlight(
                         density,
-                        "Export or share your results anytime."
+                        tip = "Export or share your results anytime.",
+                        accent = Color(0xFFFF7043),   // orange → LOUD
+                        preferAbove = true            // try to keep above so FAB doesn’t cover
                     )
                 }
         ) { Text("Export / Share") }
@@ -108,16 +115,20 @@ fun ToolsRoot() {
     )
 }
 
-/** Rect (px) → Spotlight (dp) using Compose Density */
+/** Rect (px) → Spotlight (dp) */
 private fun Rect.toSpotlight(
     density: Density,
-    tip: String
+    tip: String,
+    accent: Color,
+    preferAbove: Boolean = false
 ): Spotlight = with(density) {
     Spotlight(
         x = left.toDp(),
         y = top.toDp(),
         width = (right - left).toDp(),
         height = (bottom - top).toDp(),
-        tip = tip
+        tip = tip,
+        accent = accent,
+        preferAbove = preferAbove
     )
 }

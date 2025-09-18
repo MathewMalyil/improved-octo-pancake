@@ -1,5 +1,7 @@
+// ChatApiHelper.kt
 package com.mmalyil.smartdocai.api
 
+import android.net.TrafficStats            // ← add
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import okhttp3.Interceptor
@@ -12,8 +14,18 @@ import okhttp3.Response
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
-
 object ChatApiHelper {
+
+    // Tag every network thread so StrictMode doesn’t warn about untagged sockets
+    private val socketTagging = Interceptor { chain ->
+        TrafficStats.setThreadStatsTag(0x53444F43) // 'SDOC' – any non-zero int is fine
+        try {
+            chain.proceed(chain.request())
+        } finally {
+            TrafficStats.clearThreadStatsTag()
+        }
+    }
+
     private val diag = Interceptor { chain ->
         val req = chain.request().newBuilder()
             .header("Accept", "application/json")
@@ -23,76 +35,55 @@ object ChatApiHelper {
         res
     }
 
-    // One-shot retry for timeouts (safe)
     private val timeoutRetry = Interceptor { chain ->
         fun proceedOnce(request: Request): Response = chain.proceed(request)
-
         val req = chain.request()
-        return@Interceptor try {
+        try {
             proceedOnce(req)
         } catch (e: SocketTimeoutException) {
             android.util.Log.w("AI_WARN", "SocketTimeout → retrying once…")
-            proceedOnce(req) // retry once
+            proceedOnce(req)
         }.let { res ->
-            // Retry once on classic timeout HTTP codes
             if (res.code == 408 || res.code == 504) {
                 res.close()
                 android.util.Log.w("AI_WARN", "HTTP ${res.code} → retrying once…")
                 proceedOnce(req)
-            } else {
-                res
-            }
+            } else res
         }
     }
-
-
-
 
     private val gson: Gson = GsonBuilder()
         .serializeNulls()
         .disableHtmlEscaping()
-
-        // 🔴 Add this line to actually use your custom deserializer
         .registerTypeAdapter(
             com.mmalyil.smartdocai.model.ChatUnifiedResponse::class.java,
             ChatUnifiedDeserializer()
         )
-
         .create()
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)   // connect faster
-        .writeTimeout(60, TimeUnit.SECONDS)     // send body
-        .readTimeout(60, TimeUnit.SECONDS)      // wait for body
-        .callTimeout(65, TimeUnit.SECONDS)   // total cap
-        .pingInterval(15, TimeUnit.SECONDS)  //keep HTTP/2 connections alive
+        // IMPORTANT: put the socketTagging as the FIRST network interceptor
+        .addNetworkInterceptor(socketTagging)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(65, TimeUnit.SECONDS)
+        .pingInterval(15, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .addInterceptor(timeoutRetry)
         .addInterceptor(diag)
         .build()
 
-
-
     private val retrofit = Retrofit.Builder()
         .baseUrl("https://smartdoc-ai-backend.vercel.app/")
-        .addConverterFactory(ScalarsConverterFactory.create())   // <- add this first
-        .addConverterFactory(GsonConverterFactory.create(gson))   // then gson
+        .addConverterFactory(ScalarsConverterFactory.create())
+        .addConverterFactory(GsonConverterFactory.create(gson))
         .client(client)
         .build()
 
-
-    /** Expose Retrofit base URL for diagnostics */
-    val baseUrl: String
-        get() = retrofit.baseUrl().toString()
-
+    val baseUrl: String get() = retrofit.baseUrl().toString()
 
     val chatService: ChatProxyService by lazy {
         retrofit.create(ChatProxyService::class.java)
-
-
-
     }
-
-
-
 }

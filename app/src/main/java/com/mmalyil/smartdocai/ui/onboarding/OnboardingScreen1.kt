@@ -19,9 +19,8 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun OnboardingScreen1(onNextClick: () -> Unit) {
     Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
@@ -32,23 +31,19 @@ fun OnboardingScreen1(onNextClick: () -> Unit) {
         ) {
             Spacer(modifier = Modifier.height(40.dp))
 
-
-                Icon(
-                    imageVector = Icons.Filled.Description,
-                    contentDescription = "SmartDoc Icon",
-
-
+            Icon(
+                imageVector = Icons.Filled.Description,
+                contentDescription = "SmartDoc Icon",
                 modifier = Modifier.size(100.dp),
-                tint = Color(0xFF1976D2)
+                tint = MaterialTheme.colorScheme.primary
             )
-
 
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
                 text = "Welcome to SmartDoc AI!",
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color.Black,
+                color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center
             )
 
@@ -57,7 +52,7 @@ fun OnboardingScreen1(onNextClick: () -> Unit) {
             Text(
                 text = "Your smarter companion — simplify document handling with intelligent AI at your fingertips.",
                 style = MaterialTheme.typography.bodyLarge,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center
             )
 
@@ -66,7 +61,7 @@ fun OnboardingScreen1(onNextClick: () -> Unit) {
             Text(
                 text = "Whether you're scanning, analyzing, or organizing your files — we make it effortless, fast, and intelligent.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.DarkGray,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
             )
 

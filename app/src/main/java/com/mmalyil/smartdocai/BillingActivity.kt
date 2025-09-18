@@ -33,23 +33,26 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
         usageText = findViewById(R.id.tvUsageText)
         upgradeButton = findViewById(R.id.btnUpgrade)
-        loadLocalizedPriceAndSetButton(
-            productId = "ai_pro_plan", // your Play Console product id
-            button = upgradeButton
-        )
+
+
 
 
         restoreButton = findViewById(R.id.btnRestore)
 
         billingManager = BillingManager(this, this)
 
-        // ✅ Show toast if message was passed
-        val message = intent.getStringExtra("message")
-        if (!message.isNullOrEmpty()) {
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        val isPro = UsageManager.isPro(this)
+        if (!isPro) {
+            // Only load price if user can buy
+            upgradeButton.isEnabled = false
+            loadLocalizedPriceAndSetButton(BillingManager.PRO_PRODUCT_ID, upgradeButton) // use constant
+        } else {
+            upgradeButton.isEnabled = false
+            upgradeButton.text = "Pro Active ✓"
         }
 
         upgradeButton.setOnClickListener {
+            upgradeButton.isEnabled = false
             billingManager.launchPurchaseFlow(this, BillingManager.PRO_PRODUCT_ID)
         }
 
@@ -69,17 +72,20 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
     private fun updateUsageUI() {
         val used = UsageManager.getTokensUsed(this)
-        val cap = UsageManager.getTokenCap(this)
+        val cap  = UsageManager.getTokenCap(this)
         val isPro = UsageManager.isPro(this)
 
         val label = if (isPro) "🚀 GPT-4o Pro" else "⚡ Groq Free"
         usageText.text = "$label: $used / $cap tokens used"
+
+        upgradeButton.isEnabled = !isPro
+        if (isPro) upgradeButton.text = "Pro Active ✓"
     }
 
     override fun onPurchasesUpdated(purchases: List<Purchase>) {
         for (purchase in purchases) {
-            if (purchase.products.contains(BillingManager.PRO_PRODUCT_ID)
-                && purchase.purchaseState == Purchase.PurchaseState.PURCHASED
+            if (purchase.products.contains(BillingManager.PRO_PRODUCT_ID) &&
+                purchase.purchaseState == Purchase.PurchaseState.PURCHASED
             ) {
                 UsageManager.setPro(this, true)
                 Toast.makeText(this, "Pro Activated!", Toast.LENGTH_LONG).show()
@@ -97,7 +103,7 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
                     message.trim()
                 }")
                 .setPositiveButton("Upgrade") { _, _ ->
-                    billingManager.launchPurchaseFlow(this, "ai_pro_plan")
+                    billingManager.launchPurchaseFlow(this, BillingManager.PRO_PRODUCT_ID)
                 }
                 .setNegativeButton("Maybe Later", null)
                 .create()
@@ -143,28 +149,37 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
             .build()
 
         priceClient?.queryProductDetailsAsync(params) { result, details ->
+            if (isFinishing || isDestroyed) return@queryProductDetailsAsync
             if (result.responseCode != BillingClient.BillingResponseCode.OK || details.isEmpty()) {
                 button.text = "Upgrade to GPT-4o Pro"
+                // leave disabled or enable if you still want manual retry
                 return@queryProductDetailsAsync
             }
-
             val pd = details.first()
-
-            // SUBS: grab current pricing phase's formatted price
             val formatted = pd.subscriptionOfferDetails
-                ?.firstOrNull()                    // pick the first offer/base plan; customize if needed
+                ?.firstOrNull()
                 ?.pricingPhases?.pricingPhaseList
                 ?.firstOrNull()
                 ?.formattedPrice
 
-            // For INAPP (one-time) instead, use:
-            // val formatted = pd.oneTimePurchaseOfferDetails?.formattedPrice
-
             button.text = formatted?.let { "Upgrade to GPT-4o Pro ($it/month)" }
                 ?: "Upgrade to GPT-4o Pro"
+            button.isEnabled = true
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        billingManager.queryPurchases()
+        updateUsageUI()
+        if (!UsageManager.isPro(this)) upgradeButton.isEnabled = true
+    }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        try { priceClient?.endConnection() } catch (_: Exception) {}
+        priceClient = null
+        try { billingManager.destroy() } catch (_: Exception) {}
+    }
 
 }
