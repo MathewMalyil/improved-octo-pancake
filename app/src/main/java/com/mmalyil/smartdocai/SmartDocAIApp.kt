@@ -13,24 +13,38 @@ class SmartDocAIApp : Application() {
     override fun onCreate() {
         super.onCreate()
         PDFBoxResourceLoader.init(applicationContext)
-        // 0) Keep your Woodstox selection
-        try {
-            System.setProperty("javax.xml.stream.XMLInputFactory", "com.ctc.wstx.stax.WstxInputFactory")
-            System.setProperty("javax.xml.stream.XMLOutputFactory", "com.ctc.wstx.stax.WstxOutputFactory")
-            System.setProperty("javax.xml.stream.XMLEventFactory", "com.ctc.wstx.stax.WstxEventFactory")
-        } catch (_: Throwable) { /* ignore */ }
 
-        // 1) StrictMode (debug only)
+        // Woodstox factories
+        try {
+            System.setProperty(
+                "javax.xml.stream.XMLInputFactory",
+                "com.ctc.wstx.stax.WstxInputFactory"
+            )
+            System.setProperty(
+                "javax.xml.stream.XMLOutputFactory",
+                "com.ctc.wstx.stax.WstxOutputFactory"
+            )
+            System.setProperty(
+                "javax.xml.stream.XMLEventFactory",
+                "com.ctc.wstx.stax.WstxEventFactory"
+            )
+        } catch (_: Throwable) {
+        }
+
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
-                    .detectAll()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectCustomSlowCalls()
+                    .permitNetwork()
                     .penaltyLog()
                     .build()
             )
             StrictMode.setVmPolicy(
                 StrictMode.VmPolicy.Builder()
-                    .detectAll()
+                    .detectLeakedClosableObjects()
+                    .detectFileUriExposure()
                     .penaltyLog()
                     .build()
             )
@@ -43,16 +57,17 @@ class SmartDocAIApp : Application() {
             context = this,
             listener = object : BillingManager.BillingUpdateListener {
                 override fun onPurchasesUpdated(purchases: List<Purchase>) {
-                    // No UI here; BillingManager already grants entitlement via UsageManager.setPro().
-                    // Nothing else needed.
+                    // No UI here; BillingManager/UsageManager already handles entitlement.
                 }
             }
         )
-        bm.queryPurchases()
 
-        // Tear down the connection a bit later (safe on main)
-        Handler(Looper.getMainLooper()).postDelayed({
-            try { bm.destroy() } catch (_: Exception) {}
-        }, 1500L)
+        // ✅ Close BillingClient only after both SUBS and INAPP queries return
+        bm.queryPurchases(onComplete = {
+            Handler(Looper.getMainLooper()).post {
+                try { bm.destroy() } catch (_: Exception) {}
+            }
+        })
     }
+
 }

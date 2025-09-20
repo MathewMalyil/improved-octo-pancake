@@ -68,41 +68,53 @@ class MainActivity : AppCompatActivity() {
     // this will still catch the extras.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // keep the new Intent so getIntent() returns it
         setIntent(intent)
-
-        // ✅ handle when activity is reused
         handleIncomingIntent(intent)
-
         maybeHandleDeepLinkFromOnboarding(intent)
     }
 
-    // ---------- NEW: external intents ----------
     private fun handleIncomingIntent(i: Intent?) {
         if (i == null) return
         when (i.action) {
             Intent.ACTION_VIEW -> i.data?.let {
                 forwardToTools(it, i.type ?: guessMime(it), "VIEW")
             }
-
             Intent.ACTION_SEND -> {
                 val u = i.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
                 val text = i.getStringExtra(Intent.EXTRA_TEXT)
                 when {
                     u != null -> forwardToTools(u, i.type ?: guessMime(u), "SEND")
-                    !text.isNullOrBlank() -> forwardTextToTools(text) // optional helper
+                    !text.isNullOrBlank() -> forwardTextToTools(text)   // ← add this
                 }
             }
-
             Intent.ACTION_SEND_MULTIPLE -> {
                 val uris = i.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
                 if (uris.isNotEmpty()) {
-                    // forward first for now (or iterate)
                     forwardToTools(uris.first(), i.type ?: guessMime(uris.first()), "SEND_MULTIPLE")
                 }
             }
-
         }
+    }
+
+    private fun forwardTextToTools(text: String) {
+        // visible feedback
+        android.widget.Toast.makeText(this, "Opening shared text…", android.widget.Toast.LENGTH_SHORT).show()
+
+        // Switch to Tools tab
+        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
+            .selectedItemId = R.id.nav_tools
+
+        // deliver to ToolsFragment
+        window.decorView.post {
+            supportFragmentManager.setFragmentResult(
+                "externalFile",
+                androidx.core.os.bundleOf("text" to text)
+            )
+        }
+
+        // clear so it doesn’t retrigger
+        intent?.removeExtra(Intent.EXTRA_TEXT)
+        intent?.action = null
     }
 
     private fun forwardToTools(uri: android.net.Uri, mime: String?, source: String) {
@@ -130,22 +142,7 @@ class MainActivity : AppCompatActivity() {
         intent?.removeExtra(Intent.EXTRA_STREAM)
     }
 
-    private fun forwardTextToTools(text: String) {
-        android.widget.Toast.makeText(this, "Opening shared text…", android.widget.Toast.LENGTH_SHORT).show()
 
-        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
-            .selectedItemId = R.id.nav_tools
-
-        window.decorView.post {
-            supportFragmentManager.setFragmentResult(
-                "externalFile",
-                androidx.core.os.bundleOf("text" to text, "source" to "SEND_TEXT")
-            )
-        }
-
-        // clear so back/rotate doesn't retrigger
-        intent?.removeExtra(Intent.EXTRA_TEXT)
-    }
 
     private fun guessMime(uri: android.net.Uri): String {
         val s = uri.toString()

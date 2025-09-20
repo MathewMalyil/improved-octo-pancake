@@ -25,7 +25,7 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
     private lateinit var restoreButton: Button
     private lateinit var billingManager: BillingManager
 
-    private var priceClient: BillingClient? = null
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,24 +34,26 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         usageText = findViewById(R.id.tvUsageText)
         upgradeButton = findViewById(R.id.btnUpgrade)
 
-
-
-
         restoreButton = findViewById(R.id.btnRestore)
 
         billingManager = BillingManager(this, this)
 
         val isPro = UsageManager.isPro(this)
         if (!isPro) {
-            // Only load price if user can buy
             upgradeButton.isEnabled = false
-            loadLocalizedPriceAndSetButton(BillingManager.PRO_PRODUCT_ID, upgradeButton) // use constant
+            upgradeButton.text = "Checking price..."
+            billingManager.queryPrice(BillingManager.PRO_PRODUCT_ID) { price ->
+                if (isFinishing || isDestroyed) return@queryPrice
+                upgradeButton.text = price?.let { "Upgrade to GPT-4o Pro ($it/month)" } ?: "Upgrade to GPT-4o Pro"
+                upgradeButton.isEnabled = true
+            }
         } else {
             upgradeButton.isEnabled = false
             upgradeButton.text = "Pro Active ✓"
         }
 
         upgradeButton.setOnClickListener {
+            if (!upgradeButton.isEnabled) return@setOnClickListener
             upgradeButton.isEnabled = false
             billingManager.launchPurchaseFlow(this, BillingManager.PRO_PRODUCT_ID)
         }
@@ -111,62 +113,9 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         }
     }
 
-    private fun loadLocalizedPriceAndSetButton(productId: String, button: Button) {
-        if (priceClient == null) {
-            priceClient = BillingClient.newBuilder(this)
-                .enablePendingPurchases()
-                .setListener { _, _ -> /* no-op */ }
-                .build()
-        }
 
-        val client = priceClient!!
-        if (!client.isReady) {
-            client.startConnection(object : BillingClientStateListener {
-                override fun onBillingSetupFinished(result: BillingResult) {
-                    if (result.responseCode == BillingClient.BillingResponseCode.OK) {
-                        queryPrice(productId, button)
-                    } else {
-                        button.text = "Upgrade to GPT-4o Pro"
-                    }
-                }
-                override fun onBillingServiceDisconnected() { /* you can retry later if needed */ }
-            })
-        } else {
-            queryPrice(productId, button)
-        }
-    }
 
-    private fun queryPrice(productId: String, button: Button) {
-        val products = listOf(
-            QueryProductDetailsParams.Product.newBuilder()
-                .setProductId(productId)
-                .setProductType(BillingClient.ProductType.SUBS) // change to INAPP if one-time
-                .build()
-        )
 
-        val params = QueryProductDetailsParams.newBuilder()
-            .setProductList(products)
-            .build()
-
-        priceClient?.queryProductDetailsAsync(params) { result, details ->
-            if (isFinishing || isDestroyed) return@queryProductDetailsAsync
-            if (result.responseCode != BillingClient.BillingResponseCode.OK || details.isEmpty()) {
-                button.text = "Upgrade to GPT-4o Pro"
-                // leave disabled or enable if you still want manual retry
-                return@queryProductDetailsAsync
-            }
-            val pd = details.first()
-            val formatted = pd.subscriptionOfferDetails
-                ?.firstOrNull()
-                ?.pricingPhases?.pricingPhaseList
-                ?.firstOrNull()
-                ?.formattedPrice
-
-            button.text = formatted?.let { "Upgrade to GPT-4o Pro ($it/month)" }
-                ?: "Upgrade to GPT-4o Pro"
-            button.isEnabled = true
-        }
-    }
 
     override fun onResume() {
         super.onResume()
@@ -177,8 +126,7 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        try { priceClient?.endConnection() } catch (_: Exception) {}
-        priceClient = null
+
         try { billingManager.destroy() } catch (_: Exception) {}
     }
 

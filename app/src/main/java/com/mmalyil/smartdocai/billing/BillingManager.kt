@@ -12,96 +12,171 @@ class BillingManager(
 ) : PurchasesUpdatedListener {
 
     companion object {
+        /** MUST match the Play Console product ID exactly. */
         const val PRO_PRODUCT_ID = "ai_pro_plan"
     }
 
-    private var billingClient: BillingClient
+    private var billingClient: BillingClient = BillingClient.newBuilder(context)
+        .setListener(this)
+        .enablePendingPurchases()
+        .build()
 
     init {
-        billingClient = BillingClient.newBuilder(context)
-            .setListener(this)
-            .enablePendingPurchases()
-            .build()
-
         billingClient.startConnection(object : BillingClientStateListener {
-            override fun onBillingSetupFinished(billingResult: BillingResult) {
-                if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
+            override fun onBillingSetupFinished(r: BillingResult) {
+                if (r.responseCode == BillingClient.BillingResponseCode.OK) {
+                    // Optional: refresh entitlement once connected
                     queryPurchases()
+                } else {
+                    Log.w("BillingManager", "Setup failed: ${r.responseCode} ${r.debugMessage}")
                 }
             }
-
             override fun onBillingServiceDisconnected() {
                 Log.w("BillingManager", "Service disconnected")
+                // Play recommends retrying later; UI can call methods again which will guard on isReady()
             }
         })
     }
 
-    fun launchPurchaseFlow(activity: Activity, productId: String) {
-        val params = QueryProductDetailsParams.newBuilder()
+    /** Defensive readiness check (BillingClient can be momentarily not-ready). */
+    private fun isReady(): Boolean = try {
+        billingClient.isReady
+    } catch (_: Exception) {
+        false
+    }
+
+    /** Query current entitlement (subs + inapp). Call on resume or after purchase. */
+    fun queryPurchases(onComplete: (() -> Unit)? = null) {
+        if (!isReady()) {
+            Log.w("BillingManager", "queryPurchases: BillingClient not ready yet")
+            onComplete?.invoke()
+            return
+        }
+
+        var remaining = 2
+        fun done() { if (--remaining == 0) onComplete?.invoke() }
+
+        // SUBSCRIPTIONS
+        billingClient.queryPurchasesAsync(
+            QueryPurchasesParams.newBuilder()
+                .setProductType(BillingClient.ProductType.SUBS)
+                .build()
+        ) { res, purchases ->
+            if (res.responseCode == BillingClient.BillingResponseCode.OK) {
+                val list = purchases ?: emptyList()
+                handlePurchases(list)
+                listener.onPurchasesUpdated(list)
+            } else {
+                Log.w("BillingManager", "SUBS query failed: ${res.debugMessage}")
+                listener.onPurchasesUpdated(emptyList())
+            }
+            done()
+        }
+
+        // INAPP (future-proofing; safe even if you have none)
+        billingClient.queryPurchasesAsync(
+            QueryPurchasesParams.newBuilder()
+                .setProductType(BillingClient.ProductType.INAPP)
+                .build()
+        ) { res, purchases ->
+            if (res.responseCode == BillingClient.BillingResponseCode.OK) {
+                val list = purchases ?: emptyList()
+                handlePurchases(list)
+                listener.onPurchasesUpdated(list)
+            } else {
+                Log.w("BillingManager", "INAPP query failed: ${res.debugMessage}")
+                listener.onPurchasesUpdated(emptyList())
+            }
+            done()
+        }
+    }
+
+    /** Launch the purchase flow for the Pro subscription. */
+    fun launchPurchaseFlow(activity: Activity, productId: String = PRO_PRODUCT_ID) {
+        if (!isReady()) {
+            Log.w("BillingManager", "launchPurchaseFlow: BillingClient not ready yet")
+            return
+        }
+
+        val queryParams = QueryProductDetailsParams.newBuilder()
             .setProductList(listOf(
                 QueryProductDetailsParams.Product.newBuilder()
                     .setProductId(productId)
                     .setProductType(BillingClient.ProductType.SUBS)
                     .build()
-            )).build()
+            ))
+            .build()
 
-        billingClient.queryProductDetailsAsync(params) { result, list ->
-            if (result.responseCode != BillingClient.BillingResponseCode.OK || list.isNullOrEmpty()) {
-                Log.w("BillingManager", "No productDetails for $productId: ${result.debugMessage}")
+        billingClient.queryProductDetailsAsync(queryParams) { result, details ->
+            if (result.responseCode != BillingClient.BillingResponseCode.OK || details.isNullOrEmpty()) {
+                Log.w("BillingManager", "No ProductDetails for $productId: ${result.debugMessage}")
                 return@queryProductDetailsAsync
             }
 
-            val productDetails = list[0]
-
-            // If you know your base plan id: choose by it. Otherwise pick first eligible offer.
-            val offer = productDetails.subscriptionOfferDetails?.firstOrNull()
-            val offerToken = offer?.offerToken ?: run {
+            val pd = details.first()
+            val offerToken = pd.subscriptionOfferDetails?.firstOrNull()?.offerToken
+            if (offerToken.isNullOrBlank()) {
                 Log.w("BillingManager", "No offerToken for $productId")
                 return@queryProductDetailsAsync
             }
 
-            val productParams = BillingFlowParams.ProductDetailsParams.newBuilder()
-                .setProductDetails(productDetails)
+            val prodParams = BillingFlowParams.ProductDetailsParams.newBuilder()
+                .setProductDetails(pd)
                 .setOfferToken(offerToken)
                 .build()
 
             val flowParams = BillingFlowParams.newBuilder()
-                // Optional anti-fraud / analytics correlation:
-                // .setObfuscatedAccountId(yourUserIdHash)
-                .setProductDetailsParamsList(listOf(productParams))
+                .setProductDetailsParamsList(listOf(prodParams))
                 .build()
 
             billingClient.launchBillingFlow(activity, flowParams)
         }
     }
 
-    fun queryPurchases() {
-        billingClient.queryPurchasesAsync(
-            QueryPurchasesParams.newBuilder()
-                .setProductType(BillingClient.ProductType.SUBS)
-                .build()
-        ) { billingResult, purchases ->
-            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                handlePurchases(purchases)
-                listener.onPurchasesUpdated(purchases)
+    /** Get localized price string for UI (e.g., “$4.99/month”). */
+    fun queryPrice(productId: String = PRO_PRODUCT_ID, onPrice: (String?) -> Unit) {
+        if (!isReady()) {
+            Log.w("BillingManager", "queryPrice: BillingClient not ready yet")
+            onPrice(null)
+            return
+        }
+
+        val params = QueryProductDetailsParams.newBuilder()
+            .setProductList(listOf(
+                QueryProductDetailsParams.Product.newBuilder()
+                    .setProductId(productId)
+                    .setProductType(BillingClient.ProductType.SUBS)
+                    .build()
+            ))
+            .build()
+
+        billingClient.queryProductDetailsAsync(params) { res, details ->
+            if (res.responseCode != BillingClient.BillingResponseCode.OK || details.isNullOrEmpty()) {
+                onPrice(null)
+                return@queryProductDetailsAsync
             }
+            val price = details.first().subscriptionOfferDetails
+                ?.firstOrNull()
+                ?.pricingPhases?.pricingPhaseList
+                ?.firstOrNull()
+                ?.formattedPrice
+            onPrice(price)
         }
     }
 
     override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
         when (result.responseCode) {
             BillingClient.BillingResponseCode.OK -> {
-                if (purchases != null) {
-                    handlePurchases(purchases)
-                    listener.onPurchasesUpdated(purchases)
-                }
+                val list = purchases ?: emptyList()
+                handlePurchases(list)
+                listener.onPurchasesUpdated(list)
+            }
+            BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
+                // Reflect existing entitlement.
+                queryPurchases()
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> {
                 Log.i("BillingManager", "User canceled purchase")
-            }
-            BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
-                // User already subscribed on another device/account state; refresh entitlement
-                queryPurchases()
             }
             else -> {
                 Log.w("BillingManager", "Purchase failed: ${result.responseCode} ${result.debugMessage}")
@@ -110,21 +185,21 @@ class BillingManager(
     }
 
     private fun handlePurchases(purchases: List<Purchase>) {
-        for (purchase in purchases) {
-            if (!purchase.products.contains(PRO_PRODUCT_ID)) continue
+        purchases.forEach { p ->
+            if (!p.products.contains(PRO_PRODUCT_ID)) return@forEach
 
-            when (purchase.purchaseState) {
+            when (p.purchaseState) {
                 Purchase.PurchaseState.PURCHASED -> {
+                    // Grant entitlement
                     UsageManager.setPro(context, true)
-                    Log.d("BillingManager", "✅ Pro subscription activated.")
-
-                    if (!purchase.isAcknowledged) {
-                        val params = AcknowledgePurchaseParams.newBuilder()
-                            .setPurchaseToken(purchase.purchaseToken)
+                    Log.d("BillingManager", "✅ Pro entitlement active")
+                    if (!p.isAcknowledged) {
+                        val ack = AcknowledgePurchaseParams.newBuilder()
+                            .setPurchaseToken(p.purchaseToken)
                             .build()
-                        billingClient.acknowledgePurchase(params) { br ->
+                        billingClient.acknowledgePurchase(ack) { br ->
                             if (br.responseCode == BillingClient.BillingResponseCode.OK) {
-                                Log.d("BillingManager", "✅ Purchase acknowledged.")
+                                Log.d("BillingManager", "✅ Purchase acknowledged")
                             } else {
                                 Log.w("BillingManager", "Ack failed: ${br.debugMessage}")
                             }
@@ -132,15 +207,11 @@ class BillingManager(
                     }
                 }
                 Purchase.PurchaseState.PENDING -> {
-                    Log.i("BillingManager", "⏳ Purchase pending…")
-                    // Optional: notify UI via listener if you want to show “Pending…”
+                    Log.i("BillingManager", "⏳ Purchase pending")
                 }
-                Purchase.PurchaseState.UNSPECIFIED_STATE -> {
-                    Log.w("BillingManager", "Unspecified purchase state")
-                }
+                else -> Unit
             }
         }
-
     }
 
     interface BillingUpdateListener {
@@ -150,6 +221,4 @@ class BillingManager(
     fun destroy() {
         try { billingClient.endConnection() } catch (_: Exception) {}
     }
-
-
 }

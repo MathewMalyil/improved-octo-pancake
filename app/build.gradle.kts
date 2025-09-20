@@ -2,7 +2,9 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+
     id("org.jetbrains.kotlin.android")
+
     id("com.google.devtools.ksp")
 }
 
@@ -30,8 +32,8 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "2.2"
+        versionCode = 25
+        versionName = "2.4"
 
 
         ndk {
@@ -58,7 +60,7 @@ android {
     }
     composeOptions {
         // Keep aligned with your Compose libs (1.5.x UI is fine with 1.5.10)
-        kotlinCompilerExtensionVersion = "1.5.10"
+        kotlinCompilerExtensionVersion = "1.5.15"
     }
 
     compileOptions {
@@ -126,15 +128,6 @@ android {
 
     // Keep POI logging clean; avoid bringing a SLF4J impl accidentally
     configurations.all {
-        resolutionStrategy.force(
-            "androidx.camera:camera-core:1.5.0",
-            "androidx.camera:camera-camera2:1.5.0",
-            "androidx.camera:camera-lifecycle:1.5.0",
-            "androidx.camera:camera-view:1.5.0"
-            // add video/mlkit-vision here if you use them
-        )
-
-
         exclude(group = "org.apache.logging.log4j", module = "log4j-slf4j-impl")
     }
 
@@ -180,7 +173,7 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // PDF & documents
-    implementation("com.itextpdf:itextpdf:5.5.13.4")
+
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.madgag:scpkix-jdk15on:1.47.0.1")
 

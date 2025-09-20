@@ -12,9 +12,6 @@ import androidx.core.content.FileProvider
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.itextpdf.text.Document
-import com.itextpdf.text.Paragraph
-import com.itextpdf.text.pdf.PdfWriter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -661,20 +658,43 @@ class ToolsFragment : Fragment() {
         analyzeButton.setOnClickListener {
             stopWalkthroughIfRunning()
             val prompt = promptInput.text.toString().trim()
-            if (prompt.isEmpty() || extractedText.isEmpty()) {
-                toast("Please select a file and enter a prompt")
+
+            if (extractedText.isEmpty()) {
+                toast("Please select a file or extract text first")
                 return@setOnClickListener
-
             }
-            analyzeSmartlyWithQuota(
-                context = requireContext(),
-                prompt = prompt,
-                extractedText = extractedText,
-                fileName = selectedFileName,
-                fileUri = selectedFileUri,
-                viewModel = scannedFileViewModel
-            )
 
+            if (prompt.isEmpty()) {
+                showPromptSheet { picked ->
+                    promptInput.setText(picked)
+                    analyzeSmartlyWithQuota(
+                        context = requireContext(),
+                        prompt = picked,
+                        extractedText = extractedText,
+                        fileName = selectedFileName,
+                        fileUri = selectedFileUri,
+                        viewModel = scannedFileViewModel
+                    )
+                }
+            } else {
+                analyzeSmartlyWithQuota(
+                    context = requireContext(),
+                    prompt = prompt,
+                    extractedText = extractedText,
+                    fileName = selectedFileName,
+                    fileUri = selectedFileUri,
+                    viewModel = scannedFileViewModel
+                )
+            }
+        }
+
+// Optional: press-and-hold to open suggestions anytime
+        analyzeButton.setOnLongClickListener {
+            if (extractedText.isEmpty()) {
+                toast("Load a document first"); return@setOnLongClickListener true
+            }
+            showPromptSheet { picked -> promptInput.setText(picked) }
+            true
         }
 
         btnExportTxt.setOnClickListener {
@@ -695,16 +715,27 @@ class ToolsFragment : Fragment() {
 
         exportShareButton.setOnClickListener {
             stopWalkthroughIfRunning()
-            if (extractedText.isEmpty()) {
-                toast("No text to share")
+
+            val includeDoc = chkIncludeDoc.isChecked
+            val includeAI = chkIncludeAI.isChecked
+
+            if (!includeDoc && !includeAI) {
+                toast("Please select at least one option to share")
                 return@setOnClickListener
             }
+
+            val content = buildExportContent(includeDoc, includeAI).trim()
+            if (content.isBlank()) {
+                toast("Nothing to share yet")
+                return@setOnClickListener
+            }
+
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, extractedText)
-                putExtra(Intent.EXTRA_SUBJECT, "Document Analysis Result")
+                putExtra(Intent.EXTRA_TEXT, content)
+                putExtra(Intent.EXTRA_SUBJECT, "Document Analysis")
             }
-            startActivity(Intent.createChooser(shareIntent, "Share Document Analysis"))
+            startActivity(Intent.createChooser(shareIntent, "Share via"))
         }
 
         chkIncludeDoc.setOnCheckedChangeListener { _, isChecked ->
@@ -1286,18 +1317,84 @@ class ToolsFragment : Fragment() {
     }
 
 
+    // ---- PDF export (no iText) ----
     private fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
         val content = buildExportContent(includeDoc, includeAI)
-        val file = File(requireContext().getExternalFilesDir(null), "SmartDocAI_Export.pdf")
-
-        val document = Document()
-        FileOutputStream(file).use { fos ->
-            PdfWriter.getInstance(document, fos)
-            document.open()
-            document.add(Paragraph(content))
-            document.close() // Document isn't Closeable, so close it manually
+        if (content.isBlank()) {
+            toast("Nothing to export"); return
         }
 
+        val file = File(requireContext().getExternalFilesDir(null), "SmartDocAI_Export.pdf")
+
+        // Page & paint setup
+        val pageWidth = 595 // A4 ~ 595x842 @ 72dpi
+        val pageHeight = 842
+        val margin = 40f
+
+        val titlePaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = 16f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT_BOLD, android.graphics.Typeface.BOLD)
+        }
+        val bodyPaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = 12f
+            typeface = android.graphics.Typeface.MONOSPACE // monospaced looks tidy for raw text; change if you like
+        }
+
+        val lineGap = 4f
+        val title = "SmartDocAI Export"
+        val lines = wrapText(content, bodyPaint, pageWidth - 2 * margin)
+
+        val pdf = android.graphics.pdf.PdfDocument()
+        var pageNum = 1
+        var y = 0f
+
+        fun newPage(): android.graphics.pdf.PdfDocument.Page {
+            val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create()
+            val page = pdf.startPage(pageInfo)
+            val c = page.canvas
+
+            // Title
+            y = margin + titlePaint.textSize
+            c.drawText(title, margin, y, titlePaint)
+
+            // Footer (page number)
+            val footer = "Page $pageNum"
+            val footerWidth = titlePaint.measureText(footer)
+            c.drawText(footer, pageWidth - margin - footerWidth, pageHeight - margin / 2, bodyPaint)
+
+            // Move to content start
+            y += titlePaint.textSize + 12f
+            return page
+        }
+
+        var page = newPage()
+        val canvas = { page.canvas }
+        val usableBottom = pageHeight - margin - (bodyPaint.textSize + lineGap) // leave space above footer
+
+        for (line in lines) {
+            if (y + bodyPaint.textSize > usableBottom) {
+                pdf.finishPage(page)
+                pageNum++
+                page = newPage()
+            }
+            canvas().drawText(line, margin, y, bodyPaint)
+            y += bodyPaint.textSize + lineGap
+        }
+
+        pdf.finishPage(page)
+
+        try {
+            FileOutputStream(file).use { pdf.writeTo(it) }
+            pdf.close()
+        } catch (e: Exception) {
+            pdf.close()
+            toast("PDF write error: ${e.message}")
+            return
+        }
+
+        // Share
         val uri = getFileUri(requireContext(), file.name)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
@@ -1307,6 +1404,29 @@ class ToolsFragment : Fragment() {
             clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
         }
         startActivity(Intent.createChooser(intent, "Share PDF via"))
+    }
+
+    /** Wraps a long string into lines that fit a given width using the provided Paint. */
+    private fun wrapText(text: String, paint: android.graphics.Paint, maxWidth: Float): List<String> {
+        val out = ArrayList<String>(text.length / 30 + 1)
+        val newlineSplit = text.replace("\r", "").split('\n')
+
+        for (para in newlineSplit) {
+            if (para.isEmpty()) { out.add(""); continue }
+            var start = 0
+            val len = para.length
+            while (start < len) {
+                var end = paint.breakText(para, start, len, true, maxWidth, null) + start
+                if (end < len) {
+                    // try to break at last space for nicer wrap
+                    val lastSpace = para.lastIndexOf(' ', end - 1)
+                    if (lastSpace > start + 5) end = lastSpace + 1
+                }
+                out.add(para.substring(start, end).trimEnd())
+                start = end
+            }
+        }
+        return out
     }
 
     private fun exportAsTxt(includeDoc: Boolean, includeAI: Boolean) {
@@ -1533,9 +1653,16 @@ class ToolsFragment : Fragment() {
         }
     }
 
-    private val http by lazy {
+    // One reusable interceptor
+    private val taggingInterceptor = Interceptor { chain ->
+        TrafficStats.setThreadStatsTag(0x53444149) // 'SDAI'
+        try { chain.proceed(chain.request()) } finally { TrafficStats.clearThreadStatsTag() }
+    }
+
+    // Reuse this for every OkHttp client you own
+    val http by lazy {
         OkHttpClient.Builder()
-            .addNetworkInterceptor(driveSocketTagging)
+            .addNetworkInterceptor(taggingInterceptor)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
@@ -1573,5 +1700,85 @@ class ToolsFragment : Fragment() {
         maybeAutoAnalyze()
     }
 
+// ---- Prompt suggestions helpers ----
 
+    private fun docKind(): String {
+        val n = selectedFileName.lowercase()
+        return when {
+            n.endsWith(".pdf") -> "pdf"
+            n.endsWith(".docx") -> "docx"
+            n.endsWith(".pptx") -> "pptx"
+            n.endsWith(".xlsx") || n.endsWith(".xls") || n.endsWith(".csv") -> "sheet"
+            extractedText.length < 80 -> "short"
+            extractedText.count { it == '\n' } > 20 -> "long"
+            else -> "generic"
+        }
+    }
+
+    private fun promptSuggestions(): List<String> {
+        val base = listOf(
+            "Summarize this document in 5 bullet points.",
+            "List key action items with owners and deadlines.",
+            "Extract all dates, amounts, and names in a table."
+        )
+        return when (docKind()) {
+            "pdf" -> base + listOf(
+                "Give a plain-English summary (<=120 words).",
+                "What are the risks, assumptions, and next steps?"
+            )
+            "docx" -> base + listOf(
+                "Rewrite the executive summary to be clearer and shorter.",
+                "Create a meeting agenda based on this doc."
+            )
+            "pptx" -> base + listOf(
+                "Turn each slide into one bullet (slide-by-slide).",
+                "What’s the overall narrative and suggested conclusion?"
+            )
+            "sheet" -> listOf(
+                "Describe the main trends and outliers.",
+                "Which 3 metrics changed the most and why?",
+                "Find anomalies and possible data quality issues."
+            )
+            "short" -> listOf(
+                "Expand this into a clear paragraph.",
+                "Create 3 alternative phrasings, each with a different tone."
+            )
+            "long" -> base + listOf(
+                "Build a one-page brief with sections: Context, Findings, Decisions.",
+                "Pull all questions the doc raises but doesn’t answer."
+            )
+            else -> base
+        }
+    }
+
+    private fun showPromptSheet(onPick: (String) -> Unit) {
+        val items = promptSuggestions()
+        val view = layoutInflater.inflate(R.layout.simple_list_sheet, null) // see layout note below
+        val rv = view.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.sheetRecycler)
+        rv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(requireContext())
+        rv.adapter = object : androidx.recyclerview.widget.RecyclerView.Adapter<VH>() {
+            override fun onCreateViewHolder(p: ViewGroup, vType: Int): VH {
+                val tv = android.widget.TextView(p.context).apply {
+                    setPadding(32, 32, 32, 32)
+                    textSize = 16f
+                }
+                return VH(tv)
+            }
+            override fun getItemCount() = items.size
+            override fun onBindViewHolder(h: VH, i: Int) {
+                (h.itemView as android.widget.TextView).text = "• " + items[i]
+                h.itemView.setOnClickListener {
+                    sheet?.dismiss()
+                    onPick(items[i])
+                }
+            }
+        }
+        sheet = com.google.android.material.bottomsheet.BottomSheetDialog(requireContext()).apply {
+            setContentView(view)
+            setTitle("Try a prompt")
+            show()
+        }
+    }
+    private var sheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+    private class VH(v: View) : androidx.recyclerview.widget.RecyclerView.ViewHolder(v)
 }
