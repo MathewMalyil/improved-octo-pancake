@@ -1,0 +1,4 @@
+/data/app/com.mmalyil.smartdocai-PTkizE1xelU3maHbspHqlw==/base.apk
+/data/app/com.mmalyil.smartdocai-PTkizE1xelU3maHbspHqlw==/split_config.arm64_v8a.apk
+/data/app/com.mmalyil.smartdocai-PTkizE1xelU3maHbspHqlw==/split_config.en.apk
+/data/app/com.mmalyil.smartdocai-PTkizE1xelU3maHbspHqlw==/split_config.xxhdpi.apk

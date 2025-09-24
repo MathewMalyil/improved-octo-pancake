@@ -1,43 +1,17 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-# Android / Gradle
+# Gradle
 .gradle/
 build/
 */build/
 local.properties
-*.iml
-.idea/
-.DS_Store
-
-# Keystores (never commit)
-*.jks
 *.keystore
-
-# App bundles / APKs / Play splits
+*.jks
+.idea/
+*.iml
+.DS_Store
+*.log
 *.apk
+*.ap_
 *.aab
 *.idsig
-play_splits/
-apkpaths.txt
-
-# Crash / replay logs
-hs_err_*.log
-replay_*.log
-
-# Node
-node_modules/
-npm-debug.log
-yarn-error.log
+hs_err_pid*
+replay_pid*
