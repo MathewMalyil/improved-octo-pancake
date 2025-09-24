@@ -13,3 +13,31 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Android / Gradle
+.gradle/
+build/
+*/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+
+# Keystores (never commit)
+*.jks
+*.keystore
+
+# App bundles / APKs / Play splits
+*.apk
+*.aab
+*.idsig
+play_splits/
+apkpaths.txt
+
+# Crash / replay logs
+hs_err_*.log
+replay_*.log
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
