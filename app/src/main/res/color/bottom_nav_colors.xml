@@ -5,4 +5,10 @@
     <item android:state_checked="true" android:color="?attr/colorPrimary"/>
     <!-- Inactive items follow theme (auto light/dark) -->
     <item android:color="?attr/colorOnSurface"/>
+
+        <item android:color="@color/md3_primary" android:state_checked="true"/>
+        <item android:color="@android:color/darker_gray"/>
+
+
+
 </selector>

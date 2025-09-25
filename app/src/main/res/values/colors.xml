@@ -14,4 +14,26 @@
 
     <color name="colorError">#B00020</color>
     <color name="colorOnError">#FFFFFF</color>
+
+
+        <color name="md3_primary">#C8A04A</color>
+        <color name="md3_onPrimary">#2A1E0E</color>
+        <color name="md3_primaryContainer">#EAD8B0</color>
+        <color name="md3_onPrimaryContainer">#2A1E0E</color>
+
+        <color name="md3_secondary">#B89E7A</color>
+        <color name="md3_onSecondary">#2D2417</color>
+        <color name="md3_tertiary">#7A5A32</color>
+        <color name="md3_onTertiary">#FFF7EA</color>
+
+        <color name="md3_background">#F6F1E7</color>
+        <color name="md3_surface">#FFFFFF</color>
+        <color name="md3_surfaceVariant">#F1E8D9</color>
+        <color name="md3_outline">#C8BBA6</color>
+
+        <!-- States -->
+        <color name="gold_pressed">#A8842F</color>
+
+
+
 </resources>

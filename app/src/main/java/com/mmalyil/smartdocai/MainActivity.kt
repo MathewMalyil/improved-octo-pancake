@@ -7,6 +7,7 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.os.bundleOf
 import androidx.lifecycle.lifecycleScope
@@ -16,6 +17,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.mmalyil.smartdocai.util.UsageManager
+
+import android.widget.ProgressBar
 
 
 
@@ -190,6 +196,36 @@ class MainActivity : AppCompatActivity() {
 
         val fab = findViewById<FloatingActionButton>(R.id.fab)
         fab.setOnClickListener { showFabActionSheet() }
+
+        // ✅ Hero card views (match your XML IDs)
+        val tvUsageText  = findViewById<TextView>(R.id.tvUsageText)
+        val usageBar     = findViewById<ProgressBar>(R.id.usageProgressBar) // NOTE: platform ProgressBar
+        val tvAiSource   = findViewById<TextView>(R.id.tvAiSource)
+
+        // Optional quick buttons if you have them
+        findViewById<MaterialButton?>(R.id.btnQuickUpload)?.setOnClickListener { goToToolsAndAsk("upload") }
+        findViewById<MaterialButton?>(R.id.btnQuickScan)?.setOnClickListener   { goToToolsAndAsk("scan") }
+        findViewById<MaterialButton?>(R.id.btnQuickOCR)?.setOnClickListener    { goToToolsAndAsk("pickImage") }
+
+        // 🔗 Bind usage UI (single source of truth)
+        UsageManager.bindUsageUI(
+            context = this,
+            usageTextView = tvUsageText,
+            progressBar = usageBar,
+            aiSourceTextView = tvAiSource
+        )
+    }
+
+    fun goToToolsAndAsk(action: String) {
+        val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
+        nav.selectedItemId = R.id.nav_tools
+        window.decorView.post {
+            supportFragmentManager.setFragmentResult(
+                "toolsFabRequest",
+                bundleOf("action" to action)
+            )
+        }
+
     }
 
     private fun maybeHandleDeepLinkFromOnboarding(intent: Intent) {
@@ -213,15 +249,8 @@ class MainActivity : AppCompatActivity() {
         val bottomSheet = layoutInflater.inflate(R.layout.dialog_fab_actions, null)
         val dialog = BottomSheetDialog(this).apply { setContentView(bottomSheet) }
 
-        fun goToToolsAndAsk(action: String) {
-            val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
-            nav.selectedItemId = R.id.nav_tools
-            window.decorView.post {
-                supportFragmentManager.setFragmentResult(
-                    "toolsFabRequest",
-                    bundleOf("action" to action)
-                )
-            }
+        fun choose(action: String) {
+            goToToolsAndAsk(action)
             dialog.dismiss()
         }
 
@@ -237,4 +266,6 @@ class MainActivity : AppCompatActivity() {
 
         dialog.show()
     }
+
+
 }

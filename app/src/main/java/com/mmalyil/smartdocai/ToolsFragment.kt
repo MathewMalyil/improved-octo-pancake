@@ -775,6 +775,16 @@ class ToolsFragment : Fragment() {
         val usageBar = view.findViewById<ProgressBar>(R.id.usageProgressBar)
         val aiSourceText = view.findViewById<TextView>(R.id.tvAiSource)
 
+        // Bind once to show current values
+        UsageManager.bindUsageUI(
+            context = requireContext(),
+            usageTextView = usageText,
+            progressBar = usageBar,
+            aiSourceTextView = aiSourceText
+        )
+
+
+
         loadingOverlay = view.findViewById(R.id.loadingOverlay)
         loadingSpinner = view.findViewById(R.id.loadingSpinner)
 
@@ -782,7 +792,7 @@ class ToolsFragment : Fragment() {
         loadingOverlay?.postDelayed({ loadingOverlay?.visibility = View.GONE }, 1000)
 
 
-        UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
+        //UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
 
 
         view.doOnPreDraw {
@@ -790,7 +800,17 @@ class ToolsFragment : Fragment() {
         }
 
     }
-
+    override fun onResume() {
+        super.onResume()
+        view?.let { v ->
+            UsageManager.bindUsageUI(
+                context = requireContext(),
+                usageTextView = v.findViewById(R.id.tvUsageText),
+                progressBar = v.findViewById(R.id.usageProgressBar),
+                aiSourceTextView = v.findViewById(R.id.tvAiSource)
+            )
+        }
+    }
 
     override fun onDestroyView() {
         (view as? ViewGroup)?.let { parent ->
