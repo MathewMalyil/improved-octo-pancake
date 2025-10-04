@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Limit to your app-specific external files directory -->
+    <!-- Only expose exported reports -->
     <external-files-path
-        name="external_files"
-        path="." />
-
-    <!-- Limit to your app cache directory -->
+        name="exports"
+        path="exports/" />
+    <!-- Optional: temp/cache if you share temp files -->
     <cache-path
-        name="cache_files"
+        name="cache"
         path="." />
 </paths>

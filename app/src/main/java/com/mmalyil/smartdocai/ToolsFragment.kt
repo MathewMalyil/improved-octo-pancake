@@ -66,6 +66,8 @@ import android.os.StrictMode
 import androidx.core.view.doOnPreDraw
 import kotlinx.coroutines.flow.first
 
+import com.google.android.material.snackbar.Snackbar
+
 
 // ToolsFragment.kt (top)
 import android.net.TrafficStats
@@ -129,6 +131,47 @@ class ToolsFragment : Fragment() {
 
     private var isCoachRunning = false
     // Call this from your Upload FAB (you can wire it like "Import from Google Docs")
+
+    // ToolsFragment.kt (top, near other private vars)
+    private var offeredDocxForUri: String? = null
+
+
+    // Prevent double-tap DOCX generation
+    private var isGeneratingDocx = false
+
+
+    // For SAF save on Android 8/9
+    private var pendingDocxToSave: File? = null
+
+    private val saveDocxLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        if (res.resultCode == android.app.Activity.RESULT_OK && res.data?.data != null && pendingDocxToSave != null) {
+            val dest = res.data!!.data!!
+            try {
+                requireContext().contentResolver.openOutputStream(dest)?.use { out ->
+                    pendingDocxToSave!!.inputStream().use { it.copyTo(out) }
+                }
+                toast("Saved")
+            } catch (e: Exception) {
+                toast("Save failed: ${e.message}")
+            } finally {
+                pendingDocxToSave = null
+            }
+        } else {
+            pendingDocxToSave = null
+        }
+    }
+    private fun promptSaveDocxViaSaf(file: File) {
+        pendingDocxToSave = file
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            putExtra(Intent.EXTRA_TITLE, file.name) // keep .docx extension
+        }
+        saveDocxLauncher.launch(intent)
+    }
+
     private fun showUploadOptionsDialog() {
         val base = mutableListOf("Upload File", "Pick Image", "Scan with Camera")
         if (BuildConfig.USE_GOOGLE_DOCS) base += "Import from Google Docs"
@@ -655,6 +698,9 @@ class ToolsFragment : Fragment() {
             stopWalkthroughIfRunning()
             openFilePicker() }
 
+
+
+
         analyzeButton.setOnClickListener {
             stopWalkthroughIfRunning()
             val prompt = promptInput.text.toString().trim()
@@ -737,6 +783,15 @@ class ToolsFragment : Fragment() {
             }
             startActivity(Intent.createChooser(shareIntent, "Share via"))
         }
+
+        val btnExportDocx = view.findViewById<Button>(R.id.btnExportDocx)
+        btnExportDocx.setOnClickListener {
+            val xlsxUri = runCatching { Uri.parse(selectedFileUri) }.getOrNull()
+            if (xlsxUri == null) { toast("Load an XLSX first"); return@setOnClickListener }
+            exportXlsxAiReportNow(xlsxUri)
+        }
+
+
 
         chkIncludeDoc.setOnCheckedChangeListener { _, isChecked ->
             if (!isChecked && !chkIncludeAI.isChecked) chkIncludeDoc.isChecked = true
@@ -929,8 +984,7 @@ class ToolsFragment : Fragment() {
                     name.endsWith(".xlsx") || name.endsWith(".xls")) -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx =
-                            context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
                         val text = withContext(Dispatchers.IO) {
                             relaxVmPolicyDuring {
                                 com.mmalyil.smartdocai.util.PoiKnobs.relax()
@@ -938,28 +992,10 @@ class ToolsFragment : Fragment() {
                                 DocumentUtils.extractTextFromXlsx(appCtx, uri)
                             }
                         }
-                        onDone("XLSX", text)
+                        onDone("XLSX", text)    // <-- this will trigger the snackbar in handleResult()
                     } catch (e: Exception) {
                         showLoading(false)
                         toast("XLSX read error: ${e.message}")
-                    }
-                }
-            }
-
-            type == "text/csv" || name.endsWith(".csv") -> {
-                viewLifecycleOwner.lifecycleScope.launch {
-                    try {
-                        val appCtx =
-                            context?.applicationContext ?: return@launch.also { showLoading(false) }
-                        val text = withContext(Dispatchers.IO) {
-                            relaxVmPolicyDuring {
-                                DocumentUtils.extractTextFromCsv(appCtx, uri)
-                            }
-                        }
-                        onDone("CSV", text)
-                    } catch (e: Exception) {
-                        showLoading(false)
-                        toast("CSV read error: ${e.message}")
                     }
                 }
             }
@@ -969,6 +1005,147 @@ class ToolsFragment : Fragment() {
                 toast("Unsupported file: $type")
             }
         }
+    }
+
+    private fun exportXlsxAiReportNow(xlsxUri: Uri, customPrompt: String? = null) {
+        if (isGeneratingDocx) { toast("Already generating…"); return }
+        isGeneratingDocx = true
+        showLoading(true)
+
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val title = selectedFileName.substringBeforeLast('.', selectedFileName).ifBlank { "Report" }
+
+                val result = com.mmalyil.smartdocai.export.ReportExporter.generateXlsxAiReport(
+                    context      = requireContext(),
+                    srcUri       = xlsxUri,
+                    titleHint    = title,
+                    proxy        = com.mmalyil.smartdocai.api.ChatApiHelper.chatService,
+                    customPrompt = customPrompt
+                )
+
+                withContext(Dispatchers.Main) {
+                    showLoading(false)
+
+                    result.onSuccess { file ->
+                        // --- choose target URI: Q+ => Downloads, else FileProvider ---
+                        val downloadsUri: Uri? =
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q)
+                                runCatching { saveDocxToDownloadsQ(requireContext(), file) }.getOrNull()
+                            else null
+
+                        val fileProviderUri = getFileUri(requireContext(), file.name, subDir = "exports")
+                        val targetUri = downloadsUri ?: fileProviderUri
+
+                        if (file.length() <= 0L) { toast("Report file is empty"); return@onSuccess }
+
+                        // --- base VIEW intent + ClipData for legacy Word ---
+                        val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(
+                                targetUri,
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            )
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            clipData = ClipData.newUri(
+                                requireContext().contentResolver, file.name, targetUri
+                            )
+                        }
+
+                        // explicit grants for all handlers (Android 8/9 quirk)
+                        val pm = requireContext().packageManager
+                        pm.queryIntentActivities(openIntent, 0).forEach { ri ->
+                            try {
+                                requireContext().grantUriPermission(
+                                    ri.activityInfo.packageName,
+                                    targetUri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                )
+                            } catch (_: Exception) {}
+                        }
+                        // common apps (best-effort)
+                        try {
+                            requireContext().grantUriPermission("com.microsoft.office.word", targetUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            requireContext().grantUriPermission("com.google.android.apps.docs", targetUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        } catch (_: Exception) {}
+
+                        fun openViaSendFallback() {
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                putExtra(Intent.EXTRA_STREAM, targetUri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                clipData = ClipData.newUri(requireContext().contentResolver, file.name, targetUri)
+                            }
+                            try {
+                                startActivity(Intent.createChooser(send, "Share/Open with"))
+                            } catch (_: Exception) {
+                                // Guaranteed path on 8/9
+                                promptSaveDocxViaSaf(file)
+                            }
+                        }
+
+                        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+                            // ANDROID 8/9: show action sheet with Open / Save As… / Share…
+                            showOpenSaveSheetForLegacy(file, targetUri, openIntent)
+                        } else {
+                            // ANDROID 10+: snackbar (file is in Downloads, Word opens fine)
+                            val sb = com.google.android.material.snackbar.Snackbar
+                                .make(
+                                    requireView(),
+                                    if (downloadsUri != null) "Saved to Downloads" else "AI Report ready",
+                                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                                )
+                                .setAction("Open") {
+                                    try {
+                                        startActivity(Intent.createChooser(openIntent, "Open with"))
+                                    } catch (_: Exception) {
+                                        openViaSendFallback()
+                                    }
+                                }
+                            sb.anchorView = requireView().findViewById(R.id.fabUploadScan)
+                            sb.show()
+                        }
+
+                        // (Optional) add to your in-app Saved list here if you want
+
+                    }.onFailure { e ->
+                        com.google.android.material.snackbar.Snackbar
+                            .make(requireView(), "Export failed: ${e.message}", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                            .show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    showLoading(false)
+                    com.google.android.material.snackbar.Snackbar
+                        .make(requireView(), "Export error: ${e.message}", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                        .show()
+                }
+            } finally {
+                withContext(Dispatchers.Main) { isGeneratingDocx = false }
+            }
+        }
+    }
+
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.Q)
+    private fun saveDocxToDownloadsQ(context: Context, src: File): Uri? {
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, src.name) // must end with .docx
+            put(android.provider.MediaStore.Downloads.MIME_TYPE,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: return null
+
+        resolver.openOutputStream(uri)?.use { out ->
+            src.inputStream().use { it.copyTo(out) }
+        }
+
+        values.clear()
+        values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return uri
     }
 
     // Single place to decide fallback vs success
@@ -983,8 +1160,36 @@ class ToolsFragment : Fragment() {
             return
         }
 
+        if (kind.equals("XLSX", true)) {
+            // Show this offer only once per file
+            if (offeredDocxForUri != selectedFileUri) {
+                offeredDocxForUri = selectedFileUri
+
+                val createAction = {
+                    runCatching { Uri.parse(selectedFileUri) }.getOrNull()
+                        ?.let { exportXlsxAiReportNow(it) }
+                        ?: toast("Missing XLSX URI")
+                }
+
+                val sb = com.google.android.material.snackbar.Snackbar
+                    .make(requireView(), "Export Word (AI Report)?", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                    .setAction("Create") { createAction() }
+
+                // lift above FAB so it's not hidden
+                sb.anchorView = requireView().findViewById(R.id.fabUploadScan)
+                sb.show()
+            }
+        }
+
+
+
         extractedText = if (text.isBlank()) "[No text found in this $kind]" else text
         showExtractedText("$kind loaded")
+
+        // show “Word (AI Report)” button only for XLSX
+        view?.findViewById<View>(R.id.btnExportDocx)?.visibility =
+            if (kind.equals("XLSX", ignoreCase = true)) View.VISIBLE else View.GONE
+
 
 
         maybeAutoAnalyze()
@@ -1340,90 +1545,80 @@ class ToolsFragment : Fragment() {
     // ---- PDF export (no iText) ----
     private fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
         val content = buildExportContent(includeDoc, includeAI)
-        if (content.isBlank()) {
-            toast("Nothing to export"); return
-        }
+        if (content.isBlank()) { toast("Nothing to export"); return }
 
-        val file = File(requireContext().getExternalFilesDir(null), "SmartDocAI_Export.pdf")
+        // Save under exports/
+        val outDir = File(requireContext().getExternalFilesDir(null), "exports").apply { mkdirs() }
+        val file = File(outDir, "SmartDocAI_Export.pdf")
 
-        // Page & paint setup
-        val pageWidth = 595 // A4 ~ 595x842 @ 72dpi
+        // Page setup (A4 @ ~72dpi)
+        val pageWidth = 595
         val pageHeight = 842
         val margin = 40f
 
         val titlePaint = android.graphics.Paint().apply {
-            isAntiAlias = true
-            textSize = 16f
+            isAntiAlias = true; textSize = 16f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT_BOLD, android.graphics.Typeface.BOLD)
         }
         val bodyPaint = android.graphics.Paint().apply {
-            isAntiAlias = true
-            textSize = 12f
-            typeface = android.graphics.Typeface.MONOSPACE // monospaced looks tidy for raw text; change if you like
+            isAntiAlias = true; textSize = 12f
+            typeface = android.graphics.Typeface.MONOSPACE
         }
-
-        val lineGap = 4f
-        val title = "SmartDocAI Export"
-        val lines = wrapText(content, bodyPaint, pageWidth - 2 * margin)
 
         val pdf = android.graphics.pdf.PdfDocument()
         var pageNum = 1
         var y = 0f
 
         fun newPage(): android.graphics.pdf.PdfDocument.Page {
-            val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create()
-            val page = pdf.startPage(pageInfo)
+            val info = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create()
+            val page = pdf.startPage(info)
             val c = page.canvas
-
-            // Title
             y = margin + titlePaint.textSize
-            c.drawText(title, margin, y, titlePaint)
-
-            // Footer (page number)
+            c.drawText("SmartDocAI Export", margin, y, titlePaint)
+            // footer
             val footer = "Page $pageNum"
-            val footerWidth = titlePaint.measureText(footer)
-            c.drawText(footer, pageWidth - margin - footerWidth, pageHeight - margin / 2, bodyPaint)
-
-            // Move to content start
+            val fw = titlePaint.measureText(footer)
+            c.drawText(footer, pageWidth - margin - fw, pageHeight - margin / 2, bodyPaint)
             y += titlePaint.textSize + 12f
             return page
         }
 
+        val lines = wrapText(content, bodyPaint, pageWidth - 2 * margin)
         var page = newPage()
-        val canvas = { page.canvas }
-        val usableBottom = pageHeight - margin - (bodyPaint.textSize + lineGap) // leave space above footer
+        val usableBottom = pageHeight - margin - (bodyPaint.textSize + 4f)
 
-        for (line in lines) {
+        lines.forEach { line ->
             if (y + bodyPaint.textSize > usableBottom) {
                 pdf.finishPage(page)
                 pageNum++
                 page = newPage()
             }
-            canvas().drawText(line, margin, y, bodyPaint)
-            y += bodyPaint.textSize + lineGap
+            page.canvas.drawText(line, margin, y, bodyPaint)
+            y += bodyPaint.textSize + 4f
         }
-
         pdf.finishPage(page)
 
         try {
             FileOutputStream(file).use { pdf.writeTo(it) }
-            pdf.close()
         } catch (e: Exception) {
             pdf.close()
             toast("PDF write error: ${e.message}")
             return
+        } finally {
+            pdf.close()
         }
 
-        // Share
-        val uri = getFileUri(requireContext(), file.name)
-        val intent = Intent(Intent.ACTION_SEND).apply {
+        // Build share URI that matches file_paths.xml (exports/)
+        val uri = getFileUri(requireContext(), file.name, subDir = "exports")
+
+        val share = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI PDF Export")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
         }
-        startActivity(Intent.createChooser(intent, "Share PDF via"))
+        startActivity(Intent.createChooser(share, "Share PDF via"))
     }
 
     /** Wraps a long string into lines that fit a given width using the provided Paint. */
@@ -1451,18 +1646,25 @@ class ToolsFragment : Fragment() {
 
     private fun exportAsTxt(includeDoc: Boolean, includeAI: Boolean) {
         val content = buildExportContent(includeDoc, includeAI)
-        val file = File(requireContext().getExternalFilesDir(null), "SmartDocAI_Export.txt")
-        file.writeText(content)
+        if (content.isBlank()) { toast("Nothing to export"); return }
 
-        val uri = getFileUri(requireContext(), file.name)
-        val intent = Intent(Intent.ACTION_SEND).apply {
+        // Save under exports/
+        val outDir = File(requireContext().getExternalFilesDir(null), "exports").apply { mkdirs() }
+        val file = File(outDir, "SmartDocAI_Export.txt")
+        runCatching { file.writeText(content) }
+            .onFailure { e -> toast("TXT write error: ${e.message}"); return }
+
+        // Build share URI that matches file_paths.xml (exports/)
+        val uri = getFileUri(requireContext(), file.name, subDir = "exports")
+
+        val share = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI TXT Export")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
         }
-        startActivity(Intent.createChooser(intent, "Share TXT via"))
+        startActivity(Intent.createChooser(share, "Share TXT via"))
     }
 
 
@@ -1784,6 +1986,7 @@ class ToolsFragment : Fragment() {
                 }
                 return VH(tv)
             }
+
             override fun getItemCount() = items.size
             override fun onBindViewHolder(h: VH, i: Int) {
                 (h.itemView as android.widget.TextView).text = "• " + items[i]
@@ -1799,6 +2002,49 @@ class ToolsFragment : Fragment() {
             show()
         }
     }
+
+    private fun showOpenSaveSheetForLegacy(file: File, targetUri: Uri, openIntent: Intent) {
+        val items = arrayOf("Open in app", "Save As…", "Share…")
+
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("AI Report")
+            .setItems(items) { dialog, which ->
+                when (which) {
+                    0 -> { // Open
+                        try {
+                            startActivity(Intent.createChooser(openIntent, "Open with"))
+                        } catch (_: Exception) {
+                            promptSaveDocxViaSaf(file)
+                        }
+                    }
+                    1 -> { // Save As…
+                        promptSaveDocxViaSaf(file)
+                    }
+                    2 -> { // Share…
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            putExtra(Intent.EXTRA_STREAM, targetUri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            clipData = ClipData.newUri(
+                                requireContext().contentResolver,
+                                file.name,
+                                targetUri
+                            )
+                        }
+                        try {
+                            startActivity(Intent.createChooser(send, "Share/Open with"))
+                        } catch (_: Exception) {
+                            toast("No app found")
+                        }
+                    }
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+
     private var sheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
     private class VH(v: View) : androidx.recyclerview.widget.RecyclerView.ViewHolder(v)
 }

@@ -166,6 +166,15 @@
                 android:layout_marginTop="12dp" />
 
             <!-- 🔹 AI Output -->
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/aiResponseDisplay"
+                android:layout_width="match_parent"
+                android:layout_height="200dp"
+                android:background="?attr/colorSurfaceVariant"
+                android:padding="12dp"
+                android:scrollbars="vertical"
+                android:text="AI response will appear here" />
+
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -174,14 +183,6 @@
                 android:layout_marginTop="12dp"
                 android:layout_marginBottom="12dp">
 
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/aiResponseDisplay"
-                    android:layout_width="match_parent"
-                    android:layout_height="200dp"
-                    android:padding="12dp"
-                    android:text="AI response will appear here"
-                    android:scrollbars="vertical"
-                    android:background="?attr/colorSurfaceVariant" />
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 🔹 Export Section -->
@@ -213,7 +214,7 @@
                 android:orientation="horizontal"
                 android:gravity="center"
                 android:paddingTop="8dp"
-                android:weightSum="3">
+                android:weightSum="4">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnExportTxt"
@@ -238,6 +239,17 @@
                     android:layout_height="wrap_content"
                     android:text="Share"
                     app:icon="@drawable/ic_share"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnExportDocx"
+                    android:layout_weight="1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="Word (AI Report)"
+                    android:visibility="gone"/>
+
+
+
             </LinearLayout>
    
             <!-- 🔹 AI Chat Button -->
