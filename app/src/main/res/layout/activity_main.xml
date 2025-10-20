@@ -87,10 +87,14 @@
                     android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="Upload"
-                    app:icon="@drawable/ic_upload"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textAllCaps="false"
+                    android:includeFontPadding="false"
+                    app:icon="@drawable/ic_uploadfile"
                     app:iconPadding="8dp"
-                    app:iconGravity="textStart" />
-
+                    app:iconGravity="textStart"
+                    android:textSize="9sp"/>
                 <Space
                     android:layout_width="8dp"
                     android:layout_height="0dp" />
@@ -102,10 +106,14 @@
                     android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="Scan"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textAllCaps="false"
+                    android:includeFontPadding="false"
                     app:icon="@drawable/ic_camera"
                     app:iconPadding="8dp"
-                    app:iconGravity="textStart" />
-
+                    app:iconGravity="textStart"
+                    android:textSize="13sp"/>
                 <Space
                     android:layout_width="8dp"
                     android:layout_height="0dp" />
@@ -117,9 +125,14 @@
                     android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="OCR"
-                    app:icon="@drawable/ic_camera"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textAllCaps="false"
+                    android:includeFontPadding="false"
+                    app:icon="@drawable/ic_image"
                     app:iconPadding="8dp"
-                    app:iconGravity="textStart" />
+                    app:iconGravity="textStart"
+                    android:textSize="13sp"/>
             </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

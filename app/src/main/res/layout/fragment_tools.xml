@@ -81,7 +81,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="Upload Documents"
-                        app:icon="@drawable/ic_upload"
+                        app:icon="@drawable/ic_uploadfile"
                         app:iconPadding="8dp"
                         app:iconGravity="textStart"
                         android:showDividers="middle"
@@ -128,10 +128,10 @@
                     android:id="@+id/pdfTextDisplay"
                     android:layout_width="match_parent"
                     android:layout_height="200dp"
+                    android:background="?attr/colorSurfaceVariant"
                     android:padding="12dp"
-                    android:text="Extracted text will appear here"
                     android:scrollbars="vertical"
-                    android:background="?attr/colorSurfaceVariant" />
+                    android:text="Extracted text will appear here" />
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 🔹 Prompt Input -->
@@ -140,18 +140,22 @@
                 android:layout_height="wrap_content"
                 android:hint="Ask something about the document">
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/promptInput"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:padding="12dp"
-                    android:inputType="text"
-                    android:imeOptions="actionDone"
-                    android:textColorHint="?android:attr/textColorHint"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:background="?attr/colorSurface" />
             </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/promptInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/colorSurface"
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:minHeight="48dp"
+                android:padding="12dp"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textColorHint="?android:attr/textColorHint"
+            android:hint="Type your question or prompt" />
+
+
 
             <!-- 🔹 Analyze Button -->
             <com.google.android.material.button.MaterialButton
@@ -208,45 +212,94 @@
                 android:text="Include AI Response"
                 android:checked="true" />
 
+            <!-- 🔹 Export buttons grouped -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center"
-                android:paddingTop="8dp"
-                android:weightSum="4">
+                android:orientation="vertical"
+                android:paddingTop="8dp">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnExportTxt"
-                    android:layout_weight="1"
-                    android:layout_width="0dp"
+                <!-- Row 1: TXT / PDF / Share -->
+
+
+
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="TXT"
-                    app:icon="@drawable/ic_text"/>
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:weightSum="3"
+                    android:paddingHorizontal="4dp"> <!-- shrinks side padding -->
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnExportPdf"
-                    android:layout_weight="1"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:text="PDF"
-                    app:icon="@drawable/ic_pdf"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnExportTxt"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="48dp"
+                        android:text="TXT"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textAllCaps="false"
+                        android:includeFontPadding="false"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_text"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnExportShare"
-                    android:layout_weight="1"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:text="Share"
-                    app:icon="@drawable/ic_share"/>
+                    <Space
+                        android:layout_width="4dp"
+                        android:layout_height="0dp" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnExportPdf"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="48dp"
+                        android:text="PDF"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textAllCaps="false"
+                        android:includeFontPadding="false"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_pdf"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp" />
+
+                    <Space
+                        android:layout_width="4dp"
+                        android:layout_height="0dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnExportShare"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="48dp"
+                        android:text="Share"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textAllCaps="false"
+                        android:includeFontPadding="false"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_share"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp" />
+                </LinearLayout>
+            <!-- Row 2: Word (AI Report) -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnExportDocx"
-                    android:layout_weight="1"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:text="Word (AI Report)"
-                    android:visibility="gone"/>
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:text="Excel to Word (AI Report)"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textAllCaps="false"
+                    android:includeFontPadding="false"
+                    android:textSize="14sp"
+                    app:icon="@drawable/ic_text"
+                    app:iconGravity="textStart"
+                    app:iconPadding="8dp"
+                    android:visibility="gone" />
 
 
 
@@ -262,6 +315,8 @@
                 app:icon="@drawable/ic_chat"
                 app:iconPadding="8dp"
                 app:iconGravity="textStart" />
+
+
 
         </LinearLayout>
 
