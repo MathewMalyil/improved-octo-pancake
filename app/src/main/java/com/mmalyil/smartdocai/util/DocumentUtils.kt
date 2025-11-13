@@ -51,22 +51,28 @@ object DocumentUtils {
                 XMLSlideShow(input).use { ppt ->
                     buildString {
                         for (slide in ppt.slides) {
-                            for (shape in slide.shapes) {
-                                if (shape is XSLFTextShape) {
-                                    val t = (shape.text ?: "").trim()
-                                    if (t.isNotEmpty()) {
-                                        append(t)
-                                        append('\n')
+                            try {
+                                for (shape in slide.shapes) {
+                                    if (shape is XSLFTextShape) {
+                                        val t = (shape.text ?: "").trim()
+                                        if (t.isNotEmpty()) {
+                                            append(t)
+                                            append('\n')
+                                        }
                                     }
                                 }
+                            } catch (t: Throwable) {
+                                // Defensive: if a slide contains diagrams/objects that rely on
+                                // missing POI classes (e.g., XSLFGraphicFrame), just skip that slide
+                                Log.w(TAG, "Skipping problematic PPTX slide", t)
                             }
                         }
                     }
                 }
             } ?: "Failed to read PPTX: null input stream"
-        } catch (e: Exception) {
-            Log.e(TAG, "PPTX error", e)
-            "Failed to read PPTX: ${e.message}"
+        } catch (t: Throwable) {  // <-- catch *everything*, including NoClassDefFoundError
+            Log.e(TAG, "PPTX error", t)
+            "Failed to read PPTX: ${t.message ?: "unknown error"}"
         }
     }
 
