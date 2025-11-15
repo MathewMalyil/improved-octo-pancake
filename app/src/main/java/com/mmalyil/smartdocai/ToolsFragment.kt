@@ -99,6 +99,12 @@ class ToolsFragment : Fragment() {
     // 1) Add a second launcher for legacy image picking via SAF (no permissions)
     private lateinit var imageOpenDocLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
 
+    private lateinit var btnImageToExcel: Button
+
+    // New launcher for "Image → Excel"
+    private lateinit var imageToExcelLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
+
+
 
     private var extractedText = ""
     private var aiAnswer = ""
@@ -599,6 +605,32 @@ class ToolsFragment : Fragment() {
             }
         }
 
+
+
+            // 🔹 NEW: dedicated picker for Image → Excel
+            imageToExcelLauncher = registerForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri ->
+                android.util.Log.d(TAG, "OpenDocument (Image→Excel) uri = $uri")
+                if (uri != null) {
+                    try {
+                        requireContext().contentResolver.takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: SecurityException) { /* some providers don't support it */ }
+                    processImageToExcel(uri)
+                } else {
+                    toast("No image selected")
+                }
+            }
+
+            // ... rest of your onCreate ...
+
+
+
+
+
+
         // A) toolsFabRequest
         parentFragmentManager.setFragmentResultListener("toolsFabRequest", this) { _, bundle ->
             when (bundle.getString("action")) {
@@ -684,6 +716,8 @@ class ToolsFragment : Fragment() {
         btnExportPdf = view.findViewById(R.id.btnExportPdf)
         exportShareButton = view.findViewById(R.id.btnExportShare)
         btnPickImage = view.findViewById(R.id.btnPickImage)
+
+        btnImageToExcel = view.findViewById(R.id.btnImageToExcel)   // 🔹 NEW
 
         val btnScanDocument = view.findViewById<Button>(R.id.btnScanDocument)
         btnScanDocument.setOnClickListener {
@@ -803,6 +837,14 @@ class ToolsFragment : Fragment() {
         btnPickImage.setOnClickListener {
             stopWalkthroughIfRunning()
             pickImageHybrid() }
+
+// new Image → Excel behavior
+        btnImageToExcel.setOnClickListener {
+            stopWalkthroughIfRunning()
+            imageToExcelLauncher.launch(arrayOf("image/*"))
+        }
+
+
 
         val fabUploadScan = view.findViewById<FloatingActionButton>(R.id.fabUploadScan)
         fabUploadScan.setOnClickListener {
@@ -1233,6 +1275,50 @@ class ToolsFragment : Fragment() {
             analyzeButton.isEnabled = text.isNotBlank()                 // ✅
             toast("Text extracted from image")
             showLoading(false)
+        }
+    }
+
+
+
+    private fun processImageToExcel(uri: Uri) {
+        showLoading(true)
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val ctx = context ?: return@launch.also { showLoading(false) }
+
+                // Run the standalone helper off the main thread
+                val xlsxFile = withContext(Dispatchers.IO) {
+                    ImageToExcelProcessor.processImageUriToExcel(ctx, uri)
+                }
+
+                if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    showLoading(false); return@launch
+                }
+
+                // Use your existing FileProvider helper so paths stay consistent
+                val shareUri = getFileUri(ctx, xlsxFile.name, subDir = "exports")
+
+                // Simple "Open with" intent for Excel/Sheets/etc.
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(
+                        shareUri,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                try {
+                    startActivity(Intent.createChooser(intent, "Open Excel file with"))
+                    toast("Excel file created: ${xlsxFile.name}")
+                } catch (e: Exception) {
+                    toast("Excel created, but no app found to open it")
+                }
+
+            } catch (e: Exception) {
+                toast("Image→Excel failed: ${e.message}")
+            } finally {
+                showLoading(false)
+            }
         }
     }
 

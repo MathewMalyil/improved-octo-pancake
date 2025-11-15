@@ -112,6 +112,20 @@
                         android:divider="?android:attr/dividerHorizontal"
                         android:dividerPadding="8dp"/>
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnImageToExcel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Image → Excel"
+                        app:icon="@drawable/ic_excel"
+                    app:iconPadding="8dp"
+                    app:iconGravity="textStart"
+                    android:showDividers="middle"
+                    android:divider="?android:attr/dividerHorizontal"
+                    android:dividerPadding="8dp" />
+
+
+
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -300,7 +314,6 @@
                     app:iconGravity="textStart"
                     app:iconPadding="8dp"
                     android:visibility="gone" />
-
 
 
             </LinearLayout>
