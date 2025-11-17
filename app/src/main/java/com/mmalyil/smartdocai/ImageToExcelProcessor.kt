@@ -1,7 +1,5 @@
 package com.mmalyil.smartdocai
 
-
-
 import android.content.Context
 import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
@@ -27,6 +25,12 @@ object ImageToExcelProcessor {
         val h: Int
     )
 
+    // Column band across X axis
+    private data class ColBand(
+        var minX: Int,
+        var maxX: Int
+    )
+
     /**
      * Main entry: pass a Context + Uri of the image, get back an XLSX file
      * saved under externalFilesDir/exports.
@@ -35,10 +39,21 @@ object ImageToExcelProcessor {
         context: Context,
         uri: Uri
     ): File = withContext(Dispatchers.IO) {
-        // 1) Run ML Kit OCR on the image
-        val image = InputImage.fromFilePath(context, uri)
+        // 0) Decode bitmap ourselves so we can pre-process
+        val original = context.contentResolver.openInputStream(uri)?.use { input ->
+            android.graphics.BitmapFactory.decodeStream(input)
+        } ?: throw IllegalStateException("Unable to decode image")
+
+        // Ensure a minimum width (e.g. 1200px) so small images get upscaled
+        val prepped = ensureMinSizeAndContrast(original, minWidth = 1200)
+
+        // 1) Run ML Kit OCR on the preprocessed bitmap
+        val image = InputImage.fromBitmap(prepped, 0)
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         val result = recognizer.process(image).await()
+
+        // ... (rest of your existing code: build cells, groupElementsIntoTable, write XLSX)
+
 
         val cells = mutableListOf<OcrCell>()
         result.textBlocks.forEach { block ->
@@ -88,14 +103,51 @@ object ImageToExcelProcessor {
 
         file
     }
+    private fun ensureMinSizeAndContrast(
+        src: android.graphics.Bitmap,
+        minWidth: Int
+    ): android.graphics.Bitmap {
+        // Scale up if needed
+        val scale = if (src.width < minWidth) {
+            minWidth.toFloat() / src.width
+        } else 1f
 
-    /**
-     * Simple y-based grouping into rows, then x-based ordering into columns.
-     */
+        val scaled = if (scale > 1f) {
+            val newW = (src.width * scale).toInt()
+            val newH = (src.height * scale).toInt()
+            android.graphics.Bitmap.createScaledBitmap(src, newW, newH, true)
+        } else {
+            src
+        }
+
+        // Optional: slight contrast boost to help OCR
+        val cm = android.graphics.ColorMatrix().apply {
+            // contrast 1.2f, brightness 0f
+            val c = 1.2f
+            set(floatArrayOf(
+                c, 0f, 0f, 0f, 0f,
+                0f, c, 0f, 0f, 0f,
+                0f, 0f, c, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+        }
+
+        val out = android.graphics.Bitmap.createBitmap(
+            scaled.width, scaled.height,
+            android.graphics.Bitmap.Config.ARGB_8888
+        )
+        val canvas = android.graphics.Canvas(out)
+        val paint = android.graphics.Paint().apply {
+            colorFilter = android.graphics.ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(scaled, 0f, 0f, paint)
+        return out
+    }
+
     /**
      * Group OCR cells into a table with globally aligned columns.
      * 1) Group words into rows by Y (using dynamic tolerance)
-     * 2) Build column "bands" from all X centers
+     * 2) Build smart column "bands" from all X centers
      * 3) For each row, snap each cell into nearest column band
      */
     private fun groupElementsIntoTable(
@@ -103,11 +155,11 @@ object ImageToExcelProcessor {
     ): List<List<String>> {
         if (elements.isEmpty()) return emptyList()
 
-        // --- 1) Group into logical rows (Y-based) ---
+        // --- 1) Group OCR cells into logical rows (Y-based) ---
         data class OcrRow(val y: Int, val cells: MutableList<OcrCell> = mutableListOf())
 
         val avgHeight = elements.map { it.h }.average().takeIf { it > 0 } ?: 20.0
-        val rowTolerance = kotlin.math.max((avgHeight * 0.6).toInt(), 10) // dynamic
+        val rowTolerance = kotlin.math.max((avgHeight * 0.6).toInt(), 10)
 
         val rowList = mutableListOf<OcrRow>()
         elements.sortedBy { it.y }.forEach { cell ->
@@ -115,62 +167,117 @@ object ImageToExcelProcessor {
                 ?: OcrRow(cell.y).also { rowList += it }
             row.cells += cell
         }
-
-        // If we somehow got no rows, bail out
         if (rowList.isEmpty()) return emptyList()
 
-        // --- 2) Build global column bands from X centers ---
-        val centers = elements.map { it.x + it.w / 2 }.sorted()
-        if (centers.size <= 1) {
-            // Only one "column", just one cell per row
-            return rowList.sortedBy { it.y }.map { row ->
-                listOf(row.cells.sortedBy { it.x }.joinToString(" ") { it.text.trim() })
-            }
-        }
+        // --- 2) LOCAL helpers: header detection & header-based bands ---
 
-        // Compute gaps between consecutive centers
-        val gaps = centers.zipWithNext { a, b -> b - a }.filter { it > 0 }
-        val medianGap = gaps.medianInt().takeIf { it > 0 } ?: gaps.average().toInt().coerceAtLeast(10)
-        val gapThreshold = (medianGap * 1.5).toInt().coerceAtLeast(medianGap + 2)
-
-        // Build bands: whenever gap > threshold, start a new column
-        data class ColBand(var minX: Int, var maxX: Int)
-        val bands = mutableListOf<ColBand>()
-
-        var currentBand = ColBand(
-            minX = centers.first(),
-            maxX = centers.first()
+        // Strong header keywords (your broker tables + generic)
+        val anchorKeywords = listOf(
+            "contract", "transaction", "date", "source", "exchange",
+            "buy", "sell", "qty", "quantity", "price", "amount",
+            "brokerage", "charges", "gst", "stt", "summary"
         )
-        for (i in 1 until centers.size) {
-            val c = centers[i]
-            val gap = c - centers[i - 1]
-            if (gap > gapThreshold) {
-                bands += currentBand
-                currentBand = ColBand(minX = c, maxX = c)
-            } else {
-                if (c < currentBand.minX) currentBand.minX = c
-                if (c > currentBand.maxX) currentBand.maxX = c
-            }
-        }
-        bands += currentBand
 
-        if (bands.size == 1) {
-            // Only one column band -> treat each row as a single cell with concatenated text
+        fun scoreHeaderRow(idx: Int, row: OcrRow): Int {
+            if (row.cells.size < 4) return 0   // too few columns for a real table
+            val text = row.cells.sortedBy { it.x }
+                .joinToString(" ") { it.text.trim().lowercase() }
+
+            if (text.length < 5) return 0
+
+            val digits = text.count { it.isDigit() }
+            val letters = text.count { it.isLetter() }
+            val digitRatio = if (letters + digits == 0) 1.0 else digits.toDouble() / (letters + digits)
+
+            val hitAnchors = anchorKeywords.count { it in text }
+
+            var score = 0
+            if (hitAnchors >= 1) score += 3
+            if (hitAnchors >= 3) score += 3
+            if (digitRatio < 0.4) score += 2            // mostly letters → header-ish
+            if (idx <= 15) score += 2                   // near top of page
+            if (row.cells.size >= 8) score += 2         // wide row = lots of columns
+
+            return score
+        }
+
+        fun findHeaderRowIndex(rows: List<OcrRow>): Int? {
+            var bestIdx: Int? = null
+            var bestScore = 0
+            rows.forEachIndexed { idx, row ->
+                val score = scoreHeaderRow(idx, row)
+                // We care about FIRST strong header, not just max score at bottom.
+                if (score >= 6 && bestIdx == null) {
+                    bestIdx = idx
+                    bestScore = score
+                } else if (score > bestScore) {
+                    bestIdx = idx
+                    bestScore = score
+                }
+            }
+            return bestIdx
+        }
+
+        fun buildHeaderBandsFromHeaders(headerCells: List<OcrCell>): List<ColBand> {
+            if (headerCells.isEmpty()) return emptyList()
+            val centers = headerCells.map { it.x + it.w / 2 }.sorted()
+            if (centers.size <= 1) {
+                val c = centers.first()
+                return listOf(ColBand(c, c))
+            }
+
+            val gaps = centers.zipWithNext { a, b -> b - a }.filter { it > 0 }
+            val medianGap = gaps.medianInt().coerceAtLeast(20)
+            // small threshold to MERGE fragments of one header label,
+            // but keep neighbouring columns separated
+            val mergeThreshold = (medianGap * 0.6).toInt().coerceAtLeast(25)
+
+            val bands = mutableListOf<ColBand>()
+            var current = ColBand(centers.first(), centers.first())
+
+            for (i in 1 until centers.size) {
+                val c = centers[i]
+                val gap = c - centers[i - 1]
+                if (gap <= mergeThreshold) {
+                    current.minX = minOf(current.minX, c)
+                    current.maxX = maxOf(current.maxX, c)
+                } else {
+                    bands += current
+                    current = ColBand(c, c)
+                }
+            }
+            bands += current
+            return bands
+        }
+
+        // --- 3) Detect the first REAL header row (table start) ---
+        val headerIndex: Int? = findHeaderRowIndex(rowList)
+
+        // --- 4) Build global column bands ---
+        val bands: List<ColBand> = if (headerIndex != null) {
+            val headerCells = rowList[headerIndex].cells
+            val hb = buildHeaderBandsFromHeaders(headerCells)
+            if (hb.size >= 3) hb else buildSmartColumnBands(elements)
+        } else {
+            // No clear header → old behaviour
+            buildSmartColumnBands(elements)
+        }
+
+        if (bands.isEmpty() || bands.size == 1) {
+            // Fallback: each row is single concatenated cell
             return rowList.sortedBy { it.y }.map { row ->
                 listOf(row.cells.sortedBy { it.x }.joinToString(" ") { it.text.trim() })
             }
         }
 
-        // --- 3) For each row, snap cells into nearest band ---
         val numCols = bands.size
-        val table = mutableListOf<List<String>>()
 
-        rowList.sortedBy { it.y }.forEach { row ->
-            val rowCells = MutableList(numCols) { "" }
+        // Snap a single row into nearest bands
+        fun snapRow(row: OcrRow): List<String> {
+            val buckets = Array(numCols) { mutableListOf<OcrCell>() }
 
             row.cells.forEach { cell ->
                 val centerX = cell.x + cell.w / 2
-                // Find nearest band
                 var bestIdx = 0
                 var bestDist = Int.MAX_VALUE
                 bands.forEachIndexed { idx, band ->
@@ -181,22 +288,26 @@ object ImageToExcelProcessor {
                         bestIdx = idx
                     }
                 }
-
-                // Append text into that column (keep multiple words together)
-                val existing = rowCells[bestIdx]
-                rowCells[bestIdx] = if (existing.isBlank()) {
-                    cell.text.trim()
-                } else {
-                    "$existing ${cell.text.trim()}"
-                }
+                buckets[bestIdx] += cell
             }
 
-            table += rowCells
+            return List(numCols) { col ->
+                buckets[col]
+                    .sortedBy { it.x }
+                    .joinToString(" ") { it.text.trim() }
+            }
+        }
+
+        // --- 5) Build final table: skip metadata above header, keep header + data ---
+        val startIdx = headerIndex ?: 0
+        val table = mutableListOf<List<String>>()
+
+        for (i in startIdx until rowList.size) {
+            table += snapRow(rowList[i])
         }
 
         return table
     }
-
     // --- helpers ---
 
     private fun List<Int>.medianInt(): Int {
@@ -209,4 +320,169 @@ object ImageToExcelProcessor {
             sorted[mid]
         }
     }
+
+    /**
+     * Find likely header rows (0–2 of them).
+     * Heuristics:
+     *  - lots of text, very few digits
+     *  - common header words (Date, Item, Amount, Qty, etc.)
+     *  - usually near the top
+     */
+    private fun <R> findHeaderRowIndices(
+        rows: List<R>,
+        rowToText: (R) -> String
+    ): Set<Int> {
+        if (rows.isEmpty()) return emptySet()
+
+        val headerKeywords = listOf(
+            "date", "item", "code", "category", "vendor", "description",
+            "qty", "quantity", "price", "amount", "invoice", "total",
+            "contract", "transaction", "source", "exchange", "buy", "sell",
+            "gst", "charges", "summary", "columns"
+        )
+
+        val candidates = mutableListOf<Pair<Int, Int>>() // index -> score
+
+        rows.forEachIndexed { idx, row ->
+            val text = rowToText(row).lowercase().trim()
+            if (text.length < 3) return@forEachIndexed
+
+            val digits = text.count { it.isDigit() }
+            val letters = text.count { it.isLetter() }
+            if (letters == 0) return@forEachIndexed
+
+            val digitRatio = digits.toDouble() / (letters + digits).toDouble()
+
+            var score = 0
+            if ('(' in text || ')' in text) score += 1
+            if (digitRatio < 0.2) score += 2          // mostly letters
+            if (idx <= 4) score += 1                  // near top
+            if (headerKeywords.any { it in text }) score += 3
+
+            if (score >= 3) {
+                candidates += idx to score
+            }
+        }
+
+        // keep at most 2 best-scoring rows
+        return candidates
+            .sortedByDescending { it.second }
+            .take(2)
+            .map { it.first }
+            .toSet()
+    }
+
+
+
+    /**
+     * Build smarter global column bands:
+     * - merge all nearby TEXT columns into one wide band
+     * - keep NUMERIC columns separate
+     */
+    private fun buildSmartColumnBands(cells: List<OcrCell>): List<ColBand> {
+        if (cells.isEmpty()) return emptyList()
+
+        val centers = cells.map { it.x + it.w / 2 }.sorted()
+        if (centers.size <= 1) return listOf(ColBand(centers.first(), centers.first()))
+
+        // 1. raw bands based on a simple gap threshold
+        val gaps = centers.zipWithNext { a, b -> b - a }
+        val medianGap = gaps.filter { it > 0 }.medianInt().coerceAtLeast(20)
+        val gapThreshold = (medianGap * 1.2).toInt().coerceAtLeast(40)
+
+        val rawBands = mutableListOf<ColBand>()
+        var current = ColBand(centers.first(), centers.first())
+
+        for (i in 1 until centers.size) {
+            val c = centers[i]
+            val gap = c - centers[i - 1]
+            if (gap > gapThreshold) {
+                rawBands += current
+                current = ColBand(c, c)
+            } else {
+                current.minX = minOf(current.minX, c)
+                current.maxX = maxOf(current.maxX, c)
+            }
+        }
+        rawBands += current
+
+        // 2. merge TEXT-heavy bands → big semantic columns
+        val merged = mutableListOf<ColBand>()
+        var active = rawBands.first()
+
+        fun isNumericBand(band: ColBand): Boolean {
+            // If most cells in this X-range are digits, treat as numeric
+            val bandCells = cells.filter {
+                val center = it.x + it.w / 2
+                center >= band.minX && center <= band.maxX
+            }
+            val numericCount = bandCells.count {
+                it.text.trim().matches(Regex("^[-+]?([0-9]*\\.[0-9]+|[0-9]+)$"))
+            }
+            return bandCells.isNotEmpty() &&
+                    numericCount >= (bandCells.size * 0.6)
+        }
+
+        for (i in 1 until rawBands.size) {
+            val next = rawBands[i]
+
+            val activeIsNum = isNumericBand(active)
+            val nextIsNum = isNumericBand(next)
+
+            val gap = next.minX - active.maxX
+
+            if (!activeIsNum && !nextIsNum && gap < 240) {
+                // MERGE TEXT COLUMNS (like Vendor / Description words)
+                active.maxX = next.maxX
+            } else {
+                merged += active
+                active = next
+            }
+        }
+        merged += active
+
+        return merged
+    }
+
+    /**
+     * Build column bands based primarily on header rows.
+     * We only look at header cells here and cluster their X centers.
+     */
+    private fun buildHeaderBands(headerCells: List<OcrCell>): List<ColBand> {
+        if (headerCells.isEmpty()) return emptyList()
+
+        val centers = headerCells.map { it.x + it.w / 2 }.sorted()
+        if (centers.size <= 1) {
+            val c = centers.first()
+            return listOf(ColBand(c, c))
+        }
+
+        val gaps = centers.zipWithNext { a, b -> b - a }.filter { it > 0 }
+        val medianGap = gaps.medianInt().coerceAtLeast(20)
+
+        // Close centers → same column, larger gaps → new column.
+        // We keep this threshold relatively small so that multi-word
+        // headers merge, but neighbouring columns stay separate.
+        val mergeThreshold = (medianGap * 0.6).toInt().coerceAtLeast(25)
+
+        val bands = mutableListOf<ColBand>()
+        var current = ColBand(centers.first(), centers.first())
+
+        for (i in 1 until centers.size) {
+            val c = centers[i]
+            val gap = c - centers[i - 1]
+            if (gap <= mergeThreshold) {
+                current.minX = minOf(current.minX, c)
+                current.maxX = maxOf(current.maxX, c)
+            } else {
+                bands += current
+                current = ColBand(c, c)
+            }
+        }
+        bands += current
+
+        return bands
+    }
+
+
 }
