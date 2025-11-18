@@ -91,7 +91,7 @@ object DocumentUtils {
                                 val row: Row? = sheet.getRow(r)
                                 if (row == null) continue
                                 var wrote = false
-                                val lastCell = (row.lastCellNum.toInt().coerceAtLeast(0))
+                                val lastCell = row.lastCellNum.toInt().coerceAtLeast(0)
                                 for (c in 0 until lastCell) {
                                     val cell: Cell? = row.getCell(c)
                                     if (cell != null) {
@@ -109,9 +109,9 @@ object DocumentUtils {
                     }
                 }
             } ?: "Failed to read XLSX: null input stream"
-        } catch (e: Exception) {
-            Log.e(TAG, "XLSX error", e)
-            "Failed to read XLSX: ${e.message}"
+        } catch (t: Throwable) {   // 👈 catches NoClassDefFoundError too
+            Log.e(TAG, "XLSX error", t)
+            "Failed to read XLSX: ${t.message ?: "unknown error"}"
         }
     }
 

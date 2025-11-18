@@ -940,16 +940,25 @@ class ToolsFragment : Fragment() {
         showLoading(true)
         selectedFileUri = uri.toString()
 
-        // Resolve display name
-        requireContext().contentResolver.query(uri, null, null, null, null)?.use { c ->
+        // ✅ Resolve display name safely, with fallbacks
+        val resolver = requireContext().contentResolver
+        var nameFromCursor: String? = null
+        resolver.query(uri, null, null, null, null)?.use { c ->
             if (c.moveToFirst()) {
-                selectedFileName =
-                    c.getString(c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                val nameCol = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameCol >= 0) {
+                    nameFromCursor = c.getString(nameCol) // can be null on some providers
+                }
             }
         }
 
-        val type = requireContext().contentResolver.getType(uri)
+        selectedFileName = nameFromCursor
+            ?: uri.lastPathSegment      // fallback 1
+                    ?: "Document"               // fallback 2
+
+        val type = resolver.getType(uri)
         val name = selectedFileName.lowercase()
+        // ... rest of your existing handlePickedDocument logic ...
 
         fun onDone(kind: String, text: String) {
             handleResult(kind, text)
@@ -1022,8 +1031,8 @@ class ToolsFragment : Fragment() {
                 }
             }
 
-            (type?.contains("spreadsheetml") == true || type == "application/vnd.ms-excel" ||
-                    name.endsWith(".xlsx") || name.endsWith(".xls")) -> {
+            // ✅ XSLX and modern spreadsheet formats
+            (type?.contains("spreadsheetml") == true || name.endsWith(".xlsx")) -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
                         val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
@@ -1034,12 +1043,18 @@ class ToolsFragment : Fragment() {
                                 DocumentUtils.extractTextFromXlsx(appCtx, uri)
                             }
                         }
-                        onDone("XLSX", text)    // <-- this will trigger the snackbar in handleResult()
-                    } catch (e: Exception) {
+                        onDone("XLSX", text)    // this will trigger your snackbar offer, etc.
+                    } catch (e: Throwable) {     // 👈 see Fix 2 below
                         showLoading(false)
-                        toast("XLSX read error: ${e.message}")
+                        toast("XLSX read error: ${e.message ?: "Unknown error"}")
                     }
                 }
+            }
+
+// ❌ legacy .xls – not supported yet, avoid POI HSSF crash
+            (type == "application/vnd.ms-excel" || name.endsWith(".xls")) -> {
+                showLoading(false)
+                toast("Legacy .xls files are not supported yet. Please save as .xlsx and try again.")
             }
 
             else -> {
