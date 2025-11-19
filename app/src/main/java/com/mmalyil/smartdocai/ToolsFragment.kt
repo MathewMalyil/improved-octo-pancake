@@ -822,7 +822,7 @@ class ToolsFragment : Fragment() {
         btnExportDocx.setOnClickListener {
             val xlsxUri = runCatching { Uri.parse(selectedFileUri) }.getOrNull()
             if (xlsxUri == null) { toast("Load an XLSX first"); return@setOnClickListener }
-            exportXlsxAiReportNow(xlsxUri)
+            showAiReportPromptOptions(xlsxUri)
         }
 
 
@@ -1159,10 +1159,10 @@ class ToolsFragment : Fragment() {
                         }
 
                         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
-                            // ANDROID 8/9: show action sheet with Open / Save As… / Share…
-                            showOpenSaveSheetForLegacy(file, targetUri, openIntent)
+                            // ANDROID 8/9: just ask user where to save the DOCX
+                            showOpenSaveSheetForLegacy(file)
                         } else {
-                            // ANDROID 10+: snackbar (file is in Downloads, Word opens fine)
+                            // ANDROID 10+: keep the existing snackbar+Open behavior
                             val sb = com.google.android.material.snackbar.Snackbar
                                 .make(
                                     requireView(),
@@ -1178,6 +1178,7 @@ class ToolsFragment : Fragment() {
                                 }
                             sb.anchorView = requireView().findViewById(R.id.fabUploadScan)
                             sb.show()
+
                         }
 
                         // (Optional) add to your in-app Saved list here if you want
@@ -2122,48 +2123,59 @@ class ToolsFragment : Fragment() {
         }
     }
 
-    private fun showOpenSaveSheetForLegacy(file: File, targetUri: Uri, openIntent: Intent) {
-        val items = arrayOf("Open in app", "Save As…", "Share…")
+    private fun showOpenSaveSheetForLegacy(file: File) {
+        // For Android 8/9, we keep it super simple:
+        // just let the user pick a location via SAF.
+        promptSaveDocxViaSaf(file)
+    }
 
-        androidx.appcompat.app.AlertDialog.Builder(requireContext())
-            .setTitle("AI Report")
-            .setItems(items) { dialog, which ->
+
+
+    private var sheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+    private class VH(v: View) : androidx.recyclerview.widget.RecyclerView.ViewHolder(v)
+
+    private fun showAiReportPromptOptions(uri: Uri) {
+        val options = arrayOf(
+            "Quick Summary (Recommended)",
+            "Detailed Analysis",
+            "Custom Prompt"
+        )
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("Choose AI Style")
+            .setItems(options) { _, which ->
                 when (which) {
-                    0 -> { // Open
-                        try {
-                            startActivity(Intent.createChooser(openIntent, "Open with"))
-                        } catch (_: Exception) {
-                            promptSaveDocxViaSaf(file)
-                        }
+                    0 -> exportXlsxAiReportNow(uri) // default auto prompt
+                    1 -> {
+                        val detailed = """
+                        Provide a detailed analysis of this Excel sheet.
+                        Include trends, comparisons, outliers, anomalies,
+                        summaries of each column, and suggested actions.
+                    """.trimIndent()
+                        exportXlsxAiReportNow(uri, detailed)
                     }
-                    1 -> { // Save As…
-                        promptSaveDocxViaSaf(file)
-                    }
-                    2 -> { // Share…
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                            putExtra(Intent.EXTRA_STREAM, targetUri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            clipData = ClipData.newUri(
-                                requireContext().contentResolver,
-                                file.name,
-                                targetUri
-                            )
-                        }
-                        try {
-                            startActivity(Intent.createChooser(send, "Share/Open with"))
-                        } catch (_: Exception) {
-                            toast("No app found")
-                        }
-                    }
+                    2 -> showCustomPromptInput(uri)
                 }
-                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun showCustomPromptInput(uri: Uri) {
+        val input = EditText(requireContext())
+        input.hint = "Describe what AI should analyze…"
+        input.minLines = 3
+        input.maxLines = 6
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("Custom AI Prompt")
+            .setView(input)
+            .setPositiveButton("Generate") { _, _ ->
+                val prompt = input.text.toString().trim()
+                exportXlsxAiReportNow(uri, prompt)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
 
-    private var sheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
-    private class VH(v: View) : androidx.recyclerview.widget.RecyclerView.ViewHolder(v)
 }

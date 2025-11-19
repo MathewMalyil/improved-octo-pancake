@@ -252,8 +252,13 @@ object ReportExporter {
             val sheets = parseXlsxToSheets(input)
 
             // ✅ Use caller's prompt if provided; otherwise build default insights prompt
-            val promptToUse = customPrompt?.takeIf { it.isNotBlank() }
-                ?: buildInsightsPrompt(sheets)
+            // ✅ If user gave a custom prompt, wrap it *with* the sheet preview.
+//    Otherwise use the default insights prompt.
+            val promptToUse = if (!customPrompt.isNullOrBlank()) {
+                buildCustomPrompt(customPrompt, sheets)
+            } else {
+                buildInsightsPrompt(sheets)
+            }
 
             // 🔹 Choose model based on usage (same logic you had)
             val (apiModel, usageKey) = when {
@@ -286,4 +291,30 @@ object ReportExporter {
         val end = raw.indexOf('"', from)
         return if (end > from) raw.substring(from, end) else ""
     }
+
+    fun buildCustomPrompt(userPrompt: String, sheets: List<SheetData>, rowsPreview: Int = 10): String {
+        val sb = StringBuilder()
+
+        sb.appendLine("You are a concise data analyst.")
+        sb.appendLine("The user’s question is:")
+        sb.appendLine()
+        sb.appendLine(userPrompt.trim())
+        sb.appendLine()
+        sb.appendLine("Use ONLY the following Excel data preview when answering. Do not invent data.")
+        sb.appendLine()
+
+        sheets.forEach { s ->
+            sb.appendLine("### Sheet: ${s.name}")
+            sb.appendLine("Headers: ${s.headers.joinToString()}")
+            s.rows.take(rowsPreview).forEach { row ->
+                sb.appendLine(row.joinToString(" | "))
+            }
+            sb.appendLine()
+        }
+
+        sb.appendLine("Answer directly and only based on this data. If something is not visible in the preview, say so explicitly.")
+        return sb.toString()
+    }
+
+
 }
