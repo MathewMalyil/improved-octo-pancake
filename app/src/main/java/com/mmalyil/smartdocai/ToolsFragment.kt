@@ -65,7 +65,7 @@ import android.graphics.RectF
 import android.os.StrictMode
 import androidx.core.view.doOnPreDraw
 import kotlinx.coroutines.flow.first
-
+import android.util.Log
 import com.google.android.material.snackbar.Snackbar
 
 
@@ -940,15 +940,33 @@ class ToolsFragment : Fragment() {
         showLoading(true)
         selectedFileUri = uri.toString()
 
-        // ✅ Resolve display name safely, with fallbacks
         val resolver = requireContext().contentResolver
+
+        // ✅ Resolve display name safely, with fallbacks & SecurityException guard
         var nameFromCursor: String? = null
-        resolver.query(uri, null, null, null, null)?.use { c ->
-            if (c.moveToFirst()) {
-                val nameCol = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameCol >= 0) {
-                    nameFromCursor = c.getString(nameCol) // can be null on some providers
+
+        if ("content".equals(uri.scheme, ignoreCase = true)) {
+            try {
+                resolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),   // ask only what we need
+                    null,
+                    null,
+                    null
+                )?.use { c ->
+                    if (c.moveToFirst()) {
+                        val nameCol = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameCol >= 0) {
+                            nameFromCursor = c.getString(nameCol) // can be null on some providers
+                        }
+                    }
                 }
+            } catch (se: SecurityException) {
+                // ⚠️ Some providers disallow querying; log & continue with fallbacks
+                Log.w("SmartDocAI-I/O", "Cannot query display name for uri=$uri", se)
+            } catch (t: Throwable) {
+                // ultra-defensive – don't let any weird provider crash the app
+                Log.w("SmartDocAI-I/O", "Unexpected error reading metadata for uri=$uri", t)
             }
         }
 
@@ -958,7 +976,6 @@ class ToolsFragment : Fragment() {
 
         val type = resolver.getType(uri)
         val name = selectedFileName.lowercase()
-        // ... rest of your existing handlePickedDocument logic ...
 
         fun onDone(kind: String, text: String) {
             handleResult(kind, text)
@@ -968,9 +985,8 @@ class ToolsFragment : Fragment() {
         when {
             type?.startsWith("image/") == true ||
                     name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") -> {
-                // processImageForOCR already does IO off main; just ensure we hide when done
                 viewLifecycleOwner.lifecycleScope.launch {
-                    processImageForOCR(uri)   // see B) below for adding show/hide inside
+                    processImageForOCR(uri)
                     showLoading(false)
                 }
             }
@@ -994,8 +1010,9 @@ class ToolsFragment : Fragment() {
             type?.contains("wordprocessingml") == true || name.endsWith(".docx") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx =
-                            context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx = context?.applicationContext
+                            ?: return@launch.also { showLoading(false) }
+
                         val text = withContext(Dispatchers.IO) {
                             relaxVmPolicyDuring {
                                 com.mmalyil.smartdocai.util.PoiKnobs.relax()
@@ -1014,8 +1031,9 @@ class ToolsFragment : Fragment() {
             type?.contains("presentationml") == true || name.endsWith(".pptx") -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx =
-                            context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx = context?.applicationContext
+                            ?: return@launch.also { showLoading(false) }
+
                         val text = withContext(Dispatchers.IO) {
                             relaxVmPolicyDuring {
                                 com.mmalyil.smartdocai.util.PoiKnobs.relax()
@@ -1031,11 +1049,12 @@ class ToolsFragment : Fragment() {
                 }
             }
 
-            // ✅ XSLX and modern spreadsheet formats
             (type?.contains("spreadsheetml") == true || name.endsWith(".xlsx")) -> {
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
+                        val appCtx = context?.applicationContext
+                            ?: return@launch.also { showLoading(false) }
+
                         val text = withContext(Dispatchers.IO) {
                             relaxVmPolicyDuring {
                                 com.mmalyil.smartdocai.util.PoiKnobs.relax()
@@ -1043,15 +1062,14 @@ class ToolsFragment : Fragment() {
                                 DocumentUtils.extractTextFromXlsx(appCtx, uri)
                             }
                         }
-                        onDone("XLSX", text)    // this will trigger your snackbar offer, etc.
-                    } catch (e: Throwable) {     // 👈 see Fix 2 below
+                        onDone("XLSX", text)
+                    } catch (e: Throwable) {
                         showLoading(false)
                         toast("XLSX read error: ${e.message ?: "Unknown error"}")
                     }
                 }
             }
 
-// ❌ legacy .xls – not supported yet, avoid POI HSSF crash
             (type == "application/vnd.ms-excel" || name.endsWith(".xls")) -> {
                 showLoading(false)
                 toast("Legacy .xls files are not supported yet. Please save as .xlsx and try again.")

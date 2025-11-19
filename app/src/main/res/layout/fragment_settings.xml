@@ -117,13 +117,16 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:layout_marginBottom="16dp"
+                    android:textStyle="bold"
                     android:text="Manage AI Plan / Upgrade" />
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switchDarkMode"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
+                    android:layout_gravity="start"
+                    android:textStyle="bold"
                     android:text="Enable Dark Mode" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

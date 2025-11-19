@@ -27,6 +27,8 @@ import android.widget.ProgressBar
 
 class MainActivity : AppCompatActivity() {
 
+        private var pendingNav: Int? = null   // ✅ add this
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -103,39 +105,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun forwardTextToTools(text: String) {
-        // visible feedback
         android.widget.Toast.makeText(this, "Opening shared text…", android.widget.Toast.LENGTH_SHORT).show()
 
-        // Switch to Tools tab
-        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
-            .selectedItemId = R.id.nav_tools
+        val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
+        if (supportFragmentManager.isStateSaved) {
+            pendingNav = R.id.nav_tools
+        } else {
+            bottomNav.selectedItemId = R.id.nav_tools
+        }
 
-        // deliver to ToolsFragment
         window.decorView.post {
             supportFragmentManager.setFragmentResult(
                 "externalFile",
-                androidx.core.os.bundleOf("text" to text)
+                bundleOf("text" to text)
             )
         }
 
-        // clear so it doesn’t retrigger
         intent?.removeExtra(Intent.EXTRA_TEXT)
         intent?.action = null
     }
 
     private fun forwardToTools(uri: android.net.Uri, mime: String?, source: String) {
-        // visible feedback so it never feels “dead”
         android.widget.Toast.makeText(this, "Opening file from $source…", android.widget.Toast.LENGTH_SHORT).show()
 
-        // switch to Tools tab
-        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
-            .selectedItemId = R.id.nav_tools
+        val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
+        if (supportFragmentManager.isStateSaved) {
+            // defer until we’re safely resumed
+            pendingNav = R.id.nav_tools
+        } else {
+            bottomNav.selectedItemId = R.id.nav_tools
+        }
 
-        // deliver to ToolsFragment
+        // we can still post the result; ToolsFragment will pick it up when active
         window.decorView.post {
             supportFragmentManager.setFragmentResult(
                 "externalFile",
-                androidx.core.os.bundleOf(
+                bundleOf(
                     "uri" to uri.toString(),
                     "mime" to (mime ?: "*/*"),
                     "source" to source
@@ -143,7 +148,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // clear so back/rotate doesn't retrigger
         intent?.data = null
         intent?.removeExtra(Intent.EXTRA_STREAM)
     }
@@ -182,7 +186,7 @@ class MainActivity : AppCompatActivity() {
                 supportFragmentManager.beginTransaction()
                     .setReorderingAllowed(true)
                     .replace(R.id.contentFrame, it, it::class.java.simpleName)
-                    .commit()
+                    .commitAllowingStateLoss()   // ✅ safer for tab navigation
                 true
             } ?: false
         }
@@ -191,8 +195,10 @@ class MainActivity : AppCompatActivity() {
             supportFragmentManager.beginTransaction()
                 .setReorderingAllowed(true)
                 .replace(R.id.contentFrame, HomeFragment(), HomeFragment::class.java.simpleName)
-                .commit()
+                .commitAllowingStateLoss()       // ✅ also safe here
         }
+
+
 
         val fab = findViewById<FloatingActionButton>(R.id.fab)
         fab.setOnClickListener { showFabActionSheet() }
@@ -218,21 +224,29 @@ class MainActivity : AppCompatActivity() {
 
     fun goToToolsAndAsk(action: String) {
         val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
-        nav.selectedItemId = R.id.nav_tools
+        if (supportFragmentManager.isStateSaved) {
+            pendingNav = R.id.nav_tools
+        } else {
+            nav.selectedItemId = R.id.nav_tools
+        }
         window.decorView.post {
             supportFragmentManager.setFragmentResult(
                 "toolsFabRequest",
                 bundleOf("action" to action)
             )
         }
-
     }
 
     private fun maybeHandleDeepLinkFromOnboarding(intent: Intent) {
         val openUpload = intent.getBooleanExtra("openUpload", false)
         if (!openUpload) return
 
-        findViewById<BottomNavigationView>(R.id.bottomNav).selectedItemId = R.id.nav_tools
+        val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
+        if (supportFragmentManager.isStateSaved) {
+            pendingNav = R.id.nav_tools
+        } else {
+            bottomNav.selectedItemId = R.id.nav_tools
+        }
 
         window.decorView.post {
             supportFragmentManager.setFragmentResult(
@@ -241,7 +255,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // clear the flag so it doesn't retrigger
         intent.removeExtra("openUpload")
     }
 
