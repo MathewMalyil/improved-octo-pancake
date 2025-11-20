@@ -32,8 +32,8 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "2.4"
+        versionCode = 27
+        versionName = "2.6"
 
 
         ndk {
@@ -162,15 +162,17 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // CameraX
-    val camerax = "1.5.0" // or newer stable
-    implementation("androidx.camera:camera-core:$camerax")
-    implementation("androidx.camera:camera-camera2:$camerax")
-    implementation("androidx.camera:camera-lifecycle:$camerax")
-    implementation("androidx.camera:camera-view:$camerax")
+   // val camerax = "1.5.0" // or newer stable
+   // implementation("androidx.camera:camera-core:$camerax")
+   // implementation("androidx.camera:camera-camera2:$camerax")
+   // implementation("androidx.camera:camera-lifecycle:$camerax")
+   // implementation("androidx.camera:camera-view:$camerax")
+
 
     // ML Kit
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
 
     // PDF & documents
 
@@ -240,5 +242,14 @@ dependencies {
         debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+
+
+
+// For ListenableFuture (required by ProcessCameraProvider)
+    //implementation("androidx.concurrent:concurrent-futures-ktx:1.3.0")
+    implementation("com.google.mlkit:vision-common:17.3.0")
+
+        implementation ("com.google.android.gms:play-services-ads:23.5.0")
+
 
 }

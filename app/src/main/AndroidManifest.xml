@@ -11,6 +11,7 @@
     <!-- Camera capabilities (not strictly required, but fine) -->
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
         android:name=".SmartDocAIApp"
@@ -24,6 +25,9 @@
         android:theme="@style/Theme.SmartDocAI"
         tools:ignore="GoogleAppIndexingWarning">
 
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-9044672106546329~3552369830"/>
         <!-- Receivers -->
         <!-- No intent-filter => keep it internal -->
         <receiver

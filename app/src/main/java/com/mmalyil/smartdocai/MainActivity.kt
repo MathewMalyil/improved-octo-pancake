@@ -20,14 +20,15 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.mmalyil.smartdocai.util.UsageManager
-
 import android.widget.ProgressBar
-
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdView
 
 
 class MainActivity : AppCompatActivity() {
 
         private var pendingNav: Int? = null   // ✅ add this
+    private lateinit var adViewBanner: AdView   // 👈 add this
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +71,13 @@ class MainActivity : AppCompatActivity() {
                 maybeHandleDeepLinkFromOnboarding(intent)
             }
         }
+
+        adViewBanner = findViewById(R.id.adViewBanner)
+
+        val adRequest = AdRequest.Builder().build()
+        adViewBanner.loadAd(adRequest)
+
+
     }
 
     // If your Activity is relaunched with a new Intent (rare here),
