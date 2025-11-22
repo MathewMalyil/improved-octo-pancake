@@ -67,7 +67,7 @@ import androidx.core.view.doOnPreDraw
 import kotlinx.coroutines.flow.first
 import android.util.Log
 import com.google.android.material.snackbar.Snackbar
-
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 
 // ToolsFragment.kt (top)
 import android.net.TrafficStats
@@ -119,6 +119,11 @@ class ToolsFragment : Fragment() {
 
     private val RC_RECOVER_AUTH = 1002
 
+    companion object {
+        // Tune these as you like
+        private const val MAX_PDF_SIZE_BYTES = 40L * 1024 * 1024 // 40 MB
+        private const val MAX_PDF_PAGES = 200                     // cap pages to parse
+    }
 
     private var pendingAccount: GoogleSignInAccount? = null
     private var pendingToken: String? = null
@@ -486,20 +491,75 @@ class ToolsFragment : Fragment() {
     }
 
     private fun extractPdfBlocking(uri: Uri): String {
-        val appCtx = context?.applicationContext ?: return "Failed to read PDF: no context"
-        return try {
-            appCtx.contentResolver.openInputStream(uri)?.use { input ->
-                com.tom_roush.pdfbox.pdmodel.PDDocument.load(input).use { doc ->
-                    val stripper = com.tom_roush.pdfbox.text.PDFTextStripper().apply {
-                        sortByPosition = false
-                        startPage = 1
-                        endPage = doc.numberOfPages
-                    }
-                    stripper.getText(doc)
+        val appCtx = context?.applicationContext
+            ?: return "Failed to read PDF: no context"
+
+        val resolver = appCtx.contentResolver
+
+        // 1) Try to get file size and enforce a hard limit
+        var sizeBytes: Long = -1L
+        try {
+            resolver.query(
+                uri,
+                arrayOf(OpenableColumns.SIZE),
+                null,
+                null,
+                null
+            )?.use { c ->
+                val idx = c.getColumnIndex(OpenableColumns.SIZE)
+                if (idx >= 0 && c.moveToFirst()) {
+                    sizeBytes = c.getLong(idx)
                 }
-            } ?: "Failed to read PDF: null input stream"
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not determine PDF size for uri=$uri", t)
+        }
+
+        if (sizeBytes > 0 && sizeBytes > MAX_PDF_SIZE_BYTES) {
+            val mb = sizeBytes / (1024 * 1024)
+            return "Failed to read PDF: file is too large (${mb} MB)."
+        }
+
+        // 2) Copy to a temp file instead of loading from InputStream directly
+        val tmp = File.createTempFile("smartdoc_pdf_", ".pdf", appCtx.cacheDir)
+
+        return try {
+            resolver.openInputStream(uri)?.use { input ->
+                tmp.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                    }
+                }
+            } ?: return "Failed to read PDF: null input stream"
+
+            // 3) Init PdfBox (safe to call more than once)
+            PDFBoxResourceLoader.init(appCtx)
+
+            // 4) Load with a **page cap** to avoid OOM on 1,000+ page docs
+            com.tom_roush.pdfbox.pdmodel.PDDocument.load(tmp).use { doc ->
+                val totalPages = doc.numberOfPages
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper().apply {
+                    sortByPosition = false
+                    startPage = 1
+                    endPage = minOf(totalPages, MAX_PDF_PAGES)
+                }
+                stripper.getText(doc)
+            }
+        } catch (oom: OutOfMemoryError) {
+            Log.e(TAG, "OOM while reading PDF $uri", oom)
+            "Failed to read PDF: document is too large or image-heavy for this device."
         } catch (e: Exception) {
+            Log.e(TAG, "Error while reading PDF $uri", e)
             "Failed to read PDF: ${e.message}"
+        } finally {
+            // Clean up temp file
+            try {
+                tmp.delete()
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -1356,26 +1416,7 @@ class ToolsFragment : Fragment() {
         }
     }
 
-    private fun extractTextFromPdf(uri: Uri) {
-        val appCtx = context?.applicationContext ?: return
-        showLoading(true)
-        viewLifecycleOwner.lifecycleScope.launch {
-            val text = withContext(Dispatchers.IO) {
-                appCtx.contentResolver.openInputStream(uri)?.use { input ->
-                    com.tom_roush.pdfbox.pdmodel.PDDocument.load(input).use { doc ->
-                        com.tom_roush.pdfbox.text.PDFTextStripper().getText(doc)
-                    }
-                } ?: throw IllegalStateException("Unable to open input stream")
-            }
-            if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                showLoading(false); return@launch
-            }
-            extractedText = text
-            showExtractedText("PDF loaded")
-            toast("PDF extracted")
-            showLoading(false)
-        }
-    }
+
 
 
     private fun analyzeSmartlyWithQuota(

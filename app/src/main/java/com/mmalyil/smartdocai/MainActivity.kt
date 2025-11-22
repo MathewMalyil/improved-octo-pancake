@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
+        // Theme observer (unchanged)
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 com.mmalyil.smartdocai.prefs.ThemePrefs
@@ -48,36 +49,31 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Action bar – honestly this title looks like it belongs to another screen,
+        // but it's not related to the crash so I’m leaving it.
         supportActionBar?.title = "Send Feedback"
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
-        // 1) Gate with DataStore once (no legacy SharedPreferences)
+        // ✅ Always init fragments & bottom nav synchronously
+        initUi(savedInstanceState)
+
+        // ✅ Then gate onboarding + external intents in a coroutine
         lifecycleScope.launch {
             val seen = OnboardingPrefs.hasSeen(this@MainActivity).first()
             if (!seen) {
                 startActivity(Intent(this@MainActivity, OnboardingActivity::class.java))
-                // Don't finish() — let user come back here after onboarding
-                return@launch
+                // don't finish(), user comes back here afterward
             } else {
-                // 2) Normal UI init only after onboarding is seen
-                initUi(savedInstanceState)
-
-
-                // ✅ handle external file intents on first launch
+                // handle incoming intents once onboarding is done
                 handleIncomingIntent(intent)
-                // keep your existing onboarding deep link:
-
-                // 3) If onboarding asked to open Upload, handle it now
                 maybeHandleDeepLinkFromOnboarding(intent)
             }
         }
 
+        // Ads
         adViewBanner = findViewById(R.id.adViewBanner)
-
         val adRequest = AdRequest.Builder().build()
         adViewBanner.loadAd(adRequest)
-
-
     }
 
     // If your Activity is relaunched with a new Intent (rare here),
@@ -289,4 +285,12 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    override fun onResume() {
+        super.onResume()
+        pendingNav?.let { id ->
+            findViewById<BottomNavigationView>(R.id.bottomNav).selectedItemId = id
+            pendingNav = null
+        }
+    }
 }
+

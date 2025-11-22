@@ -321,57 +321,6 @@ object ImageToExcelProcessor {
         }
     }
 
-    /**
-     * Find likely header rows (0–2 of them).
-     * Heuristics:
-     *  - lots of text, very few digits
-     *  - common header words (Date, Item, Amount, Qty, etc.)
-     *  - usually near the top
-     */
-    private fun <R> findHeaderRowIndices(
-        rows: List<R>,
-        rowToText: (R) -> String
-    ): Set<Int> {
-        if (rows.isEmpty()) return emptySet()
-
-        val headerKeywords = listOf(
-            "date", "item", "code", "category", "vendor", "description",
-            "qty", "quantity", "price", "amount", "invoice", "total",
-            "contract", "transaction", "source", "exchange", "buy", "sell",
-            "gst", "charges", "summary", "columns"
-        )
-
-        val candidates = mutableListOf<Pair<Int, Int>>() // index -> score
-
-        rows.forEachIndexed { idx, row ->
-            val text = rowToText(row).lowercase().trim()
-            if (text.length < 3) return@forEachIndexed
-
-            val digits = text.count { it.isDigit() }
-            val letters = text.count { it.isLetter() }
-            if (letters == 0) return@forEachIndexed
-
-            val digitRatio = digits.toDouble() / (letters + digits).toDouble()
-
-            var score = 0
-            if ('(' in text || ')' in text) score += 1
-            if (digitRatio < 0.2) score += 2          // mostly letters
-            if (idx <= 4) score += 1                  // near top
-            if (headerKeywords.any { it in text }) score += 3
-
-            if (score >= 3) {
-                candidates += idx to score
-            }
-        }
-
-        // keep at most 2 best-scoring rows
-        return candidates
-            .sortedByDescending { it.second }
-            .take(2)
-            .map { it.first }
-            .toSet()
-    }
-
 
 
     /**
@@ -444,45 +393,7 @@ object ImageToExcelProcessor {
         return merged
     }
 
-    /**
-     * Build column bands based primarily on header rows.
-     * We only look at header cells here and cluster their X centers.
-     */
-    private fun buildHeaderBands(headerCells: List<OcrCell>): List<ColBand> {
-        if (headerCells.isEmpty()) return emptyList()
 
-        val centers = headerCells.map { it.x + it.w / 2 }.sorted()
-        if (centers.size <= 1) {
-            val c = centers.first()
-            return listOf(ColBand(c, c))
-        }
-
-        val gaps = centers.zipWithNext { a, b -> b - a }.filter { it > 0 }
-        val medianGap = gaps.medianInt().coerceAtLeast(20)
-
-        // Close centers → same column, larger gaps → new column.
-        // We keep this threshold relatively small so that multi-word
-        // headers merge, but neighbouring columns stay separate.
-        val mergeThreshold = (medianGap * 0.6).toInt().coerceAtLeast(25)
-
-        val bands = mutableListOf<ColBand>()
-        var current = ColBand(centers.first(), centers.first())
-
-        for (i in 1 until centers.size) {
-            val c = centers[i]
-            val gap = c - centers[i - 1]
-            if (gap <= mergeThreshold) {
-                current.minX = minOf(current.minX, c)
-                current.maxX = maxOf(current.maxX, c)
-            } else {
-                bands += current
-                current = ColBand(c, c)
-            }
-        }
-        bands += current
-
-        return bands
-    }
 
 
 }
