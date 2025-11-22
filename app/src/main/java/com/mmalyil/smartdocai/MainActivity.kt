@@ -27,7 +27,7 @@ import com.google.android.gms.ads.AdView
 
 class MainActivity : AppCompatActivity() {
 
-        private var pendingNav: Int? = null   // ✅ add this
+    private var pendingNav: Int? = null   // ✅ add this
     private lateinit var adViewBanner: AdView   // 👈 add this
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,8 +72,7 @@ class MainActivity : AppCompatActivity() {
 
         // Ads
         adViewBanner = findViewById(R.id.adViewBanner)
-        val adRequest = AdRequest.Builder().build()
-        adViewBanner.loadAd(adRequest)
+        loadBannerAdSmoothly(800)   // or 500 / 0 as you prefer
     }
 
     // If your Activity is relaunched with a new Intent (rare here),
@@ -91,6 +90,7 @@ class MainActivity : AppCompatActivity() {
             Intent.ACTION_VIEW -> i.data?.let {
                 forwardToTools(it, i.type ?: guessMime(it), "VIEW")
             }
+
             Intent.ACTION_SEND -> {
                 val u = i.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
                 val text = i.getStringExtra(Intent.EXTRA_TEXT)
@@ -99,17 +99,27 @@ class MainActivity : AppCompatActivity() {
                     !text.isNullOrBlank() -> forwardTextToTools(text)   // ← add this
                 }
             }
+
             Intent.ACTION_SEND_MULTIPLE -> {
-                val uris = i.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
+                val uris = i.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+                    .orEmpty()
                 if (uris.isNotEmpty()) {
-                    forwardToTools(uris.first(), i.type ?: guessMime(uris.first()), "SEND_MULTIPLE")
+                    forwardToTools(
+                        uris.first(),
+                        i.type ?: guessMime(uris.first()),
+                        "SEND_MULTIPLE"
+                    )
                 }
             }
         }
     }
 
     private fun forwardTextToTools(text: String) {
-        android.widget.Toast.makeText(this, "Opening shared text…", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(
+            this,
+            "Opening shared text…",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
 
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
         if (supportFragmentManager.isStateSaved) {
@@ -130,7 +140,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun forwardToTools(uri: android.net.Uri, mime: String?, source: String) {
-        android.widget.Toast.makeText(this, "Opening file from $source…", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(
+            this,
+            "Opening file from $source…",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
 
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
         if (supportFragmentManager.isStateSaved) {
@@ -157,23 +171,32 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-
     private fun guessMime(uri: android.net.Uri): String {
         val s = uri.toString()
         return when {
-            s.endsWith(".pdf", ignoreCase = true)  -> "application/pdf"
-            s.endsWith(".docx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            s.endsWith(".pptx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            s.endsWith(".xlsx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            s.endsWith(".csv",  ignoreCase = true) -> "text/csv"
-            else                                   -> "*/*"
+            s.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
+            s.endsWith(
+                ".docx",
+                ignoreCase = true
+            ) -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+            s.endsWith(
+                ".pptx",
+                ignoreCase = true
+            ) -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+            s.endsWith(
+                ".xlsx",
+                ignoreCase = true
+            ) -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+            s.endsWith(".csv", ignoreCase = true) -> "text/csv"
+            else -> "*/*"
         }
     }
 
 
-
     // ... your existing code remains ...
-
 
 
     private fun initUi(savedInstanceState: Bundle?) {
@@ -203,19 +226,23 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-
         val fab = findViewById<FloatingActionButton>(R.id.fab)
         fab.setOnClickListener { showFabActionSheet() }
 
         // ✅ Hero card views (match your XML IDs)
-        val tvUsageText  = findViewById<TextView>(R.id.tvUsageText)
-        val usageBar     = findViewById<ProgressBar>(R.id.usageProgressBar) // NOTE: platform ProgressBar
-        val tvAiSource   = findViewById<TextView>(R.id.tvAiSource)
+        val tvUsageText = findViewById<TextView>(R.id.tvUsageText)
+        val usageBar =
+            findViewById<ProgressBar>(R.id.usageProgressBar) // NOTE: platform ProgressBar
+        val tvAiSource = findViewById<TextView>(R.id.tvAiSource)
 
         // Optional quick buttons if you have them
-        findViewById<MaterialButton?>(R.id.btnQuickUpload)?.setOnClickListener { goToToolsAndAsk("upload") }
-        findViewById<MaterialButton?>(R.id.btnQuickScan)?.setOnClickListener   { goToToolsAndAsk("scan") }
-        findViewById<MaterialButton?>(R.id.btnQuickOCR)?.setOnClickListener    { goToToolsAndAsk("pickImage") }
+        findViewById<MaterialButton?>(R.id.btnQuickUpload)?.setOnClickListener {
+            goToToolsAndAsk(
+                "upload"
+            )
+        }
+        findViewById<MaterialButton?>(R.id.btnQuickScan)?.setOnClickListener { goToToolsAndAsk("scan") }
+        findViewById<MaterialButton?>(R.id.btnQuickOCR)?.setOnClickListener { goToToolsAndAsk("pickImage") }
 
         // 🔗 Bind usage UI (single source of truth)
         UsageManager.bindUsageUI(
@@ -292,5 +319,24 @@ class MainActivity : AppCompatActivity() {
             pendingNav = null
         }
     }
+
+
+    // 🔹 Banner Ad loader (inside the class)
+    private fun loadBannerAdSmoothly(delayMs: Long = 0L) {
+        if (!::adViewBanner.isInitialized) return
+
+        if (delayMs > 0) {
+            adViewBanner.postDelayed({
+                val req = AdRequest.Builder().build()
+                adViewBanner.loadAd(req)
+            }, delayMs)
+        } else {
+            adViewBanner.post {
+                val req = AdRequest.Builder().build()
+                adViewBanner.loadAd(req)
+            }
+        }
+    }
 }
+
 

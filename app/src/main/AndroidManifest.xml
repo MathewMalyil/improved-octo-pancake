@@ -10,7 +10,9 @@
 
     <!-- Camera capabilities (not strictly required, but fine) -->
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application

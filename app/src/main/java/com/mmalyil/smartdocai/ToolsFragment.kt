@@ -997,10 +997,19 @@ class ToolsFragment : Fragment() {
     }
 
     private fun handlePickedDocument(uri: Uri) {
+        // 🔐 Ultra defensive: bail out if fragment not ready
+        if (!isAdded) {
+            showLoading(false)
+            return
+        }
+        val ctx = context ?: run {
+            showLoading(false); return
+        }
+
         showLoading(true)
         selectedFileUri = uri.toString()
 
-        val resolver = requireContext().contentResolver
+        val resolver = ctx.contentResolver
 
         // ✅ Resolve display name safely, with fallbacks & SecurityException guard
         var nameFromCursor: String? = null
@@ -1009,7 +1018,7 @@ class ToolsFragment : Fragment() {
             try {
                 resolver.query(
                     uri,
-                    arrayOf(OpenableColumns.DISPLAY_NAME),   // ask only what we need
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
                     null,
                     null,
                     null
@@ -1017,27 +1026,41 @@ class ToolsFragment : Fragment() {
                     if (c.moveToFirst()) {
                         val nameCol = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                         if (nameCol >= 0) {
-                            nameFromCursor = c.getString(nameCol) // can be null on some providers
+                            nameFromCursor = c.getString(nameCol)
                         }
                     }
                 }
             } catch (se: SecurityException) {
-                // ⚠️ Some providers disallow querying; log & continue with fallbacks
-                Log.w("SmartDocAI-I/O", "Cannot query display name for uri=$uri", se)
+                Log.w(TAG, "Cannot query display name for uri=$uri", se)
             } catch (t: Throwable) {
-                // ultra-defensive – don't let any weird provider crash the app
-                Log.w("SmartDocAI-I/O", "Unexpected error reading metadata for uri=$uri", t)
+                Log.w(TAG, "Unexpected error reading metadata for uri=$uri", t)
             }
         }
 
         selectedFileName = nameFromCursor
-            ?: uri.lastPathSegment      // fallback 1
-                    ?: "Document"               // fallback 2
+            ?: uri.lastPathSegment
+                    ?: "Document"
 
-        val type = resolver.getType(uri)
+        // 🔐 getType() can also throw SecurityException with some providers
+        val type = try {
+            resolver.getType(uri)
+        } catch (se: SecurityException) {
+            Log.w(TAG, "getType() denied for uri=$uri", se)
+            null
+        } catch (t: Throwable) {
+            Log.w(TAG, "getType() failed for uri=$uri", t)
+            null
+        }
+
         val name = selectedFileName.lowercase()
 
         fun onDone(kind: String, text: String) {
+            // If view is gone (user navigated away), don’t touch UI
+            if (!isAdded || view == null) {
+                extractedText = text
+                showLoading(false)
+                return
+            }
             handleResult(kind, text)
             showLoading(false)
         }
@@ -1045,6 +1068,7 @@ class ToolsFragment : Fragment() {
         when {
             type?.startsWith("image/") == true ||
                     name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") -> {
+
                 viewLifecycleOwner.lifecycleScope.launch {
                     processImageForOCR(uri)
                     showLoading(false)
@@ -1123,9 +1147,9 @@ class ToolsFragment : Fragment() {
                             }
                         }
                         onDone("XLSX", text)
-                    } catch (e: Throwable) {
+                    } catch (t: Throwable) {
                         showLoading(false)
-                        toast("XLSX read error: ${e.message ?: "Unknown error"}")
+                        toast("XLSX read error: ${t.message ?: "Unknown error"}")
                     }
                 }
             }
@@ -1806,26 +1830,42 @@ class ToolsFragment : Fragment() {
     }
 
     private fun exportAsTxt(includeDoc: Boolean, includeAI: Boolean) {
-        val content = buildExportContent(includeDoc, includeAI)
-        if (content.isBlank()) { toast("Nothing to export"); return }
-
-        // Save under exports/
-        val outDir = File(requireContext().getExternalFilesDir(null), "exports").apply { mkdirs() }
-        val file = File(outDir, "SmartDocAI_Export.txt")
-        runCatching { file.writeText(content) }
-            .onFailure { e -> toast("TXT write error: ${e.message}"); return }
-
-        // Build share URI that matches file_paths.xml (exports/)
-        val uri = getFileUri(requireContext(), file.name, subDir = "exports")
-
-        val share = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI TXT Export")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
+        val raw = buildExportContent(includeDoc, includeAI)
+        if (raw.isBlank()) {
+            toast("Nothing to export")
+            return
         }
-        startActivity(Intent.createChooser(share, "Share TXT via"))
+
+        // 🚫 Clamp output to avoid giant files / memory pressure
+        val content = if (raw.length > 2_000_000) {
+            raw.take(2_000_000) + "\n\n[Truncated for export]"
+        } else raw
+
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val ctx = requireContext()
+                val outDir = File(ctx.getExternalFilesDir(null), "exports").apply { mkdirs() }
+                val file = File(outDir, "SmartDocAI_Export.txt")
+                file.writeText(content)
+
+                val uri = getFileUri(ctx, file.name, subDir = "exports")
+
+                withContext(Dispatchers.Main) {
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI TXT Export")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        clipData = ClipData.newUri(ctx.contentResolver, file.name, uri)
+                    }
+                    startActivity(Intent.createChooser(share, "Share TXT via"))
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    toast("TXT write error: ${e.message}")
+                }
+            }
+        }
     }
 
 

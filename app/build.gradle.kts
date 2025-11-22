@@ -32,8 +32,8 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 27
-        versionName = "2.6"
+        versionCode = 29
+        versionName = "2.8"
 
 
         ndk {

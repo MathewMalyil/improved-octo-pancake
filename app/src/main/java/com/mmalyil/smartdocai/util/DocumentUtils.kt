@@ -2,6 +2,7 @@ package com.mmalyil.smartdocai.util
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -28,6 +29,8 @@ object DocumentUtils {
 
     private const val TAG = "SmartDocAI-I/O"
 
+    private const val MAX_PPTX_SIZE_BYTES = 30L * 1024 * 1024 // 30 MB cap
+
     // ------------------------------------------------------------------ DOCX
     fun extractTextFromDocx(context: Context, uri: Uri): String {
         return try {
@@ -51,19 +54,45 @@ object DocumentUtils {
     }
 
     // ------------------------------------------------------------------ PPTX
+
+
     fun extractTextFromPptx(context: Context, uri: Uri): String {
         return try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
+            val resolver = context.contentResolver
+
+            // 1) Optional size cap to avoid OOM on giant PPTX with images
+            var sizeBytes = -1L
+            if ("content".equals(uri.scheme, ignoreCase = true)) {
+                try {
+                    resolver.query(
+                        uri,
+                        arrayOf(OpenableColumns.SIZE),
+                        null,
+                        null,
+                        null
+                    )?.use { c ->
+                        val idx = c.getColumnIndex(OpenableColumns.SIZE)
+                        if (idx >= 0 && c.moveToFirst()) {
+                            sizeBytes = c.getLong(idx)
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not read PPTX size for uri=$uri", t)
+                }
+            }
+
+            if (sizeBytes > 0 && sizeBytes > MAX_PPTX_SIZE_BYTES) {
+                val mb = sizeBytes / (1024 * 1024)
+                return "Failed to read PPTX: file is too large (${mb} MB)."
+            }
+
+            // 2) Open & parse with POI, catching any diagram/graphic weirdness per-slide
+            resolver.openInputStream(uri)?.use { input ->
                 XMLSlideShow(input).use { ppt ->
                     buildString {
-                        ppt.slides.forEachIndexed { index, slide ->
-                            append("Slide ${index + 1}\n")
-
+                        for (slide in ppt.slides) {
                             try {
-                                // NOTE: slide.shapes is where POI will build shapes/diagrams
-                                val shapes: List<XSLFShape> = slide.shapes
-
-                                for (shape in shapes) {
+                                for (shape in slide.shapes) {
                                     if (shape is XSLFTextShape) {
                                         val t = (shape.text ?: "").trim()
                                         if (t.isNotEmpty()) {
@@ -72,25 +101,23 @@ object DocumentUtils {
                                         }
                                     }
                                 }
-                            } catch (e: NoClassDefFoundError) {
-                                // Some SmartArt / diagrams rely on POI classes that
-                                // aren’t safe/available on Android – skip this slide.
-                                Log.w(TAG, "Skipping unsupported PPTX slide (diagram/SmartArt)", e)
-                                append("[Slide contains unsupported diagrams; text skipped]\n")
-                            } catch (e: Throwable) {
-                                Log.w(TAG, "Error while reading PPTX slide", e)
+                            } catch (t: Throwable) {
+                                // Skip problematic slide/diagram, don’t crash
+                                Log.w(TAG, "Skipping problematic PPTX slide", t)
                             }
-
-                            append('\n')
                         }
                     }
                 }
             } ?: "Failed to read PPTX: null input stream"
-        } catch (t: Throwable) {  // catches NoClassDefFoundError as well
+        } catch (t: Throwable) {   // 👈 catches OutOfMemoryError, NoClassDefFoundError, etc.
             Log.e(TAG, "PPTX error", t)
             "Failed to read PPTX: ${t.message ?: "unknown error"}"
         }
     }
+
+
+        // ... DOCX/XLSX/CSV functions as you already have ...
+
 
     // ------------------------------------------------------------------ XLSX (no DataFormatter)
     fun extractTextFromXlsx(context: Context, uri: Uri): String {

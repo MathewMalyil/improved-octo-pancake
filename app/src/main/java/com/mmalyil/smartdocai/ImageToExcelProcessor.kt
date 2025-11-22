@@ -75,7 +75,10 @@ object ImageToExcelProcessor {
 
         val rows = groupElementsIntoTable(cells)
 
-        if (rows.isEmpty() || rows.all { it.isEmpty() }) {
+// Clean-up: merge split decimals like "7,876." + "75"
+        val cleanedRows = rows.map { mergeSplitDecimals(it.toMutableList()) }
+
+        if (cleanedRows.isEmpty() || cleanedRows.all { it.isEmpty() }) {
             throw IllegalStateException("No table-like structure detected in image")
         }
 
@@ -83,14 +86,14 @@ object ImageToExcelProcessor {
         val workbook = XSSFWorkbook()
         val sheet = workbook.createSheet("Extracted Table")
 
-        rows.forEachIndexed { rIdx, row ->
+        cleanedRows.forEachIndexed { rIdx, row ->
             val r = sheet.createRow(rIdx)
             row.forEachIndexed { cIdx, value ->
                 r.createCell(cIdx).setCellValue(value)
             }
         }
 
-        val maxCols = rows.maxOfOrNull { it.size } ?: 0
+        val maxCols = cleanedRows.maxOfOrNull { it.size } ?: 0
         repeat(kotlin.math.min(maxCols, 20)) { col ->
             runCatching { sheet.autoSizeColumn(col) }
         }
@@ -103,6 +106,43 @@ object ImageToExcelProcessor {
 
         file
     }
+
+    private fun mergeSplitDecimals(row: MutableList<String>): List<String> {
+        var i = 0
+        while (i < row.size - 1) {
+            val left  = row[i].trim()
+            val right = row[i + 1].trim()
+
+            if (looksLikeIntegerWithTrailingDot(left) && looksLikeShortDecimalTail(right)) {
+                // e.g. "7,876." + "75" -> "7,876.75"
+                val merged = left.removeSuffix(".") + "." + right
+                row[i] = merged
+                row[i + 1] = ""   // leave an empty cell instead of the tail
+            }
+
+            i++
+        }
+        return row
+    }
+
+    private fun looksLikeIntegerWithTrailingDot(s: String): Boolean {
+        // 1,234.   987.   12,45,678. (we’re generous with commas)
+        if (!s.endsWith(".")) return false
+        val core = s.dropLast(1)
+        if (core.isEmpty()) return false
+        // Digits and commas only
+        if (!core.matches(Regex("^[0-9,]+$"))) return false
+        // At least one digit
+        return core.any { it.isDigit() }
+    }
+
+    private fun looksLikeShortDecimalTail(s: String): Boolean {
+        // 1–3 digits only (covers .5, .50, .750 etc.)
+        return s.matches(Regex("^[0-9]{1,3}$"))
+    }
+
+
+
     private fun ensureMinSizeAndContrast(
         src: android.graphics.Bitmap,
         minWidth: Int
@@ -206,16 +246,13 @@ object ImageToExcelProcessor {
             var bestScore = 0
             rows.forEachIndexed { idx, row ->
                 val score = scoreHeaderRow(idx, row)
-                // We care about FIRST strong header, not just max score at bottom.
-                if (score >= 6 && bestIdx == null) {
-                    bestIdx = idx
+                if (score > bestScore) {
                     bestScore = score
-                } else if (score > bestScore) {
                     bestIdx = idx
-                    bestScore = score
                 }
             }
-            return bestIdx
+            // Only accept header if it’s “strong enough”
+            return if (bestScore >= 6) bestIdx else null
         }
 
         fun buildHeaderBandsFromHeaders(headerCells: List<OcrCell>): List<ColBand> {
