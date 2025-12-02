@@ -21,24 +21,41 @@ class BillingManager(
         .enablePendingPurchases()
         .build()
 
-    init {
+    private var isConnecting = false
+
+    /** Explicitly start the BillingClient connection. */
+    fun startConnection(onReady: (() -> Unit)? = null) {
+        if (isReady()) {
+            onReady?.invoke()
+            return
+        }
+        if (isConnecting) {
+            // we could keep a list of callbacks; for now just log
+            Log.d("BillingManager", "startConnection: already connecting")
+            return
+        }
+
+        isConnecting = true
+
         billingClient.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(r: BillingResult) {
+                isConnecting = false
                 if (r.responseCode == BillingClient.BillingResponseCode.OK) {
-                    // Optional: refresh entitlement once connected
-                    queryPurchases()
+                    Log.d("BillingManager", "BillingClient ready")
+                    onReady?.invoke()
                 } else {
                     Log.w("BillingManager", "Setup failed: ${r.responseCode} ${r.debugMessage}")
                 }
             }
+
             override fun onBillingServiceDisconnected() {
                 Log.w("BillingManager", "Service disconnected")
-                // Play recommends retrying later; UI can call methods again which will guard on isReady()
+                // Let caller decide if/when to reconnect.
             }
         })
     }
 
-    /** Defensive readiness check (BillingClient can be momentarily not-ready). */
+    /** Defensive readiness check. */
     private fun isReady(): Boolean = try {
         billingClient.isReady
     } catch (_: Exception) {
@@ -54,7 +71,10 @@ class BillingManager(
         }
 
         var remaining = 2
-        fun done() { if (--remaining == 0) onComplete?.invoke() }
+        fun done() {
+            remaining--
+            if (remaining <= 0) onComplete?.invoke()
+        }
 
         // SUBSCRIPTIONS
         billingClient.queryPurchasesAsync(
@@ -73,7 +93,7 @@ class BillingManager(
             done()
         }
 
-        // INAPP (future-proofing; safe even if you have none)
+        // INAPP (future-proofing)
         billingClient.queryPurchasesAsync(
             QueryPurchasesParams.newBuilder()
                 .setProductType(BillingClient.ProductType.INAPP)
@@ -99,12 +119,14 @@ class BillingManager(
         }
 
         val queryParams = QueryProductDetailsParams.newBuilder()
-            .setProductList(listOf(
-                QueryProductDetailsParams.Product.newBuilder()
-                    .setProductId(productId)
-                    .setProductType(BillingClient.ProductType.SUBS)
-                    .build()
-            ))
+            .setProductList(
+                listOf(
+                    QueryProductDetailsParams.Product.newBuilder()
+                        .setProductId(productId)
+                        .setProductType(BillingClient.ProductType.SUBS)
+                        .build()
+                )
+            )
             .build()
 
         billingClient.queryProductDetailsAsync(queryParams) { result, details ->
@@ -142,12 +164,14 @@ class BillingManager(
         }
 
         val params = QueryProductDetailsParams.newBuilder()
-            .setProductList(listOf(
-                QueryProductDetailsParams.Product.newBuilder()
-                    .setProductId(productId)
-                    .setProductType(BillingClient.ProductType.SUBS)
-                    .build()
-            ))
+            .setProductList(
+                listOf(
+                    QueryProductDetailsParams.Product.newBuilder()
+                        .setProductId(productId)
+                        .setProductType(BillingClient.ProductType.SUBS)
+                        .build()
+                )
+            )
             .build()
 
         billingClient.queryProductDetailsAsync(params) { res, details ->
@@ -172,7 +196,6 @@ class BillingManager(
                 listener.onPurchasesUpdated(list)
             }
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
-                // Reflect existing entitlement.
                 queryPurchases()
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> {
@@ -190,7 +213,6 @@ class BillingManager(
 
             when (p.purchaseState) {
                 Purchase.PurchaseState.PURCHASED -> {
-                    // Grant entitlement
                     UsageManager.setPro(context, true)
                     Log.d("BillingManager", "✅ Pro entitlement active")
                     if (!p.isAcknowledged) {
@@ -219,6 +241,9 @@ class BillingManager(
     }
 
     fun destroy() {
-        try { billingClient.endConnection() } catch (_: Exception) {}
+        try {
+            billingClient.endConnection()
+        } catch (_: Exception) {
+        }
     }
 }

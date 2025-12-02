@@ -1,8 +1,5 @@
 package com.mmalyil.smartdocai
 
-
-
-
 import android.os.Bundle
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -11,13 +8,6 @@ import com.mmalyil.smartdocai.billing.BillingManager
 import com.mmalyil.smartdocai.billing.BillingManager.BillingUpdateListener
 import com.mmalyil.smartdocai.util.UsageManager
 
-import com.android.billingclient.api.BillingClient
-import com.android.billingclient.api.BillingClientStateListener
-import com.android.billingclient.api.BillingResult
-import com.android.billingclient.api.QueryProductDetailsParams
-
-
-
 class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
     private lateinit var upgradeButton: Button
@@ -25,31 +15,37 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
     private lateinit var restoreButton: Button
     private lateinit var billingManager: BillingManager
 
-
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_billing)
 
         usageText = findViewById(R.id.tvUsageText)
         upgradeButton = findViewById(R.id.btnUpgrade)
-
         restoreButton = findViewById(R.id.btnRestore)
 
         billingManager = BillingManager(this, this)
 
-        val isPro = UsageManager.isPro(this)
-        if (!isPro) {
-            upgradeButton.isEnabled = false
-            upgradeButton.text = "Checking price..."
-            billingManager.queryPrice(BillingManager.PRO_PRODUCT_ID) { price ->
-                if (isFinishing || isDestroyed) return@queryPrice
-                upgradeButton.text = price?.let { "Upgrade to GPT-4o Pro ($it/month)" } ?: "Upgrade to GPT-4o Pro"
-                upgradeButton.isEnabled = true
+        // Start connection and only then touch BillingClient
+        billingManager.startConnection {
+            if (isFinishing || isDestroyed) return@startConnection
+
+            val isPro = UsageManager.isPro(this)
+            if (!isPro) {
+                upgradeButton.isEnabled = false
+                upgradeButton.text = "Checking price..."
+                billingManager.queryPrice(BillingManager.PRO_PRODUCT_ID) { price ->
+                    if (isFinishing || isDestroyed) return@queryPrice
+                    upgradeButton.text = price?.let { "Upgrade to GPT-4o Pro ($it/month)" }
+                        ?: "Upgrade to GPT-4o Pro"
+                    upgradeButton.isEnabled = true
+                }
+            } else {
+                upgradeButton.isEnabled = false
+                upgradeButton.text = "Pro Active ✓"
             }
-        } else {
-            upgradeButton.isEnabled = false
-            upgradeButton.text = "Pro Active ✓"
+
+            // Initial entitlement sync once billing is ready
+            billingManager.queryPurchases()
         }
 
         upgradeButton.setOnClickListener {
@@ -60,13 +56,11 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
         restoreButton.setOnClickListener {
             Toast.makeText(this, "Restoring...", Toast.LENGTH_SHORT).show()
-            billingManager.queryPurchases() // Optional if you want active recheck
+            billingManager.queryPurchases()
         }
 
         val backButton = findViewById<Button>(R.id.btnBack)
-        backButton.setOnClickListener {
-            finish() // Close BillingActivity and return
-        }
+        backButton.setOnClickListener { finish() }
 
         maybeShowUpgradeDialog()
         updateUsageUI()
@@ -101,9 +95,11 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         if (!message.isNullOrEmpty()) {
             val dialog = android.app.AlertDialog.Builder(this)
                 .setTitle("Upgrade to GPT-4o Pro 🚀")
-                .setMessage("Unlock 300,000 tokens per month, longer answers, and priority AI access.\n\n${
-                    message.trim()
-                }")
+                .setMessage(
+                    "Unlock 300,000 tokens per month, longer answers, and priority AI access.\n\n${
+                        message.trim()
+                    }"
+                )
                 .setPositiveButton("Upgrade") { _, _ ->
                     billingManager.launchPurchaseFlow(this, BillingManager.PRO_PRODUCT_ID)
                 }
@@ -113,12 +109,9 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         }
     }
 
-
-
-
-
     override fun onResume() {
         super.onResume()
+        // Re-sync entitlement when coming back to screen
         billingManager.queryPurchases()
         updateUsageUI()
         if (!UsageManager.isPro(this)) upgradeButton.isEnabled = true
@@ -126,8 +119,9 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
     override fun onDestroy() {
         super.onDestroy()
-
-        try { billingManager.destroy() } catch (_: Exception) {}
+        try {
+            billingManager.destroy()
+        } catch (_: Exception) {
+        }
     }
-
 }
