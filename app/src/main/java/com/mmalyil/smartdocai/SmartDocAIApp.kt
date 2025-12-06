@@ -1,14 +1,17 @@
 package com.mmalyil.smartdocai
 
 import android.app.Application
-import android.os.Handler
-import android.os.Looper
 import android.os.StrictMode
 import android.util.Log
+import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.RequestConfiguration
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class SmartDocAIApp : Application() {
 
@@ -43,12 +46,8 @@ class SmartDocAIApp : Application() {
             safeInitXmlFactories()
         }
 
-        // ❗ Do NOT sync billing or ads during cold start.
-        // Delay Ads init so WebView/Ads cannot cause ANR on startup.
-        Handler(Looper.getMainLooper()).postDelayed(
-            { initMobileAdsSafely() },
-            3_000L // 3 seconds after launch; tweak as you like
-        )
+        // Only light Ads config; no MobileAds.initialize to avoid WebView/Dex ANRs
+        initMobileAdsSafely()
     }
 
     private fun safeInitPdfBox() {
@@ -74,6 +73,7 @@ class SmartDocAIApp : Application() {
                 "com.ctc.wstx.stax.WstxEventFactory"
             )
         } catch (_: Throwable) {
+            // Ignore – not fatal
         }
     }
 
@@ -86,18 +86,14 @@ class SmartDocAIApp : Application() {
         try {
             if (BuildConfig.DEBUG) {
                 val requestConfig = RequestConfiguration.Builder()
-                    .setTestDeviceIds(listOf("EMULATOR"))
+                    .setTestDeviceIds(listOf(AdRequest.DEVICE_ID_EMULATOR))
                     .build()
                 MobileAds.setRequestConfiguration(requestConfig)
             }
-
-            MobileAds.initialize(this) {
-                Log.d("SmartDocAIApp", "MobileAds initialized: $it")
-            }
+            // No MobileAds.initialize() here – AdMob will auto-init on first ad load.
         } catch (t: Throwable) {
             // Critical: never crash or ANR the app just because Ads/WebView are broken
-            Log.e("SmartDocAIApp", "Failed to initialize MobileAds, disabling ads for this session", t)
-            // Optionally: set a global flag if you want to skip loading ad views this run
+            Log.e("SmartDocAIApp", "Failed to configure MobileAds", t)
         }
     }
 
