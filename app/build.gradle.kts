@@ -32,8 +32,8 @@ android {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 33
-        versionName = "3.3"
+        versionCode = 34
+        versionName = "3.4"
 
 
         ndk {
@@ -98,25 +98,26 @@ android {
 
     buildTypes {
         debug {
+            // Feature flags
             buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
+            buildConfigField("boolean", "ADS_ENABLED", "false") // ✅ no ads while testing
+
             isMinifyEnabled = false
             isShrinkResources = false
         }
-        release {
-            buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
 
-            // Keep off to avoid POI/XmlBeans obfuscation issues (you can revisit later)
+        release {
+            // Feature flags
+            buildConfigField("boolean", "USE_GOOGLE_DOCS", "false")
+            buildConfigField("boolean", "ADS_ENABLED", "true") // ✅ ads only in release
+
             isMinifyEnabled = false
             isShrinkResources = false
 
-            // Keep a proguard file ready if you turn minify on later
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-
-            // ✅ Make sure you’ve set up a proper signingConfig in your project for Play
-            // signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -251,5 +252,5 @@ dependencies {
 
         implementation ("com.google.android.gms:play-services-ads:23.5.0")
 
-
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }

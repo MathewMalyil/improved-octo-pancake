@@ -3,8 +3,11 @@ package com.mmalyil.smartdocai
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
+import androidx.work.WorkerParameters
 import com.mmalyil.smartdocai.util.GPTUsageManager
+import androidx.work.CoroutineWorker
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 
 /**
  * BroadcastReceiver to reset GPT usage limits daily.
@@ -13,12 +16,27 @@ import com.mmalyil.smartdocai.util.GPTUsageManager
 
 
 
-
-
-
 class UsageResetReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        GPTUsageManager.resetAll(context)
-        Toast.makeText(context, "Daily usage limits reset", Toast.LENGTH_SHORT).show()
+        UsageResetWorker.enqueue(context)
+    }
+}
+
+
+class UsageResetWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+
+    override suspend fun doWork(): Result {
+        GPTUsageManager.resetAll(applicationContext)
+        return Result.success()
+    }
+
+    companion object {
+        fun enqueue(context: Context) {
+            val request = OneTimeWorkRequestBuilder<UsageResetWorker>().build()
+            WorkManager.getInstance(context).enqueue(request)
+        }
     }
 }

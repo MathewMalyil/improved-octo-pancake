@@ -3,6 +3,7 @@ package com.mmalyil.smartdocai
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
+import android.view.View
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -21,6 +22,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.mmalyil.smartdocai.util.UsageManager
 import android.widget.ProgressBar
+import com.mmalyil.smartdocai.BuildConfig
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdView
 
@@ -70,9 +72,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+
         // Ads
         adViewBanner = findViewById(R.id.adViewBanner)
-        loadBannerAdSmoothly(800)   // or 500 / 0 as you prefer
+
+        if (!BuildConfig.ADS_ENABLED) {
+            adViewBanner.visibility = View.GONE
+        } else {
+            adViewBanner.postDelayed({
+                adViewBanner.loadAd(AdRequest.Builder().build())
+            }, 1200)
+        }
     }
 
     // If your Activity is relaunched with a new Intent (rare here),
@@ -321,22 +331,7 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    // 🔹 Banner Ad loader (inside the class)
-    private fun loadBannerAdSmoothly(delayMs: Long = 0L) {
-        if (!::adViewBanner.isInitialized) return
 
-        if (delayMs > 0) {
-            adViewBanner.postDelayed({
-                val req = AdRequest.Builder().build()
-                adViewBanner.loadAd(req)
-            }, delayMs)
-        } else {
-            adViewBanner.post {
-                val req = AdRequest.Builder().build()
-                adViewBanner.loadAd(req)
-            }
-        }
-    }
 }
 
 
