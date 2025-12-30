@@ -15,7 +15,11 @@ import com.mmalyil.smartdocai.model.AppDatabase
 import android.content.Intent
 import com.mmalyil.smartdocai.model.ScannedFileDetailActivity
 import android.util.Log
-
+import android.widget.ScrollView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
+import kotlin.math.max
 import com.mmalyil.smartdocai.databinding.FragmentFilesBinding
 
 
@@ -38,6 +42,8 @@ class FilesFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+
+
         val dao = AppDatabase.getDatabase(requireContext()).scannedFileDao()
         val repository = ScannedFileRepository(dao)
         viewModel = ScannedFileViewModel(repository)

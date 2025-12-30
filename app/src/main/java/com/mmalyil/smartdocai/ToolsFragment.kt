@@ -71,9 +71,17 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 
 // ToolsFragment.kt (top)
 import android.net.TrafficStats
+import android.widget.ScrollView
 
 import okhttp3.Interceptor
 import java.util.concurrent.TimeUnit
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
+import kotlin.math.max
+
+
+
 class ToolsFragment : Fragment() {
 
     private lateinit var selectPdfButton: Button
@@ -928,6 +936,35 @@ class ToolsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+
+        val scroll = view.findViewById<ScrollView>(R.id.scrollView)
+
+        scroll.post {
+            val activity = requireActivity()
+            val bottomNav = activity.findViewById<View>(R.id.bottomNav)
+            val banner = activity.findViewById<View>(R.id.adViewBanner)
+
+            ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, insets ->
+                val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+
+                val navH = bottomNav?.height ?: 0
+                val bannerH = if (banner?.visibility == View.VISIBLE) banner.height else 0
+
+                // 16dp base padding + real nav+banner height
+                v.updatePadding(
+                    bottom = dpToPx(16) + max(ime, bars) + navH + bannerH
+                )
+                insets
+            }
+        }
+
+
+        view.findViewById<View>(R.id.fabUploadScan)?.visibility = View.GONE
+
+
+
+
         val usageText = view.findViewById<TextView>(R.id.tvUsageText)
         val usageBar = view.findViewById<ProgressBar>(R.id.usageProgressBar)
         val aiSourceText = view.findViewById<TextView>(R.id.tvAiSource)
@@ -977,7 +1014,8 @@ class ToolsFragment : Fragment() {
         super.onDestroyView()
     }
 
-
+    private fun dpToPx(dp: Int): Int =
+        (dp * resources.displayMetrics.density).toInt()
     // Safe show/hide
     private fun showLoading(show: Boolean) {
         val overlay = loadingOverlay ?: return

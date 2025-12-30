@@ -57,7 +57,7 @@
         <activity
             android:name=".AIChatActivity"
             android:exported="false"
-            android:windowSoftInputMode="stateVisible|adjustResize" />
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize" />
 
         <activity
             android:name=".model.ScannedFileDetailActivity"

@@ -25,7 +25,8 @@ import android.widget.ProgressBar
 import com.mmalyil.smartdocai.BuildConfig
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdView
-
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -36,6 +37,16 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
+
+
+
+// Hide banner when keyboard is visible (IME)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
+            val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+            findViewById<View>(R.id.adViewBanner)?.visibility = if (imeVisible) View.GONE else View.VISIBLE
+            insets
+        }
+
 
         // Theme observer (unchanged)
         lifecycleScope.launch {
