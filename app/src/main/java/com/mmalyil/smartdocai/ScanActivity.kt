@@ -1,6 +1,7 @@
 package com.mmalyil.smartdocai
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -9,6 +10,7 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -24,7 +26,11 @@ class ScanActivity : AppCompatActivity() {
 
     private var imageUri: Uri? = null
 
-    // Full-resolution camera capture
+    // 🆕 Store OCR text per page
+    private val scannedPagesText = mutableListOf<String>()
+    private var currentPage = 1
+
+    // Camera capture
     private val takePictureLauncher =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             if (success) {
@@ -41,7 +47,7 @@ class ScanActivity : AppCompatActivity() {
                 startCameraCapture()
             } else {
                 Toast.makeText(this, "Camera permission denied", Toast.LENGTH_SHORT).show()
-                setResult(RESULT_CANCELED)
+                setResult(Activity.RESULT_CANCELED)
                 finish()
             }
         }
@@ -69,14 +75,14 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun startCameraCapture() {
-        // Create a temp file in app cache
+        statusText.text = "Scanning page $currentPage…"
+
         val photoFile = File.createTempFile(
             "scan_${System.currentTimeMillis()}",
             ".jpg",
             cacheDir
         )
 
-        // Authority matches your FileProvider in AndroidManifest
         imageUri = FileProvider.getUriForFile(
             this,
             "${BuildConfig.APPLICATION_ID}.fileprovider",
@@ -87,9 +93,7 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun runOcrOnUri(uri: Uri) {
-
-
-        statusText.text = "Processing…"
+        statusText.text = "Processing page $currentPage…"
 
         try {
             val image = InputImage.fromFilePath(this, uri)
@@ -99,30 +103,67 @@ class ScanActivity : AppCompatActivity() {
 
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    val resultText = visionText.text ?: ""
-                    if (resultText.isBlank()) {
-                        Toast.makeText(this, "No text detected", Toast.LENGTH_SHORT).show()
-                        statusText.text = "No text detected. Try again."
+                    val pageText = visionText.text?.trim().orEmpty()
+
+                    if (pageText.isBlank()) {
+                        Toast.makeText(this, "No text detected on this page", Toast.LENGTH_SHORT).show()
+                        showNextPageDialog(added = false)
                         return@addOnSuccessListener
                     }
 
-                    val returnIntent = Intent().apply {
-                        putExtra("scannedText", resultText)
-                    }
-                    setResult(RESULT_OK, returnIntent)
-                    finish()
+                    scannedPagesText.add(pageText)
+                    showNextPageDialog(added = true)
                 }
                 .addOnFailureListener {
-                    Toast.makeText(
-                        this,
-                        "OCR failed: ${it.message}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    statusText.text = "OCR failed. Please try again."
+                    Toast.makeText(this, "OCR failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                    showNextPageDialog(added = false)
                 }
+
         } catch (e: Exception) {
             Toast.makeText(this, "Error reading image: ${e.message}", Toast.LENGTH_SHORT).show()
-            statusText.text = "Error loading image."
+            showNextPageDialog(added = false)
         }
+    }
+
+    // 🆕 Ask user what to do next
+    private fun showNextPageDialog(added: Boolean) {
+        val msg = if (added) {
+            "Page $currentPage scanned.\nScan another page?"
+        } else {
+            "This page had no readable text.\nTry another page?"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Scan document")
+            .setMessage(msg)
+            .setCancelable(false)
+            .setPositiveButton("Scan Next Page") { _, _ ->
+                currentPage++
+                startCameraCapture()
+            }
+            .setNegativeButton("Finish") { _, _ ->
+                finishScan()
+            }
+            .show()
+    }
+
+    // 🆕 Combine pages and return result
+    private fun finishScan() {
+        if (scannedPagesText.isEmpty()) {
+            Toast.makeText(this, "No text scanned", Toast.LENGTH_SHORT).show()
+            setResult(Activity.RESULT_CANCELED)
+            finish()
+            return
+        }
+
+        val combinedText = scannedPagesText.joinToString(
+            separator = "\n\n--- Page Break ---\n\n"
+        )
+
+        val returnIntent = Intent().apply {
+            putExtra("scannedText", combinedText)
+        }
+        setResult(Activity.RESULT_OK, returnIntent)
+        finish()
     }
 }
