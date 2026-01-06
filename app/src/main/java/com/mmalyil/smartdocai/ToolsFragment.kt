@@ -939,24 +939,26 @@ class ToolsFragment : Fragment() {
 
         val scroll = view.findViewById<ScrollView>(R.id.scrollView)
 
-        scroll.post {
-            val activity = requireActivity()
-            val bottomNav = activity.findViewById<View>(R.id.bottomNav)
-            val banner = activity.findViewById<View>(R.id.adViewBanner)
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
 
-            ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, insets ->
-                val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            val act = activity
+            val bottomNav = act?.findViewById<View?>(R.id.bottomNav)
+            val banner = act?.findViewById<View?>(R.id.adViewBanner)
 
-                val navH = bottomNav?.height ?: 0
-                val bannerH = if (banner?.visibility == View.VISIBLE) banner.height else 0
+            val navH = bottomNav?.height ?: 0
+            val bannerH = if (banner?.visibility == View.VISIBLE) banner.height else 0
 
-                // 16dp base padding + real nav+banner height
-                v.updatePadding(
-                    bottom = dpToPx(16) + max(ime, bars) + navH + bannerH
-                )
-                insets
-            }
+            v.updatePadding(
+                bottom = dpToPx(16) + max(ime, bars) + navH + bannerH
+            )
+            insets
+        }
+
+// ensures insets get applied after first layout pass
+        scroll.doOnPreDraw {
+            ViewCompat.requestApplyInsets(scroll)
         }
 
 
