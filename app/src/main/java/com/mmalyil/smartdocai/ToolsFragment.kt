@@ -78,6 +78,7 @@ import java.util.concurrent.TimeUnit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import com.mmalyil.smartdocai.prefs.CoachPrefs
 import kotlin.math.max
 
 
@@ -112,6 +113,7 @@ class ToolsFragment : Fragment() {
     // New launcher for "Image → Excel"
     private lateinit var imageToExcelLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
 
+    private var lastGeneratedExcelUri: Uri? = null
 
 
     private var extractedText = ""
@@ -126,6 +128,7 @@ class ToolsFragment : Fragment() {
     private val RC_GOOGLE_SIGN_IN = 1001
 
     private val RC_RECOVER_AUTH = 1002
+
 
     companion object {
         // Tune these as you like
@@ -181,6 +184,7 @@ class ToolsFragment : Fragment() {
             pendingDocxToSave = null
         }
     }
+
     private fun promptSaveDocxViaSaf(file: File) {
         pendingDocxToSave = file
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -196,7 +200,8 @@ class ToolsFragment : Fragment() {
         if (BuildConfig.USE_GOOGLE_DOCS) base += "Import from Google Docs"
         val options = base.toTypedArray()
 
-        AlertDialog.Builder(requireContext())
+        val ctx = context ?: return
+        AlertDialog.Builder(ctx)
             .setTitle("Choose Action")
             .setItems(options) { _, which ->
                 when (options[which]) {
@@ -674,29 +679,25 @@ class ToolsFragment : Fragment() {
         }
 
 
-
-            // 🔹 NEW: dedicated picker for Image → Excel
-            imageToExcelLauncher = registerForActivityResult(
-                ActivityResultContracts.OpenDocument()
-            ) { uri ->
-                android.util.Log.d(TAG, "OpenDocument (Image→Excel) uri = $uri")
-                if (uri != null) {
-                    try {
-                        requireContext().contentResolver.takePersistableUriPermission(
-                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        )
-                    } catch (_: SecurityException) { /* some providers don't support it */ }
-                    processImageToExcel(uri)
-                } else {
-                    toast("No image selected")
+        // 🔹 NEW: dedicated picker for Image → Excel
+        imageToExcelLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            android.util.Log.d(TAG, "OpenDocument (Image→Excel) uri = $uri")
+            if (uri != null) {
+                try {
+                    requireContext().contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) { /* some providers don't support it */
                 }
+                processImageToExcel(uri)
+            } else {
+                toast("No image selected")
             }
+        }
 
-            // ... rest of your onCreate ...
-
-
-
-
+        // ... rest of your onCreate ...
 
 
         // A) toolsFabRequest
@@ -750,7 +751,6 @@ class ToolsFragment : Fragment() {
         }
 
 
-
     }
 
     private fun pickImageHybrid() {
@@ -798,7 +798,8 @@ class ToolsFragment : Fragment() {
 
         selectPdfButton.setOnClickListener {
             stopWalkthroughIfRunning()
-            openFilePicker() }
+            openFilePicker()
+        }
 
 
 
@@ -889,7 +890,9 @@ class ToolsFragment : Fragment() {
         val btnExportDocx = view.findViewById<Button>(R.id.btnExportDocx)
         btnExportDocx.setOnClickListener {
             val xlsxUri = runCatching { Uri.parse(selectedFileUri) }.getOrNull()
-            if (xlsxUri == null) { toast("Load an XLSX first"); return@setOnClickListener }
+            if (xlsxUri == null) {
+                toast("Load an XLSX first"); return@setOnClickListener
+            }
             showAiReportPromptOptions(xlsxUri)
         }
 
@@ -904,14 +907,14 @@ class ToolsFragment : Fragment() {
 
         btnPickImage.setOnClickListener {
             stopWalkthroughIfRunning()
-            pickImageHybrid() }
+            pickImageHybrid()
+        }
 
 // new Image → Excel behavior
         btnImageToExcel.setOnClickListener {
             stopWalkthroughIfRunning()
             imageToExcelLauncher.launch(arrayOf("image/*"))
         }
-
 
 
         val fabUploadScan = view.findViewById<FloatingActionButton>(R.id.fabUploadScan)
@@ -965,15 +968,14 @@ class ToolsFragment : Fragment() {
         view.findViewById<View>(R.id.fabUploadScan)?.visibility = View.GONE
 
 
-
-
         val usageText = view.findViewById<TextView>(R.id.tvUsageText)
         val usageBar = view.findViewById<ProgressBar>(R.id.usageProgressBar)
         val aiSourceText = view.findViewById<TextView>(R.id.tvAiSource)
 
         // Bind once to show current values
+        val ctx = context ?: return
         UsageManager.bindUsageUI(
-            context = requireContext(),
+            context = ctx,
             usageTextView = usageText,
             progressBar = usageBar,
             aiSourceTextView = aiSourceText
@@ -996,28 +998,64 @@ class ToolsFragment : Fragment() {
         }
 
     }
+
     override fun onResume() {
         super.onResume()
+
         view?.let { v ->
-            UsageManager.bindUsageUI(
-                context = requireContext(),
-                usageTextView = v.findViewById(R.id.tvUsageText),
-                progressBar = v.findViewById(R.id.usageProgressBar),
-                aiSourceTextView = v.findViewById(R.id.tvAiSource)
-            )
+            val ctx = context ?: return@let
+            val prefs = ctx.getSharedPreferences("exports", Context.MODE_PRIVATE)
+
+            val uriStr = prefs.getString("last_excel_uri", null)
+            val pending = prefs.getBoolean("excel_pending_open", false)
+
+            if (uriStr != null && pending) {
+                val uri = Uri.parse(uriStr)
+
+                UsageManager.bindUsageUI(
+                    context = ctx,
+                    usageTextView = v.findViewById(R.id.tvUsageText),
+                    progressBar = v.findViewById(R.id.usageProgressBar),
+                    aiSourceTextView = v.findViewById(R.id.tvAiSource)
+                )
+
+
+
+
+
+                Snackbar.make(
+                    v,
+                    "Excel file created",
+                    Snackbar.LENGTH_LONG
+                )
+                    .setAction("Open") {
+                        openExcel(uri)
+                    }
+                    .show()
+
+                // 🔥 clear flag so it NEVER repeats
+                prefs.edit()
+                    .putBoolean("excel_pending_open", false)
+                    .apply()
+            }
         }
     }
 
     override fun onDestroyView() {
+        view?.handler?.removeCallbacksAndMessages(null)
+
         (view as? ViewGroup)?.let { parent ->
             coachOverlay?.let { parent.removeView(it) }
         }
         coachOverlay = null
+        isCoachRunning = false
+
         super.onDestroyView()
     }
 
     private fun dpToPx(dp: Int): Int =
         (dp * resources.displayMetrics.density).toInt()
+
     // Safe show/hide
     private fun showLoading(show: Boolean) {
         val overlay = loadingOverlay ?: return
@@ -1207,19 +1245,22 @@ class ToolsFragment : Fragment() {
     }
 
     private fun exportXlsxAiReportNow(xlsxUri: Uri, customPrompt: String? = null) {
-        if (isGeneratingDocx) { toast("Already generating…"); return }
+        if (isGeneratingDocx) {
+            toast("Already generating…"); return
+        }
         isGeneratingDocx = true
         showLoading(true)
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val title = selectedFileName.substringBeforeLast('.', selectedFileName).ifBlank { "Report" }
+                val title =
+                    selectedFileName.substringBeforeLast('.', selectedFileName).ifBlank { "Report" }
 
                 val result = com.mmalyil.smartdocai.export.ReportExporter.generateXlsxAiReport(
-                    context      = requireContext(),
-                    srcUri       = xlsxUri,
-                    titleHint    = title,
-                    proxy        = com.mmalyil.smartdocai.api.ChatApiHelper.chatService,
+                    context = requireContext(),
+                    srcUri = xlsxUri,
+                    titleHint = title,
+                    proxy = com.mmalyil.smartdocai.api.ChatApiHelper.chatService,
                     customPrompt = customPrompt
                 )
 
@@ -1230,13 +1271,21 @@ class ToolsFragment : Fragment() {
                         // --- choose target URI: Q+ => Downloads, else FileProvider ---
                         val downloadsUri: Uri? =
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q)
-                                runCatching { saveDocxToDownloadsQ(requireContext(), file) }.getOrNull()
+                                runCatching {
+                                    saveDocxToDownloadsQ(
+                                        requireContext(),
+                                        file
+                                    )
+                                }.getOrNull()
                             else null
 
-                        val fileProviderUri = getFileUri(requireContext(), file.name, subDir = "exports")
+                        val fileProviderUri =
+                            getFileUri(requireContext(), file.name, subDir = "exports")
                         val targetUri = downloadsUri ?: fileProviderUri
 
-                        if (file.length() <= 0L) { toast("Report file is empty"); return@onSuccess }
+                        if (file.length() <= 0L) {
+                            toast("Report file is empty"); return@onSuccess
+                        }
 
                         // --- base VIEW intent + ClipData for legacy Word ---
                         val openIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -1259,20 +1308,35 @@ class ToolsFragment : Fragment() {
                                     targetUri,
                                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                                 )
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                            }
                         }
                         // common apps (best-effort)
                         try {
-                            requireContext().grantUriPermission("com.microsoft.office.word", targetUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            requireContext().grantUriPermission("com.google.android.apps.docs", targetUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        } catch (_: Exception) {}
+                            requireContext().grantUriPermission(
+                                "com.microsoft.office.word",
+                                targetUri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                            requireContext().grantUriPermission(
+                                "com.google.android.apps.docs",
+                                targetUri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        } catch (_: Exception) {
+                        }
 
                         fun openViaSendFallback() {
                             val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                type =
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                                 putExtra(Intent.EXTRA_STREAM, targetUri)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                clipData = ClipData.newUri(requireContext().contentResolver, file.name, targetUri)
+                                clipData = ClipData.newUri(
+                                    requireContext().contentResolver,
+                                    file.name,
+                                    targetUri
+                                )
                             }
                             try {
                                 startActivity(Intent.createChooser(send, "Share/Open with"))
@@ -1309,7 +1373,11 @@ class ToolsFragment : Fragment() {
 
                     }.onFailure { e ->
                         com.google.android.material.snackbar.Snackbar
-                            .make(requireView(), "Export failed: ${e.message}", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                            .make(
+                                requireView(),
+                                "Export failed: ${e.message}",
+                                com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                            )
                             .show()
                     }
                 }
@@ -1317,7 +1385,11 @@ class ToolsFragment : Fragment() {
                 withContext(Dispatchers.Main) {
                     showLoading(false)
                     com.google.android.material.snackbar.Snackbar
-                        .make(requireView(), "Export error: ${e.message}", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                        .make(
+                            requireView(),
+                            "Export error: ${e.message}",
+                            com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                        )
                         .show()
                 }
             } finally {
@@ -1330,13 +1402,16 @@ class ToolsFragment : Fragment() {
     private fun saveDocxToDownloadsQ(context: Context, src: File): Uri? {
         val values = android.content.ContentValues().apply {
             put(android.provider.MediaStore.Downloads.DISPLAY_NAME, src.name) // must end with .docx
-            put(android.provider.MediaStore.Downloads.MIME_TYPE,
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            put(
+                android.provider.MediaStore.Downloads.MIME_TYPE,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
             put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
         }
         val resolver = context.contentResolver
-        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: return null
+        val uri =
+            resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: return null
 
         resolver.openOutputStream(uri)?.use { out ->
             src.inputStream().use { it.copyTo(out) }
@@ -1372,7 +1447,11 @@ class ToolsFragment : Fragment() {
                 }
 
                 val sb = com.google.android.material.snackbar.Snackbar
-                    .make(requireView(), "Export Word (AI Report)?", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                    .make(
+                        requireView(),
+                        "Export Word (AI Report)?",
+                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                    )
                     .setAction("Create") { createAction() }
 
                 // lift above FAB so it's not hidden
@@ -1437,49 +1516,126 @@ class ToolsFragment : Fragment() {
     }
 
 
-
     private fun processImageToExcel(uri: Uri) {
         showLoading(true)
+
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val ctx = context ?: return@launch.also { showLoading(false) }
 
-                // Run the standalone helper off the main thread
                 val xlsxFile = withContext(Dispatchers.IO) {
                     ImageToExcelProcessor.processImageUriToExcel(ctx, uri)
                 }
 
                 if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                    showLoading(false); return@launch
+                    showLoading(false)
+                    return@launch
                 }
 
-                // Use your existing FileProvider helper so paths stay consistent
                 val shareUri = getFileUri(ctx, xlsxFile.name, subDir = "exports")
 
-                // Simple "Open with" intent for Excel/Sheets/etc.
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(
-                        shareUri,
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-
+                // 🔐 Explicit grants for Excel / Sheets
                 try {
-                    startActivity(Intent.createChooser(intent, "Open Excel file with"))
-                    toast("Excel file created: ${xlsxFile.name}")
-                } catch (e: Exception) {
-                    toast("Excel created, but no app found to open it")
+                    ctx.grantUriPermission(
+                        "com.microsoft.office.excel",
+                        shareUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                    ctx.grantUriPermission(
+                        "com.google.android.apps.docs",
+                        shareUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) { }
+
+                withContext(Dispatchers.Main) {
+                    // Open intent
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(
+                            shareUri,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        clipData = ClipData.newUri(ctx.contentResolver, xlsxFile.name, shareUri)
+                    }
+
+                    try {
+                        startActivity(Intent.createChooser(intent, "Open Excel with"))
+                    } catch (_: Exception) {
+                        toast("Excel created. No app found to open it.")
+                    }
+
+                    lastGeneratedExcelUri = shareUri
+                    saveLastExcelUri(shareUri)
+
+                    Snackbar.make(
+                        requireView(),
+                        "Excel created. Reopen anytime from SmartDocAI or Excel app",
+                        Snackbar.LENGTH_LONG
+                    ).setAction("Open") {
+                        if (!isAdded) return@setAction
+
+                        // re-grant before reopening (some devices need it again)
+                        try {
+                            ctx.grantUriPermission(
+                                "com.microsoft.office.excel",
+                                shareUri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                            ctx.grantUriPermission(
+                                "com.google.android.apps.docs",
+                                shareUri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        } catch (_: Exception) { }
+
+                        val openAgain = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(
+                                shareUri,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            clipData = ClipData.newUri(ctx.contentResolver, xlsxFile.name, shareUri)
+                        }
+
+                        try {
+                            startActivity(Intent.createChooser(openAgain, "Open Excel with"))
+                        } catch (_: Exception) {
+                            toast("No app found to open Excel")
+                        }
+                    }.show()
                 }
 
             } catch (e: Exception) {
-                toast("Image→Excel failed: ${e.message}")
+                toast("Image → Excel failed: ${e.message}")
             } finally {
                 showLoading(false)
             }
         }
     }
 
+    private fun saveLastExcelUri(uri: Uri) {
+        requireContext()
+            .getSharedPreferences("exports", Context.MODE_PRIVATE)
+            .edit()
+            .putString("last_excel_uri", uri.toString())
+            .putBoolean("excel_pending_open",true)
+            .apply()
+    }
+    private fun openExcel(uri: Uri) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(
+                uri,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(Intent.createChooser(intent, "Open Excel with"))
+        } catch (e: Exception) {
+            toast("No app found to open Excel file")
+        }
+    }
 
 
 
@@ -2014,20 +2170,28 @@ class ToolsFragment : Fragment() {
 
     // call once after views are laid out (you already do this in onViewCreated -> doOnPreDraw)
     private fun showWalkthroughNow(rootView: View) {
+        // 🔐 HARD GUARD — never run if fragment is not attached
+        if (!isAdded) return
+        val ctx = context ?: return
+        val owner = viewLifecycleOwnerLiveData.value ?: return
+        if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
+
         if (suppressGuideThisSession || isCoachRunning) return
 
-        // don’t show if already seen
-        viewLifecycleOwner.lifecycleScope.launch {
-            val seen = com.mmalyil.smartdocai.prefs.CoachPrefs.hasSeenCoach(requireContext()).first()
+        owner.lifecycleScope.launch {
+            // 🔐 re-check inside coroutine
+            if (!isAdded || !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+
+            val seen = com.mmalyil.smartdocai.prefs.CoachPrefs
+                .hasSeenCoach(ctx)
+                .first()
             if (seen) return@launch
 
             val r1 = rectOf(selectPdfButton, rootView)
             val r2 = rectOf(analyzeButton, rootView)
             val r3 = rectOf(exportShareButton, rootView)
-            if (r1.isEmpty || r2.isEmpty || r3.isEmpty) {
-                rootView.post { showWalkthroughNow(rootView) }
-                return@launch
-            }
+
+            if (r1.isEmpty || r2.isEmpty || r3.isEmpty) return@launch
 
             val steps = listOf(
                 com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
@@ -2045,20 +2209,22 @@ class ToolsFragment : Fragment() {
             coachOverlay?.let { root.removeView(it) }
 
             coachOverlay = com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay(
-                requireContext(),
+                ctx,   // ✅ SAFE — never requireContext()
                 steps
             ) {
-                // finished tour
                 isCoachRunning = false
                 coachOverlay?.let { root.removeView(it) }
                 coachOverlay = null
-                viewLifecycleOwner.lifecycleScope.launch {
-                    com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), true)
+
+                owner.lifecycleScope.launch {
+                    com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(ctx, true)
                 }
-                Toast.makeText(requireContext(), "Tip: Replay from Settings anytime.", Toast.LENGTH_SHORT).show()
+
+                if (isAdded) {
+                    Toast.makeText(ctx, "Tip: Replay from Settings anytime.", Toast.LENGTH_SHORT).show()
+                }
             }
 
-            // prevent loader from blocking the overlay
             loadingOverlay?.apply {
                 visibility = View.GONE
                 isClickable = false
@@ -2068,10 +2234,16 @@ class ToolsFragment : Fragment() {
 
             root.addView(
                 coachOverlay,
-                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
             )
+
             isCoachRunning = true
-            root.post { coachOverlay?.show() }
+
+            // 🔐 DO NOT post — show immediately
+            coachOverlay?.show()
         }
     }
 
@@ -2101,8 +2273,9 @@ class ToolsFragment : Fragment() {
         coachOverlay = null
         isCoachRunning = false
         // we still mark as seen, so it doesn’t bounce back right away
+        val ctx = context ?: return
         viewLifecycleOwner.lifecycleScope.launch {
-            com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), true)
+            CoachPrefs.setCoachSeen(ctx, true)
         }
     }
 
