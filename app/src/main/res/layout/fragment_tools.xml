@@ -133,13 +133,19 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+
+
+
+
+
+
             <!-- 🔹 Extracted Text -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
                 app:cardCornerRadius="16dp"
-                app:cardElevation="2dp"
-                android:layout_marginBottom="12dp">
+                app:cardElevation="2dp">
 
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/pdfTextDisplay"
@@ -151,11 +157,13 @@
                     android:text="Extracted text will appear here" />
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 🔹 Prompt Input -->
+            <!-- 🔹 Prompt Input (Hidden by default) -->
             <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/promptContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Ask something about the document">
+                android:hint="Ask something about the document"
+                android:visibility="gone">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/promptInput"
@@ -164,8 +172,42 @@
                     android:imeOptions="actionDone"
                     android:inputType="text"
                     android:minHeight="48dp" />
-
             </com.google.android.material.textfield.TextInputLayout>
+            <!-- 🔹 Quick AI Actions -->
+            <LinearLayout
+                android:id="@+id/quickAiActions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="8dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAiSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🧠 Quick Summary" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAiActions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="✅ Action Items" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAiKeyPoints"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📌 Key Points" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAiAsk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="❓ Ask a Question" />
+            </LinearLayout>
+
+
+
             <!-- 🔹 Analyze Button -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/analyzeButton"

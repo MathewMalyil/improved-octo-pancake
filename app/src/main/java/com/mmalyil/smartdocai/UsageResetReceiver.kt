@@ -3,25 +3,21 @@ package com.mmalyil.smartdocai
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import androidx.work.WorkerParameters
-import com.mmalyil.smartdocai.util.GPTUsageManager
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-
-/**
- * BroadcastReceiver to reset GPT usage limits daily.
- * This receiver listens for a specific broadcast action to reset the usage counts.
- */
-
-
+import androidx.work.WorkerParameters
+import com.mmalyil.smartdocai.util.GPTUsageManager
 
 class UsageResetReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        UsageResetWorker.enqueue(context)
+        if (intent.action != "com.mmalyil.smartdocai.action.DAILY_USAGE_RESET") return
+        val pending = goAsync()
+        try { UsageResetWorker.enqueue(context.applicationContext) }
+        finally { pending.finish() }
     }
 }
-
 
 class UsageResetWorker(
     appContext: Context,
@@ -29,14 +25,26 @@ class UsageResetWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        GPTUsageManager.resetAll(applicationContext)
-        return Result.success()
+        return try {
+            GPTUsageManager.resetAll(applicationContext)
+            Result.success()
+        } catch (_: Throwable) {
+            // if something transient happens, retry
+            Result.retry()
+        }
     }
 
     companion object {
+        private const val UNIQUE_NAME = "usage_reset_once"
+
         fun enqueue(context: Context) {
             val request = OneTimeWorkRequestBuilder<UsageResetWorker>().build()
-            WorkManager.getInstance(context).enqueue(request)
+
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                UNIQUE_NAME,
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
         }
     }
 }

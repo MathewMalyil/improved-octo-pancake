@@ -1,45 +1,65 @@
 package com.mmalyil.smartdocai.util
 
-
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.SystemClock
-import java.util.*
 import com.mmalyil.smartdocai.UsageResetReceiver
-/**
- * Utility object to schedule a daily reset of GPT usage limits using AlarmManager.
- * This will set an alarm to trigger at midnight every day.
- */
+import java.util.Calendar
+
 object AlarmScheduler {
 
-    fun scheduleDailyReset(context: Context) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    private const val ACTION_DAILY_RESET = "com.mmalyil.smartdocai.action.DAILY_USAGE_RESET"
+    private const val REQ_CODE_RESET = 101
 
-        val intent = Intent(context, UsageResetReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            0,
+    fun scheduleDailyReset(context: Context) {
+        val appCtx = context.applicationContext
+        val alarmManager = appCtx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        val intent = Intent(appCtx, UsageResetReceiver::class.java).apply {
+            action = ACTION_DAILY_RESET
+        }
+
+        val pi = PendingIntent.getBroadcast(
+            appCtx,
+            REQ_CODE_RESET,
             intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val calendar = Calendar.getInstance().apply {
+        val triggerAt = Calendar.getInstance().apply {
             timeInMillis = System.currentTimeMillis()
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)
-            if (before(Calendar.getInstance())) {
-                add(Calendar.DATE, 1) // Schedule for next midnight
-            }
+            set(Calendar.MILLISECOND, 0)
+            if (before(Calendar.getInstance())) add(Calendar.DATE, 1)
+        }.timeInMillis
+
+        // ✅ Inexact repeating is the most OEM-friendly + battery-policy-friendly.
+        alarmManager.setInexactRepeating(
+            AlarmManager.RTC_WAKEUP,
+            triggerAt,
+            AlarmManager.INTERVAL_DAY,
+            pi
+        )
+    }
+
+    fun cancelDailyReset(context: Context) {
+        val appCtx = context.applicationContext
+        val alarmManager = appCtx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        val intent = Intent(appCtx, UsageResetReceiver::class.java).apply {
+            action = ACTION_DAILY_RESET
         }
 
-        alarmManager.setRepeating(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            AlarmManager.INTERVAL_DAY,
-            pendingIntent
+        val pi = PendingIntent.getBroadcast(
+            appCtx,
+            REQ_CODE_RESET,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+        alarmManager.cancel(pi)
     }
 }

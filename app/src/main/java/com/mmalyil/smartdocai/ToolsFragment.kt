@@ -129,6 +129,23 @@ class ToolsFragment : Fragment() {
 
     private val RC_RECOVER_AUTH = 1002
 
+    // Quick AI UI
+
+    private lateinit var promptContainer: View
+    private lateinit var quickAiActions: View
+
+    private lateinit var btnAiSummary: Button
+    private lateinit var btnAiActions: Button
+    private lateinit var btnAiKeyPoints: Button
+    private lateinit var btnAiAsk: Button
+
+    // Anti-double-call guards
+    private var isAnalyzing = false
+    private var lastAutoSummaryForUri: String? = null
+    private var lastQuickActionAtMs: Long = 0L
+
+
+
 
     companion object {
         // Tune these as you like
@@ -802,6 +819,50 @@ class ToolsFragment : Fragment() {
         }
 
 
+        promptContainer = view.findViewById(R.id.promptContainer)
+        quickAiActions = view.findViewById(R.id.quickAiActions)
+
+        btnAiSummary = view.findViewById(R.id.btnAiSummary)
+        btnAiActions = view.findViewById(R.id.btnAiActions)
+        btnAiKeyPoints = view.findViewById(R.id.btnAiKeyPoints)
+        btnAiAsk = view.findViewById(R.id.btnAiAsk)
+
+// initial state
+
+        promptContainer.visibility = View.GONE
+        quickAiActions.visibility = View.GONE
+
+
+
+        quickAiActions.visibility = View.VISIBLE
+
+        
+        btnAiSummary.setOnClickListener {
+            stopWalkthroughIfRunning()
+            runQuickAction("summary")
+        }
+
+        btnAiActions.setOnClickListener {
+            stopWalkthroughIfRunning()
+            runQuickAction("actions")
+        }
+
+        btnAiKeyPoints.setOnClickListener {
+            stopWalkthroughIfRunning()
+            runQuickAction("keypoints")
+        }
+
+        btnAiAsk.setOnClickListener {
+            stopWalkthroughIfRunning()
+            // show prompt input + focus
+            promptContainer.visibility = View.VISIBLE
+            promptInput.requestFocus()
+            toast("Type your question, then tap Analyze")
+        }
+
+
+
+
 
 
         analyzeButton.setOnClickListener {
@@ -840,9 +901,24 @@ class ToolsFragment : Fragment() {
 // Optional: press-and-hold to open suggestions anytime
         analyzeButton.setOnLongClickListener {
             if (extractedText.isEmpty()) {
-                toast("Load a document first"); return@setOnLongClickListener true
+                toast("Load a document first")
+                return@setOnLongClickListener true
             }
-            showPromptSheet { picked -> promptInput.setText(picked) }
+
+            showPromptSheet { picked ->
+                promptInput.setText(picked)
+
+                // ✅ Run immediately (no second tap)
+                analyzeSmartlyWithQuota(
+                    context = requireContext(),
+                    prompt = picked,
+                    extractedText = extractedText,
+                    fileName = selectedFileName,
+                    fileUri = selectedFileUri,
+                    viewModel = scannedFileViewModel
+                )
+            }
+
             true
         }
 
@@ -1141,6 +1217,12 @@ class ToolsFragment : Fragment() {
             }
             handleResult(kind, text)
             showLoading(false)
+
+            quickAiActions.visibility = View.VISIBLE
+
+            promptContainer.visibility = View.GONE
+            promptInput.setText("")
+
         }
 
         when {
@@ -1465,6 +1547,8 @@ class ToolsFragment : Fragment() {
         extractedText = if (text.isBlank()) "[No text found in this $kind]" else text
         showExtractedText("$kind loaded")
 
+        quickAiActions.visibility = View.VISIBLE
+
         // show “Word (AI Report)” button only for XLSX
         view?.findViewById<View>(R.id.btnExportDocx)?.visibility =
             if (kind.equals("XLSX", ignoreCase = true)) View.VISIBLE else View.GONE
@@ -1472,7 +1556,50 @@ class ToolsFragment : Fragment() {
 
 
         maybeAutoAnalyze()
+
     }
+
+
+    private fun runQuickAction(type: String, isAuto: Boolean = false) {
+        if (extractedText.isBlank()) {
+            toast("Load a document first")
+            return
+        }
+
+        // throttle spam taps
+        val now = System.currentTimeMillis()
+        if (!isAuto && now - lastQuickActionAtMs < 700) return
+        lastQuickActionAtMs = now
+
+        // prevent collisions with “Analyze” button / auto analyze
+        if (isAnalyzing) {
+            toast("Already analyzing…")
+            return
+        }
+
+        val prompt = when (type) {
+            "summary" -> "Summarize this document in 5 bullet points. Keep it concise."
+            "actions" -> "List action items. Use bullets. Include owner and deadline if present."
+            "keypoints" -> "Extract key points. Group them by topic. Use concise bullets."
+            else -> "Summarize this document."
+        }
+
+        // put prompt into the input (nice UX)
+        promptInput.setText(prompt)
+        promptContainer.visibility = View.GONE
+
+        // kick off analysis
+        analyzeSmartlyWithQuota(
+            context = requireContext(),
+            prompt = prompt,
+            extractedText = extractedText,
+            fileName = selectedFileName,
+            fileUri = selectedFileUri,
+            viewModel = scannedFileViewModel
+        )
+    }
+
+
 
     private fun maybeAutoAnalyze() {
         val prompt = promptInput.text.toString().trim()
@@ -1716,6 +1843,11 @@ class ToolsFragment : Fragment() {
         fileUri: String,
         viewModel: ScannedFileViewModel
     ) {
+        // ✅ Prevent double calls
+        if (isAnalyzing) return
+        isAnalyzing = true
+        showLoading(true)
+
         val messages = listOf(
             ChatMessage(
                 role = "system",
@@ -1731,39 +1863,38 @@ class ToolsFragment : Fragment() {
             temperature = 0.7
         )
 
-        CoroutineScope(Dispatchers.IO).launch {
+        // ✅ Use lifecycleScope so coroutine cancels automatically when Fragment is destroyed
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val reply = ChatApiHelper.chatService.getChatReply(request)
 
-                android.util.Log.d(
+                Log.d(
                     "AI_DEBUG",
                     "Unified reply: content='${reply.content}', model='${reply.modelUsed}', rawLen=${reply.raw?.length ?: 0}"
                 )
 
                 val raw = reply.raw.orEmpty()
 
-// ✅ Make it NON-NULL
+                // ✅ NON-NULL AI reply
                 val aiReply: String =
                     reply.content?.takeIf { it.isNotBlank() }
                         ?: raw.let { if (it.isNotBlank()) extractAiText(it) else null }
                             ?.takeIf { it.isNotBlank() }
                         ?: "[No content returned from AI]"
 
-// ✅ Also NON-NULL
+                // ✅ NON-NULL model used
                 val modelUsed: String =
                     reply.modelUsed?.takeIf { it.isNotBlank() }
                         ?: run {
                             try {
-                                org.json.JSONObject(raw).optString("model")
-                                    .takeIf { it.isNotBlank() }
+                                JSONObject(raw).optString("model").takeIf { it.isNotBlank() }
                             } catch (_: Exception) {
                                 null
                             }
                         }
                         ?: modelName
 
-// …now use aiReply and modelUsed everywhere below
-// Guard: don't save empty or placeholder replies
+                // ✅ Save only if meaningful
                 val isEmptyAi = aiReply.isBlank() || aiReply == "[No content returned from AI]"
                 if (!isEmptyAi) {
                     viewModel.insertFile(
@@ -1774,41 +1905,64 @@ class ToolsFragment : Fragment() {
                     )
                 }
 
-                // 3) Save to DB (IO thread ok)
+                // ✅ Track usage SAFELY (avoid requireContext crash if detached)
+                val appCtx = context?.applicationContext
+                if (appCtx != null) {
+                    val estimated = com.mmalyil.smartdocai.util.estimateTokens(prompt, aiReply)
+                    com.mmalyil.smartdocai.util.UsageManager.getPrefs(appCtx)
+                        .edit().putString("lastModelUsed", modelUsed).apply()
 
+                    when {
+                        modelUsed.startsWith("gpt-4") ->
+                            com.mmalyil.smartdocai.util.UsageManager.recordUsage(appCtx, estimated)
 
-                // 4) Track usage
-                val ctx = requireContext().applicationContext
-                val estimated = com.mmalyil.smartdocai.util.estimateTokens(prompt, aiReply)
-                com.mmalyil.smartdocai.util.UsageManager.getPrefs(ctx)
-                    .edit().putString("lastModelUsed", modelUsed).apply()
+                        modelUsed.startsWith("gpt-3.5") ->
+                            com.mmalyil.smartdocai.util.UsageManager.incrementGpt35Usage(appCtx, estimated)
 
-                when {
-                    modelUsed.startsWith("gpt-4") ->
-                        com.mmalyil.smartdocai.util.UsageManager.recordUsage(ctx, estimated)
-
-                    modelUsed.startsWith("gpt-3.5") ->
-                        com.mmalyil.smartdocai.util.UsageManager.incrementGpt35Usage(ctx, estimated)
-
-                    else ->
-                        com.mmalyil.smartdocai.util.UsageManager.recordUsage(ctx, estimated)
+                        else ->
+                            com.mmalyil.smartdocai.util.UsageManager.recordUsage(appCtx, estimated)
+                    }
                 }
 
-                // 5) UI update on main
+                // ✅ UI update on main (only if fragment still active)
                 withContext(Dispatchers.Main) {
+                    if (!isAdded || view == null) return@withContext
+
                     aiResponseDisplay.text = aiReply
                     aiResponseDisplay.visibility = View.VISIBLE
                     aiAnswer = aiReply
+
+                    toast("AI analysis complete and saved")
+
+                    quickAiActions.visibility = View.VISIBLE
+                    promptContainer.visibility = View.GONE
+
+                    // ✅ If this is a summary prompt, also show in the summary card
+                    val p = prompt.lowercase()
+                    if (p.contains("summarize") || p.contains("summary")) {
+                        // these must exist as fields + be bound in onCreateView()
+
+                    }
+
                     toast("AI analysis complete and saved")
                 }
 
             } catch (e: Exception) {
                 val msg = e.localizedMessage ?: e.toString()
-                android.util.Log.e("AI_ERROR", "Model: $modelName, Source: $source, Error: $msg", e)
+                Log.e("AI_ERROR", "Model: $modelName, Source: $source, Error: $msg", e)
+
                 withContext(Dispatchers.Main) {
+                    if (!isAdded || view == null) return@withContext
                     aiResponseDisplay.text = "Error: $msg"
                     aiResponseDisplay.visibility = View.VISIBLE
                     toast("AI Error: $msg")
+                }
+
+            } finally {
+                // ✅ ALWAYS reset guard + loading (on main)
+                withContext(Dispatchers.Main) {
+                    isAnalyzing = false
+                    showLoading(false)
                 }
             }
         }
@@ -2075,6 +2229,10 @@ class ToolsFragment : Fragment() {
     private fun showExtractedText(message: String) {
         pdfTextDisplay.text =
             extractedText.take(1000) + if (extractedText.length > 1000) "..." else ""
+
+        // ✅ Show Quick AI buttons once content exists
+        quickAiActions.visibility = View.VISIBLE
+        promptContainer.visibility = View.GONE
 
         analyzeButton.isEnabled = extractedText.isNotBlank()   // ✅ enable here
         toast(message)
