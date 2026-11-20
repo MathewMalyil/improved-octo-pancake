@@ -49,15 +49,15 @@ object DocumentEdgeDetector {
 
     private val LIVE = Params(
         analyzeWidth = 480,
-        blurPasses = 2,
-        cannyMeanMul = 1.85f,
-        cannyFloor = 48f,
-        minAreaRatio = 0.18f,
-        maxAreaRatio = 0.90f,
-        minRect = 0.55f,
-        minScore = 0.45f,
-        minBlobPts = 50,
-        minBlobFrac = 0.26f,
+        blurPasses = 1,
+        cannyMeanMul = 1.55f,
+        cannyFloor = 36f,
+        minAreaRatio = 0.12f,
+        maxAreaRatio = 0.94f,
+        minRect = 0.48f,
+        minScore = 0.38f,
+        minBlobPts = 40,
+        minBlobFrac = 0.22f,
         step = 2
     )
 
@@ -93,7 +93,15 @@ object DocumentEdgeDetector {
         val grayFull = yPlaneToGray(imageProxy) ?: return null
         val srcW = imageProxy.width
         val srcH = imageProxy.height
+        // Canny first; paper-mask fallback for white page on dark desk (LIVE)
         return detectGray(grayFull, srcW, srcH, LIVE)
+            ?: run {
+                val scale = LIVE.analyzeWidth.toFloat() / max(srcW, 1)
+                val w = max(32, (srcW * min(scale, 1f)).roundToInt())
+                val h = max(32, (srcH * min(scale, 1f)).roundToInt())
+                val gray = if (w == srcW && h == srcH) grayFull else downsampleGray(grayFull, srcW, srcH, w, h)
+                detectPaperMask(gray, w, h, LIVE)
+            }
     }
 
     fun detectBitmap(source: Bitmap, mode: Mode = Mode.STILL): Detection? {

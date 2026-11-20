@@ -2,7 +2,10 @@ package com.mmalyil.smartdocai
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,6 +13,7 @@ import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.RectF
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -53,6 +57,7 @@ import com.mmalyil.smartdocai.scan.ScanPage
 import com.mmalyil.smartdocai.scan.ScanPageRenderer
 import com.mmalyil.smartdocai.util.DocumentEntitlement
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -81,6 +86,9 @@ class ScanActivity : AppCompatActivity() {
         const val EXTRA_PDF_PATH = "pdfPath"
         const val EXTRA_PAGE_COUNT = "scanPageCount"
         const val EXTRA_SCANNED_TEXT = "scannedText"
+
+        /** Debug-only: inject synthetic page quads to prove lock→capture. */
+        const val ACTION_DEBUG_FEED_PAGE = "com.mmalyil.smartdocai.DEBUG_FEED_PAGE"
 
         /** Still re-detect must clear this to perspective-warp the capture. */
         private const val STILL_WARP_SCORE = 0.32f
@@ -134,6 +142,38 @@ class ScanActivity : AppCompatActivity() {
     private var autoArmed = true
     private val edgeTracker = DocumentEdgeTracker()
     private val lastAnalyzeMs = AtomicLong(0L)
+    private var debugFeedRegistered = false
+
+    /** DEBUG: adb shell am broadcast -a com.mmalyil.smartdocai.DEBUG_FEED_PAGE */
+    private val debugFeedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (!BuildConfig.DEBUG) return
+            if (intent?.action != ACTION_DEBUG_FEED_PAGE) return
+            Log.i(TAG, "DEBUG_FEED_PAGE — injecting synthetic visible quads")
+            edgeTracker.reset()
+            autoArmed = true
+            capturing.set(false)
+            val quad = arrayOf(
+                PointF(0.18f, 0.22f),
+                PointF(0.82f, 0.20f),
+                PointF(0.85f, 0.80f),
+                PointF(0.15f, 0.82f)
+            )
+            lifecycleScope.launch {
+                repeat(12) {
+                    onDetection(
+                        DocumentEdgeDetector.Detection(
+                            quad = Array(4) { PointF(quad[it].x, quad[it].y) },
+                            score = 0.70f,
+                            analysisWidth = 480,
+                            analysisHeight = 640
+                        )
+                    )
+                    delay(100L)
+                }
+            }
+        }
+    }
 
     private val pickImagesLauncher =
         registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
@@ -189,6 +229,31 @@ class ScanActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (BuildConfig.DEBUG && !debugFeedRegistered) {
+            val filter = IntentFilter(ACTION_DEBUG_FEED_PAGE)
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(debugFeedReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                registerReceiver(debugFeedReceiver, filter)
+            }
+            debugFeedRegistered = true
+        }
+    }
+
+    override fun onStop() {
+        if (debugFeedRegistered) {
+            try {
+                unregisterReceiver(debugFeedReceiver)
+            } catch (_: Exception) {
+            }
+            debugFeedRegistered = false
+        }
+        super.onStop()
     }
 
     private fun bindViews() {
@@ -348,7 +413,7 @@ class ScanActivity : AppCompatActivity() {
         reviewViews.forEach { it.isVisible = false }
         tvTitle.text = "Scan document"
         tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
-        tvLiveHint.text = "Align page — hold ~1s when Ready, or tap ● anytime"
+        tvLiveHint.text = "Align page — hold ~1s for auto, or tap ● anytime"
         edgeOverlay.clear()
     }
 
@@ -441,18 +506,32 @@ class ScanActivity : AppCompatActivity() {
             lastAnalyzeMs.set(now)
             try {
                 val detection = DocumentEdgeDetector.detect(imageProxy)
+                if (detection == null && now % 1000L < 130L) {
+                    Log.d(TAG, "analyze: no detection")
+                }
                 // Map WHILE ImageProxy is open — CoordinateTransform needs buffer + PreviewView
                 val overlayMapped: DocumentEdgeDetector.Detection? =
                     if (detection != null) {
                         val ow = edgeOverlay.width.takeIf { it > 0 } ?: previewView.width
                         val oh = edgeOverlay.height.takeIf { it > 0 } ?: previewView.height
-                        val viewQuad = PreviewCoordMapper.analysisQuadToOverlay(
+                        var viewQuad = PreviewCoordMapper.analysisQuadToOverlay(
                             imageProxy = imageProxy,
                             previewView = previewView,
                             overlayWidth = ow,
                             overlayHeight = oh,
                             quadNorm = detection.quad
                         )
+                        if (viewQuad == null && ow > 0 && oh > 0) {
+                            viewQuad = PreviewCoordMapper.fallbackMap(
+                                detection.quad,
+                                imageProxy.width,
+                                imageProxy.height,
+                                imageProxy.imageInfo.rotationDegrees,
+                                ow,
+                                oh
+                            )
+                            Log.w(TAG, "overlay map fallback used")
+                        }
                         if (viewQuad != null) {
                             DocumentEdgeDetector.Detection(
                                 quad = viewQuad,
@@ -460,7 +539,16 @@ class ScanActivity : AppCompatActivity() {
                                 analysisWidth = detection.analysisWidth,
                                 analysisHeight = detection.analysisHeight
                             )
-                        } else null
+                        } else {
+                            Log.w(TAG, "overlay map failed; feeding raw score for hold")
+                            // Keep score for auto-hold even if draw mapping fails this frame
+                            DocumentEdgeDetector.Detection(
+                                quad = detection.quad,
+                                score = detection.score,
+                                analysisWidth = detection.analysisWidth,
+                                analysisHeight = detection.analysisHeight
+                            )
+                        }
                     } else null
 
                 runOnUiThread {
@@ -482,9 +570,19 @@ class ScanActivity : AppCompatActivity() {
     private fun onDetection(detection: DocumentEdgeDetector.Detection?) {
         if (!liveCapturePane.isVisible || capturing.get()) return
 
-        val frame = edgeTracker.onFrame(detection)
+        val now = System.currentTimeMillis()
+        val frame = edgeTracker.onFrame(detection, now)
         lastQuad = frame.displayQuad
         lastScore = frame.smoothedScore
+
+        if (detection != null) {
+            Log.d(
+                TAG,
+                "det score=${"%.2f".format(detection.score)} " +
+                    "vis=${frame.visible} hold=${frame.holdProgress}/${frame.holdNeeded} " +
+                    "lock=${frame.lockedForCapture} armed=$autoArmed"
+            )
+        }
 
         if (frame.displayQuad == null) {
             edgeOverlay.clear()
@@ -492,21 +590,20 @@ class ScanActivity : AppCompatActivity() {
             return
         }
 
-        // Green lock outline when ready or locked — clearer “ready” for auto.
+        // Green while overlay is up (ready = visible); brighter path to auto.
         edgeOverlay.setQuad(frame.displayQuad, frame.ready || frame.lockedForCapture)
 
         tvLiveHint.text = when {
             frame.lockedForCapture -> "Ready — capturing…"
             frame.holdProgress > 0 ->
                 "Ready — hold still ${frame.holdProgress}/${frame.holdNeeded}"
-            frame.ready -> "Ready — hold still (~1s) or tap ●"
-            frame.visible -> "Page found — center it, then hold still"
+            frame.visible -> "Page found — hold still (~1s) or tap ●"
             else -> "Align the page inside the frame"
         }
 
-        // Auto only when tracker says locked. Manual shutter always OK.
+        // Auto when tracker locks. Only disarm AFTER takeCapture actually starts.
         if (frame.lockedForCapture && autoArmed && !capturing.get()) {
-            autoArmed = false
+            Log.i(TAG, "AUTO_FIRE score=${"%.2f".format(frame.smoothedScore)} hold=${frame.holdProgress}")
             takeCapture(auto = true)
         }
     }
@@ -520,9 +617,19 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun takeCapture(auto: Boolean) {
-        val capture = imageCapture ?: return
-        if (!capturing.compareAndSet(false, true)) return
+        val capture = imageCapture
+        if (capture == null) {
+            Log.e(TAG, "takeCapture aborted: imageCapture=null auto=$auto")
+            return
+        }
+        if (!capturing.compareAndSet(false, true)) {
+            Log.w(TAG, "takeCapture skipped: already capturing auto=$auto")
+            return
+        }
+        // Disarm only after we own the capture latch — avoids stuck no-auto on silent fail
+        if (auto) autoArmed = false
 
+        Log.i(TAG, "CAPTURE_START auto=$auto")
         tvLiveHint.text = if (auto) "Auto-capturing…" else "Capturing…"
         val photoFile = File(cacheDir, "scan_${System.currentTimeMillis()}.jpg")
         val output = ImageCapture.OutputFileOptions.Builder(photoFile).build()
@@ -531,6 +638,7 @@ class ScanActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    Log.i(TAG, "CAPTURE_OK auto=$auto file=${photoFile.name}")
                     // Do NOT use live overlay quads for warp — they are in PreviewView space,
                     // not JPEG sensor space. Always re-detect on the still.
                     stopLiveCamera()
@@ -552,7 +660,7 @@ class ScanActivity : AppCompatActivity() {
                 override fun onError(exception: ImageCaptureException) {
                     capturing.set(false)
                     autoArmed = true
-                    Log.e(TAG, "capture error", exception)
+                    Log.e(TAG, "CAPTURE_ERR auto=$auto", exception)
                     Toast.makeText(
                         this@ScanActivity,
                         "Capture failed: ${exception.message}",

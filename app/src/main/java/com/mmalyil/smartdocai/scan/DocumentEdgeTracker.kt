@@ -1,10 +1,14 @@
 package com.mmalyil.smartdocai.scan
 
 import android.graphics.PointF
+import android.util.Log
 
 /**
  * Temporal smoother + hysteresis for live document quads.
- * Keeps the overlay from flickering and gates auto-capture until genuinely stable.
+ *
+ * Auto-capture (3.14.5): once the overlay is showing a valid quad, accumulate
+ * consecutive visible frames / wall-clock hold — do NOT require a high lock score.
+ * Score/IoU only soft-smooth the outline; they no longer gate capture.
  */
 class DocumentEdgeTracker {
 
@@ -14,7 +18,7 @@ class DocumentEdgeTracker {
         val smoothedScore: Float,
         /** True when outline is shown (past enter hysteresis). */
         val visible: Boolean,
-        /** True when lock criteria met long enough for auto-capture. */
+        /** True when hold criteria met — auto-capture should fire now. */
         val lockedForCapture: Boolean,
         /** Outline is good enough — user can hold for auto or tap. */
         val ready: Boolean,
@@ -27,7 +31,9 @@ class DocumentEdgeTracker {
     private var visible = false
     private var hitStreak = 0
     private var missStreak = 0
-    private var lockStreak = 0
+    /** Consecutive frames where overlay stays visible — primary auto gate. */
+    private var visibleHoldStreak = 0
+    private var visibleSinceMs = 0L
 
     fun reset() {
         smooth = null
@@ -35,21 +41,23 @@ class DocumentEdgeTracker {
         visible = false
         hitStreak = 0
         missStreak = 0
-        lockStreak = 0
+        visibleHoldStreak = 0
+        visibleSinceMs = 0L
     }
 
-    fun onFrame(raw: DocumentEdgeDetector.Detection?): FrameResult {
+    fun onFrame(raw: DocumentEdgeDetector.Detection?, nowMs: Long = System.currentTimeMillis()): FrameResult {
         if (raw == null || raw.score < SHOW_SCORE) {
             missStreak++
             hitStreak = 0
-            lockStreak = (lockStreak - 1).coerceAtLeast(0)
-            // Decay score; keep last smooth briefly (hysteresis)
-            smoothScore *= 0.88f
+            // Soft decay on hold — one miss doesn't wipe progress
+            visibleHoldStreak = (visibleHoldStreak - 1).coerceAtLeast(0)
+            smoothScore *= 0.90f
             if (missStreak >= MISS_CLEAR || smoothScore < HIDE_SCORE) {
                 visible = false
                 smooth = null
                 smoothScore = 0f
-                lockStreak = 0
+                visibleHoldStreak = 0
+                visibleSinceMs = 0L
                 return FrameResult(
                     displayQuad = null,
                     smoothedScore = 0f,
@@ -57,18 +65,18 @@ class DocumentEdgeTracker {
                     lockedForCapture = false,
                     ready = false,
                     holdProgress = 0,
-                    holdNeeded = LOCK_NEED
+                    holdNeeded = HOLD_FRAMES
                 )
             }
-            // Keep showing faded last quad without advancing lock
+            val locked = checkLocked(nowMs)
             return FrameResult(
                 displayQuad = if (visible) copyQuad(smooth) else null,
                 smoothedScore = smoothScore,
                 visible = visible,
-                lockedForCapture = false,
-                ready = visible && smoothScore >= READY_SCORE,
-                holdProgress = lockStreak.coerceAtMost(LOCK_NEED),
-                holdNeeded = LOCK_NEED
+                lockedForCapture = locked,
+                ready = visible,
+                holdProgress = holdProgress(nowMs),
+                holdNeeded = HOLD_FRAMES
             )
         }
 
@@ -83,10 +91,8 @@ class DocumentEdgeTracker {
         } else {
             val iou = DocumentEdgeDetector.iou(prev, incoming)
             if (iou < JUMP_REJECT) {
-                // Sudden jump — treat as miss for lock, light blend only
-                lockStreak = (lockStreak - 1).coerceAtLeast(0)
-                blendInto(prev, incoming, alpha = 0.18f)
-                smoothScore = smoothScore * 0.7f + raw.score * 0.3f
+                blendInto(prev, incoming, alpha = 0.22f)
+                smoothScore = smoothScore * 0.65f + raw.score * 0.35f
             } else {
                 blendInto(prev, incoming, alpha = SMOOTH_ALPHA)
                 smoothScore = smoothScore * (1f - SCORE_ALPHA) + raw.score * SCORE_ALPHA
@@ -95,39 +101,52 @@ class DocumentEdgeTracker {
 
         val smoothed = smooth!!
 
-        if (!visible && hitStreak >= ENTER_NEED && smoothScore >= SHOW_SCORE) {
+        if (!visible && hitStreak >= ENTER_NEED) {
             visible = true
+            visibleSinceMs = nowMs
+            visibleHoldStreak = 0
+            Log.i(TAG, "overlay VISIBLE score=${"%.2f".format(smoothScore)}")
         }
 
-        val iouToSmooth = if (prev != null) DocumentEdgeDetector.iou(prev, incoming) else 1f
-        val lockOk = visible &&
-            smoothScore >= LOCK_SCORE &&
-            raw.score >= LOCK_SCORE * 0.92f &&
-            iouToSmooth >= LOCK_IOU
-
-        if (lockOk) {
-            lockStreak++
-        } else if (visible && smoothScore >= READY_SCORE && iouToSmooth >= LOCK_IOU * 0.9f) {
-            // Near-ready: soft decay so brief wobble doesn't wipe progress
-            lockStreak = (lockStreak - 1).coerceAtLeast(0)
-        } else {
-            lockStreak = (lockStreak - 2).coerceAtLeast(0)
+        if (visible) {
+            visibleHoldStreak++
+            if (visibleSinceMs == 0L) visibleSinceMs = nowMs
         }
 
-        val locked = lockStreak >= LOCK_NEED
-        val ready = visible && smoothScore >= READY_SCORE
+        val locked = checkLocked(nowMs)
+        if (locked) {
+            Log.i(
+                TAG,
+                "LOCK ready frames=$visibleHoldStreak ms=${nowMs - visibleSinceMs} " +
+                    "score=${"%.2f".format(smoothScore)} raw=${"%.2f".format(raw.score)}"
+            )
+        }
+
         return FrameResult(
             displayQuad = if (visible) copyQuad(smoothed) else null,
             smoothedScore = smoothScore,
             visible = visible,
             lockedForCapture = locked,
-            ready = ready,
-            holdProgress = lockStreak.coerceAtMost(LOCK_NEED),
-            holdNeeded = LOCK_NEED
+            ready = visible,
+            holdProgress = holdProgress(nowMs),
+            holdNeeded = HOLD_FRAMES
         )
     }
 
-    /** Last smoothed quad for capture warp (may be null). */
+    private fun checkLocked(nowMs: Long): Boolean {
+        if (!visible) return false
+        val heldMs = if (visibleSinceMs > 0L) nowMs - visibleSinceMs else 0L
+        return visibleHoldStreak >= HOLD_FRAMES || heldMs >= HOLD_MS
+    }
+
+    private fun holdProgress(nowMs: Long): Int {
+        if (!visible) return 0
+        val byFrames = visibleHoldStreak.coerceAtMost(HOLD_FRAMES)
+        val heldMs = if (visibleSinceMs > 0L) nowMs - visibleSinceMs else 0L
+        val byTime = ((heldMs.toFloat() / HOLD_MS) * HOLD_FRAMES).toInt().coerceIn(0, HOLD_FRAMES)
+        return maxOf(byFrames, byTime)
+    }
+
     fun lastSmoothedQuad(): Array<PointF>? = copyQuad(smooth)
 
     fun lastSmoothedScore(): Float = smoothScore
@@ -145,25 +164,30 @@ class DocumentEdgeTracker {
     }
 
     companion object {
-        /** Overlay appears only after this many consecutive usable hits. */
-        private const val ENTER_NEED = 2
-        /** Clear overlay after this many consecutive misses. */
-        private const val MISS_CLEAR = 10
-        private const val SHOW_SCORE = 0.48f
-        private const val HIDE_SCORE = 0.34f
-        /** Clear “ready” UI — hold or tap. */
-        const val READY_SCORE = 0.52f
+        private const val TAG = "EdgeTracker"
+
+        /** First usable hit shows overlay and starts the auto hold clock. */
+        private const val ENTER_NEED = 1
+        private const val MISS_CLEAR = 14
+        /** Any detector hit above this can enter the overlay. */
+        private const val SHOW_SCORE = 0.38f
+        private const val HIDE_SCORE = 0.26f
+
         /**
-         * Auto-capture lock. 3.14.2 used 0.68 which rarely cleared for white-on-dark
-         * pages (typical score ~0.55–0.65). 3.14.4 targets reliable auto in that range.
+         * Auto after this many visible-hold frames OR [HOLD_MS] wall-clock
+         * since overlay appeared — whichever first. Time gate matters when
+         * live hits are intermittent (camera nulls between page frames).
          */
-        const val LOCK_SCORE = 0.56f
-        private const val LOCK_IOU = 0.80f
-        /** ~1s at ~8 fps analysis cadence. */
-        const val LOCK_NEED = 8
-        private const val SMOOTH_ALPHA = 0.30f
-        private const val SCORE_ALPHA = 0.28f
-        /** Reject wild jumps from blending hard. */
-        private const val JUMP_REJECT = 0.40f
+        const val HOLD_FRAMES = 6
+        const val HOLD_MS = 750L
+
+        /** Kept for UI copy that referenced LOCK_SCORE; ready = visible. */
+        const val READY_SCORE = 0.40f
+        const val LOCK_SCORE = 0.40f
+        const val LOCK_NEED = HOLD_FRAMES
+
+        private const val SMOOTH_ALPHA = 0.32f
+        private const val SCORE_ALPHA = 0.30f
+        private const val JUMP_REJECT = 0.35f
     }
 }
