@@ -25,8 +25,11 @@ object DocumentEdgeDetector {
     )
 
     private const val ANALYZE_WIDTH = 480
-    private const val MIN_AREA_RATIO = 0.12f
-    private const val MAX_AREA_RATIO = 0.92f
+    /** Prefer a real page filling a good portion of the frame. */
+    private const val MIN_AREA_RATIO = 0.22f
+    private const val MAX_AREA_RATIO = 0.88f
+    private const val MIN_RECT = 0.62f
+    private const val MIN_SCORE = 0.50f
 
     fun detect(imageProxy: ImageProxy): Detection? {
         val grayFull = yPlaneToGray(imageProxy) ?: return null
@@ -37,24 +40,10 @@ object DocumentEdgeDetector {
         val h = max(32, (srcH * min(scale, 1f)).roundToInt())
         val gray = downsampleGray(grayFull, srcW, srcH, w, h)
         blur3x3(gray, w, h)
+        blur3x3(gray, w, h) // extra blur → fewer noise edges
         val edges = cannyLite(gray, w, h)
-        val quad = findBestQuad(edges, w, h) ?: return null
-        val area = polygonArea(quad)
-        val frameArea = (w * h).toFloat()
-        val areaRatio = area / frameArea
-        if (areaRatio < MIN_AREA_RATIO || areaRatio > MAX_AREA_RATIO) return null
-        val rectScore = rectangularity(quad)
-        if (rectScore < 0.55f) return null
-        val score = (areaRatio * 0.55f + rectScore * 0.45f).coerceIn(0f, 1f)
-        if (score < 0.42f) return null
-        val norm = Array(4) { i ->
-            PointF(
-                (quad[i].x / w).coerceIn(0f, 1f),
-                (quad[i].y / h).coerceIn(0f, 1f)
-            )
-        }
-        orderQuadTlTrBrBl(norm)
-        return Detection(norm, score, w, h)
+        val quad = findBestQuad(edges, gray, w, h) ?: return null
+        return scoreNormalized(quad, gray, w, h)
     }
 
     fun detectBitmap(source: Bitmap): Detection? {
@@ -74,27 +63,40 @@ object DocumentEdgeDetector {
                 gray[i] = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
             }
             blur3x3(gray, w, h)
+            blur3x3(gray, w, h)
             val edges = cannyLite(gray, w, h)
-            val quad = findBestQuad(edges, w, h) ?: return null
-            val area = polygonArea(quad)
-            val frameArea = (w * h).toFloat()
-            val areaRatio = area / frameArea
-            if (areaRatio < MIN_AREA_RATIO || areaRatio > MAX_AREA_RATIO) return null
-            val rectScore = rectangularity(quad)
-            if (rectScore < 0.55f) return null
-            val score = (areaRatio * 0.55f + rectScore * 0.45f).coerceIn(0f, 1f)
-            if (score < 0.42f) return null
-            val norm = Array(4) { i ->
-                PointF(
-                    (quad[i].x / w).coerceIn(0f, 1f),
-                    (quad[i].y / h).coerceIn(0f, 1f)
-                )
-            }
-            orderQuadTlTrBrBl(norm)
-            return Detection(norm, score, w, h)
+            val quad = findBestQuad(edges, gray, w, h) ?: return null
+            return scoreNormalized(quad, gray, w, h)
         } finally {
             if (small !== source && !small.isRecycled) small.recycle()
         }
+    }
+
+    private fun scoreNormalized(quad: Array<PointF>, gray: IntArray, w: Int, h: Int): Detection? {
+        val area = polygonArea(quad)
+        val frameArea = (w * h).toFloat()
+        val areaRatio = area / frameArea
+        if (areaRatio < MIN_AREA_RATIO || areaRatio > MAX_AREA_RATIO) return null
+        val rectScore = rectangularity(quad)
+        if (rectScore < MIN_RECT) return null
+        val centerScore = centrality(quad, w, h)
+        val contrastScore = interiorContrast(quad, gray, w, h)
+        // Prefer large, centered, rectangular pages with page/bg separation
+        val score = (
+            areaRatio * 0.35f +
+                rectScore * 0.30f +
+                centerScore * 0.20f +
+                contrastScore * 0.15f
+            ).coerceIn(0f, 1f)
+        if (score < MIN_SCORE) return null
+        val norm = Array(4) { i ->
+            PointF(
+                (quad[i].x / w).coerceIn(0f, 1f),
+                (quad[i].y / h).coerceIn(0f, 1f)
+            )
+        }
+        orderQuadTlTrBrBl(norm)
+        return Detection(norm, score, w, h)
     }
 
     fun iou(a: Array<PointF>, b: Array<PointF>): Float {
@@ -206,8 +208,9 @@ object DocumentEdgeDetector {
             }
         }
         val mean = if (count == 0) 0f else (sum / count).toFloat()
-        val hi = max(40f, mean * 1.6f)
-        val lo = hi * 0.45f
+        // Higher thresholds → fewer false page edges on busy backgrounds
+        val hi = max(55f, mean * 2.0f)
+        val lo = hi * 0.50f
         val edges = BooleanArray(w * h)
         for (i in mag.indices) {
             edges[i] = mag[i] >= hi
@@ -228,7 +231,7 @@ object DocumentEdgeDetector {
         return edges
     }
 
-    private fun findBestQuad(edges: BooleanArray, w: Int, h: Int): Array<PointF>? {
+    private fun findBestQuad(edges: BooleanArray, gray: IntArray, w: Int, h: Int): Array<PointF>? {
         val visited = BooleanArray(w * h)
         var best: Array<PointF>? = null
         var bestScore = 0f
@@ -271,14 +274,19 @@ object DocumentEdgeDetector {
                         sp++
                     }
                 }
-                if (pts.size < 40) continue
+                if (pts.size < 60) continue
                 val bw = (maxX - minX + 1).toFloat()
                 val bh = (maxY - minY + 1).toFloat()
-                if (bw < w * 0.25f || bh < h * 0.25f) continue
+                if (bw < w * 0.30f || bh < h * 0.30f) continue
+                // Reject edge-hugging “frames” that are just the screen border
+                if (minX < 2 && maxX > w - 3 && minY < 2 && maxY > h - 3) continue
                 val quad = approxQuadFromBounds(minX, minY, maxX, maxY, pts) ?: continue
                 val area = polygonArea(quad)
                 val rect = rectangularity(quad)
-                val score = area * rect
+                if (rect < 0.55f) continue
+                val center = centrality(quad, w, h)
+                val contrast = interiorContrast(quad, gray, w, h)
+                val score = area * (0.45f + 0.30f * rect + 0.15f * center + 0.10f * contrast)
                 if (score > bestScore) {
                     bestScore = score
                     best = quad
@@ -286,6 +294,67 @@ object DocumentEdgeDetector {
             }
         }
         return best
+    }
+
+    /** 1 = centroid near frame center; penalize edge-biased quads. */
+    private fun centrality(q: Array<PointF>, w: Int, h: Int): Float {
+        var cx = 0f
+        var cy = 0f
+        for (p in q) {
+            cx += p.x
+            cy += p.y
+        }
+        cx /= 4f * w
+        cy /= 4f * h
+        val dx = abs(cx - 0.5f)
+        val dy = abs(cy - 0.5f)
+        return (1f - (dx + dy)).coerceIn(0f, 1f)
+    }
+
+    /**
+     * Page vs background: mean luma inside quad vs a ring just outside.
+     * Paper on a darker desk (or reverse) scores higher.
+     */
+    private fun interiorContrast(q: Array<PointF>, gray: IntArray, w: Int, h: Int): Float {
+        val br = boundingRect(
+            Array(4) { PointF(q[it].x / w, q[it].y / h) }
+        )
+        val l = (br[0] * w).roundToInt().coerceIn(1, w - 2)
+        val t = (br[1] * h).roundToInt().coerceIn(1, h - 2)
+        val r = (br[2] * w).roundToInt().coerceIn(l + 2, w - 1)
+        val b = (br[3] * h).roundToInt().coerceIn(t + 2, h - 1)
+        val padX = max(2, (r - l) / 10)
+        val padY = max(2, (b - t) / 10)
+        val il = (l + padX).coerceAtMost(r - 1)
+        val it = (t + padY).coerceAtMost(b - 1)
+        val ir = (r - padX).coerceAtLeast(il + 1)
+        val ib = (b - padY).coerceAtLeast(it + 1)
+
+        fun meanRect(x0: Int, y0: Int, x1: Int, y1: Int): Float {
+            var s = 0L
+            var n = 0
+            var y = y0
+            while (y < y1) {
+                var x = x0
+                while (x < x1) {
+                    s += gray[y * w + x]
+                    n++
+                    x += 2
+                }
+                y += 2
+            }
+            return if (n == 0) 0f else s.toFloat() / n
+        }
+
+        val inside = meanRect(il, it, ir, ib)
+        // Outside ring samples (clamped)
+        val outL = meanRect(max(0, l - padX), t, l, b)
+        val outR = meanRect(r, t, min(w, r + padX), b)
+        val outT = meanRect(l, max(0, t - padY), r, t)
+        val outB = meanRect(l, b, r, min(h, b + padY))
+        val outside = (outL + outR + outT + outB) / 4f
+        val delta = abs(inside - outside)
+        return (delta / 80f).coerceIn(0f, 1f)
     }
 
     /**

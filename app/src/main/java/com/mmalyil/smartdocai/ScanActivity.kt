@@ -41,6 +41,7 @@ import com.mmalyil.smartdocai.model.AppDatabase
 import com.mmalyil.smartdocai.model.ScannedFile
 import com.mmalyil.smartdocai.scan.CropOverlayView
 import com.mmalyil.smartdocai.scan.DocumentEdgeDetector
+import com.mmalyil.smartdocai.scan.DocumentEdgeTracker
 import com.mmalyil.smartdocai.scan.EdgeOverlayView
 import com.mmalyil.smartdocai.scan.ImagePdfWriter
 import com.mmalyil.smartdocai.scan.PerspectiveHelper
@@ -59,6 +60,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Live CameraX capture (edge highlight + auto/manual) → review (crop/rotate/filters)
@@ -77,9 +79,8 @@ class ScanActivity : AppCompatActivity() {
         const val EXTRA_PAGE_COUNT = "scanPageCount"
         const val EXTRA_SCANNED_TEXT = "scannedText"
 
-        private const val STABLE_NEED = 4
-        private const val AUTO_SCORE = 0.55f
-        private const val AUTO_IOU = 0.82f
+        /** Still-capture warp uses this floor (tracker LOCK_SCORE is stricter for auto). */
+        private const val WARP_SCORE = 0.60f
     }
 
     private lateinit var tvTitle: TextView
@@ -127,8 +128,9 @@ class ScanActivity : AppCompatActivity() {
 
     private var lastQuad: Array<PointF>? = null
     private var lastScore = 0f
-    private var stableCount = 0
     private var autoArmed = true
+    private val edgeTracker = DocumentEdgeTracker()
+    private val lastAnalyzeMs = AtomicLong(0L)
 
     private val pickImagesLauncher =
         registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
@@ -343,7 +345,7 @@ class ScanActivity : AppCompatActivity() {
         reviewViews.forEach { it.isVisible = false }
         tvTitle.text = "Scan document"
         tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
-        tvLiveHint.text = "Align the page — gold outline locks, then auto-captures"
+        tvLiveHint.text = "Align page, hold ~2s for green lock — or tap ● anytime"
         edgeOverlay.clear()
     }
 
@@ -379,8 +381,10 @@ class ScanActivity : AppCompatActivity() {
     private fun startLiveCamera(replaceSelected: Boolean) {
         retakePending = replaceSelected
         autoArmed = true
-        stableCount = 0
         lastQuad = null
+        lastScore = 0f
+        edgeTracker.reset()
+        lastAnalyzeMs.set(0L)
         capturing.set(false)
         showLiveCaptureState()
 
@@ -417,12 +421,15 @@ class ScanActivity : AppCompatActivity() {
             .build()
 
         analysis.setAnalyzer(analysisExecutor!!) { imageProxy ->
-            if (!analyzing.compareAndSet(false, true)) {
+            // Throttle ~8 fps — calmer overlay, less CPU thrash
+            val now = System.currentTimeMillis()
+            val prev = lastAnalyzeMs.get()
+            if (now - prev < 120L || !analyzing.compareAndSet(false, true)) {
                 imageProxy.close()
                 return@setAnalyzer
             }
+            lastAnalyzeMs.set(now)
             try {
-                // Match PreviewView orientation: rotate detection to display space
                 val rotation = imageProxy.imageInfo.rotationDegrees
                 val detection = DocumentEdgeDetector.detect(imageProxy)
                 runOnUiThread {
@@ -442,45 +449,40 @@ class ScanActivity : AppCompatActivity() {
 
     private fun onDetection(detection: DocumentEdgeDetector.Detection?, rotation: Int) {
         if (!liveCapturePane.isVisible || capturing.get()) return
-        if (detection == null) {
-            stableCount = 0
-            lastQuad = null
+
+        val mapped = detection?.let {
+            DocumentEdgeDetector.Detection(
+                quad = mapQuadForDisplay(it.quad, rotation),
+                score = it.score,
+                analysisWidth = it.analysisWidth,
+                analysisHeight = it.analysisHeight
+            )
+        }
+
+        val frame = edgeTracker.onFrame(mapped)
+        lastQuad = frame.displayQuad
+        lastScore = frame.smoothedScore
+
+        if (frame.displayQuad == null) {
             edgeOverlay.clear()
-            tvLiveHint.text = "Move closer — looking for page edges"
+            tvLiveHint.text = "Align the page — fill most of the frame, then hold still"
             return
         }
 
-        // ImageProxy is sensor-oriented; PreviewView is rotation-compensated.
-        // For overlay we use normalized coords from analysis which matches the
-        // buffer; PreviewView fillCenter typically mirrors sensor after rotation.
-        // Map quad into display space for common 90/270 cases.
-        val displayQuad = mapQuadForDisplay(detection.quad, rotation)
-
-        val prev = lastQuad
-        val iou = if (prev != null) DocumentEdgeDetector.iou(prev, displayQuad) else 0f
-        lastQuad = displayQuad
-        lastScore = detection.score
-
-        val stable = detection.score >= AUTO_SCORE && iou >= AUTO_IOU
-        if (stable) {
-            stableCount++
-        } else if (detection.score >= AUTO_SCORE * 0.85f && iou >= 0.6f) {
-            // soft hold
-        } else {
-            stableCount = 0
-        }
-
-        val locked = stableCount >= STABLE_NEED
-        edgeOverlay.setQuad(displayQuad, locked)
+        edgeOverlay.setQuad(frame.displayQuad, frame.lockedForCapture)
 
         tvLiveHint.text = when {
-            locked -> "Locked — capturing…"
-            stableCount > 0 -> "Hold still…"
-            detection.score >= AUTO_SCORE -> "Outline found — hold steady"
+            frame.lockedForCapture -> "Locked — capturing…"
+            frame.holdProgress > 0 ->
+                "Hold still… ${frame.holdProgress}/${frame.holdNeeded}"
+            frame.smoothedScore >= DocumentEdgeTracker.LOCK_SCORE * 0.9f ->
+                "Outline found — hold steady (~2s)"
+            frame.visible -> "Fine-tune alignment — wait for green lock"
             else -> "Align the page inside the frame"
         }
 
-        if (locked && autoArmed && !capturing.get()) {
+        // Auto only when tracker says locked (long + high score). Manual shutter always OK.
+        if (frame.lockedForCapture && autoArmed && !capturing.get()) {
             autoArmed = false
             takeCapture(auto = true)
         }
@@ -523,8 +525,8 @@ class ScanActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    val quad = lastQuad
-                    val score = lastScore
+                    val quad = edgeTracker.lastSmoothedQuad() ?: lastQuad
+                    val score = edgeTracker.lastSmoothedScore().takeIf { it > 0f } ?: lastScore
                     stopLiveCamera()
                     lifecycleScope.launch {
                         val path = withContext(Dispatchers.IO) {
@@ -568,10 +570,10 @@ class ScanActivity : AppCompatActivity() {
             var working = raw
             // EXIF orientation is usually handled by ImageCapture; keep as-is.
             val outFile = File(cacheDir, "scan_page_${System.currentTimeMillis()}.jpg")
-            if (quad != null && score >= AUTO_SCORE * 0.9f) {
-                // Re-detect on full bitmap for better crop accuracy
+            if (quad != null && score >= WARP_SCORE) {
+                // Prefer still re-detect; fall back to smoothed live quad
                 val still = DocumentEdgeDetector.detectBitmap(working)
-                val useQuad = still?.quad ?: quad
+                val useQuad = if (still != null && still.score >= WARP_SCORE) still.quad else quad
                 val warped = PerspectiveHelper.warpDocument(working, useQuad)
                 if (warped != null) {
                     if (working !== raw && !working.isRecycled) working.recycle()
