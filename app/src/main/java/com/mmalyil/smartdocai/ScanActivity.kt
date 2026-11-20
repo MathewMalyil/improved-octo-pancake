@@ -83,7 +83,7 @@ class ScanActivity : AppCompatActivity() {
         const val EXTRA_SCANNED_TEXT = "scannedText"
 
         /** Still re-detect must clear this to perspective-warp the capture. */
-        private const val STILL_WARP_SCORE = 0.48f
+        private const val STILL_WARP_SCORE = 0.32f
     }
 
     private lateinit var tvTitle: TextView
@@ -348,7 +348,7 @@ class ScanActivity : AppCompatActivity() {
         reviewViews.forEach { it.isVisible = false }
         tvTitle.text = "Scan document"
         tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
-        tvLiveHint.text = "Align page, hold ~2s for green lock — or tap ● anytime"
+        tvLiveHint.text = "Align page — hold ~1s when Ready, or tap ● anytime"
         edgeOverlay.clear()
     }
 
@@ -492,19 +492,19 @@ class ScanActivity : AppCompatActivity() {
             return
         }
 
-        edgeOverlay.setQuad(frame.displayQuad, frame.lockedForCapture)
+        // Green lock outline when ready or locked — clearer “ready” for auto.
+        edgeOverlay.setQuad(frame.displayQuad, frame.ready || frame.lockedForCapture)
 
         tvLiveHint.text = when {
-            frame.lockedForCapture -> "Locked — capturing…"
+            frame.lockedForCapture -> "Ready — capturing…"
             frame.holdProgress > 0 ->
-                "Hold still… ${frame.holdProgress}/${frame.holdNeeded}"
-            frame.smoothedScore >= DocumentEdgeTracker.LOCK_SCORE * 0.9f ->
-                "Outline found — hold steady (~2s)"
-            frame.visible -> "Fine-tune alignment — wait for green lock"
+                "Ready — hold still ${frame.holdProgress}/${frame.holdNeeded}"
+            frame.ready -> "Ready — hold still (~1s) or tap ●"
+            frame.visible -> "Page found — center it, then hold still"
             else -> "Align the page inside the frame"
         }
 
-        // Auto only when tracker says locked (long + high score). Manual shutter always OK.
+        // Auto only when tracker says locked. Manual shutter always OK.
         if (frame.lockedForCapture && autoArmed && !capturing.get()) {
             autoArmed = false
             takeCapture(auto = true)
@@ -565,7 +565,7 @@ class ScanActivity : AppCompatActivity() {
 
     /**
      * Decode capture with EXIF orientation, re-detect page on the still, perspective-warp
-     * to a flat rectangle. Falls back to axis-aligned crop, then full frame.
+     * to a flat rectangle. Retries with stronger still params; bbox crop last resort.
      */
     private fun finalizeCapturedPage(photoFile: File): String? {
         val oriented = decodeCaptureOriented(photoFile) ?: return null
@@ -573,24 +573,12 @@ class ScanActivity : AppCompatActivity() {
             var working = oriented
             val outFile = File(cacheDir, "scan_page_${System.currentTimeMillis()}.jpg")
 
-            val still = DocumentEdgeDetector.detectBitmap(working)
-            if (still != null && still.score >= STILL_WARP_SCORE) {
-                val warped = PerspectiveHelper.warpDocument(working, still.quad)
-                if (warped != null) {
-                    if (working !== oriented && !working.isRecycled) working.recycle()
-                    working = warped
-                    Log.d(TAG, "still warp ok score=${still.score}")
-                } else {
-                    // Axis-aligned crop from quad bbox if poly warp fails
-                    val box = PerspectiveHelper.boundingCrop(still.quad)
-                    val cropped = cropNormalized(working, box)
-                    if (cropped != null) {
-                        if (working !== oriented && !working.isRecycled) working.recycle()
-                        working = cropped
-                    }
-                }
+            val warped = deskewStill(working)
+            if (warped != null) {
+                if (working !== oriented && !working.isRecycled) working.recycle()
+                working = warped
             } else {
-                Log.d(TAG, "still detect weak score=${still?.score}")
+                Log.w(TAG, "deskew skipped — Review may show camera perspective")
             }
 
             FileOutputStream(outFile).use { fos ->
@@ -605,6 +593,39 @@ class ScanActivity : AppCompatActivity() {
             if (!oriented.isRecycled) oriented.recycle()
             photoFile.absolutePath.takeIf { photoFile.exists() }
         }
+    }
+
+    /**
+     * Always try perspective correction on the still. Pass 1 = STILL, pass 2 = STILL_STRONG.
+     * Never uses live overlay quads (wrong coordinate space).
+     */
+    private fun deskewStill(src: Bitmap): Bitmap? {
+        val modes = listOf(
+            DocumentEdgeDetector.Mode.STILL,
+            DocumentEdgeDetector.Mode.STILL_STRONG
+        )
+        var bestQuad: Array<PointF>? = null
+        var bestScore = -1f
+        for (mode in modes) {
+            val det = DocumentEdgeDetector.detectBitmap(src, mode) ?: continue
+            Log.d(TAG, "still detect mode=$mode score=${det.score}")
+            if (det.score < STILL_WARP_SCORE) continue
+            val warped = PerspectiveHelper.warpDocument(src, det.quad)
+            if (warped != null) {
+                Log.d(TAG, "still warp ok mode=$mode score=${det.score}")
+                return warped
+            }
+            if (det.score > bestScore) {
+                bestScore = det.score
+                bestQuad = det.quad
+            }
+        }
+        // Poly warp failed but we have a quad — axis-aligned crop as last resort
+        val quad = bestQuad ?: return null
+        val box = PerspectiveHelper.boundingCrop(quad)
+        val cropped = cropNormalized(src, box)
+        if (cropped != null) Log.d(TAG, "still bbox crop fallback score=$bestScore")
+        return cropped
     }
 
     private fun decodeCaptureOriented(file: File): Bitmap? {

@@ -11,43 +11,98 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
- * Lightweight document-quad detector for CameraX [ImageAnalysis].
+ * Lightweight document-quad detector for CameraX [ImageAnalysis] and still captures.
  * Pure Kotlin (no OpenCV natives) — Canny-lite + contour → largest 4-gon.
  */
 object DocumentEdgeDetector {
 
+    enum class Mode {
+        /** Live preview — balanced speed / false positives. */
+        LIVE,
+        /** Still capture — higher res, moderate sensitivity. */
+        STILL,
+        /** Still retry — stronger edges, looser geometry for deskew. */
+        STILL_STRONG
+    }
+
     data class Detection(
-        /** TL, TR, BR, BL in normalized preview/analysis coords [0,1]. */
+        /** TL, TR, BR, BL in normalized coords [0,1]. */
         val quad: Array<PointF>,
         val score: Float,
         val analysisWidth: Int,
         val analysisHeight: Int
     )
 
-    private const val ANALYZE_WIDTH = 480
-    /** Prefer a real page filling a good portion of the frame. */
-    private const val MIN_AREA_RATIO = 0.22f
-    private const val MAX_AREA_RATIO = 0.88f
-    private const val MIN_RECT = 0.62f
-    private const val MIN_SCORE = 0.50f
+    private data class Params(
+        val analyzeWidth: Int,
+        val blurPasses: Int,
+        val cannyMeanMul: Float,
+        val cannyFloor: Float,
+        val minAreaRatio: Float,
+        val maxAreaRatio: Float,
+        val minRect: Float,
+        val minScore: Float,
+        val minBlobPts: Int,
+        val minBlobFrac: Float,
+        val step: Int
+    )
+
+    private val LIVE = Params(
+        analyzeWidth = 480,
+        blurPasses = 2,
+        cannyMeanMul = 1.85f,
+        cannyFloor = 48f,
+        minAreaRatio = 0.18f,
+        maxAreaRatio = 0.90f,
+        minRect = 0.55f,
+        minScore = 0.45f,
+        minBlobPts = 50,
+        minBlobFrac = 0.26f,
+        step = 2
+    )
+
+    private val STILL = Params(
+        analyzeWidth = 720,
+        blurPasses = 1,
+        cannyMeanMul = 1.55f,
+        cannyFloor = 36f,
+        minAreaRatio = 0.12f,
+        maxAreaRatio = 0.95f,
+        minRect = 0.48f,
+        minScore = 0.38f,
+        minBlobPts = 40,
+        minBlobFrac = 0.20f,
+        step = 1
+    )
+
+    private val STILL_STRONG = Params(
+        analyzeWidth = 960,
+        blurPasses = 1,
+        cannyMeanMul = 1.25f,
+        cannyFloor = 28f,
+        minAreaRatio = 0.08f,
+        maxAreaRatio = 0.97f,
+        minRect = 0.40f,
+        minScore = 0.30f,
+        minBlobPts = 30,
+        minBlobFrac = 0.15f,
+        step = 1
+    )
 
     fun detect(imageProxy: ImageProxy): Detection? {
         val grayFull = yPlaneToGray(imageProxy) ?: return null
         val srcW = imageProxy.width
         val srcH = imageProxy.height
-        val scale = ANALYZE_WIDTH.toFloat() / max(srcW, 1)
-        val w = max(32, (srcW * min(scale, 1f)).roundToInt())
-        val h = max(32, (srcH * min(scale, 1f)).roundToInt())
-        val gray = downsampleGray(grayFull, srcW, srcH, w, h)
-        blur3x3(gray, w, h)
-        blur3x3(gray, w, h) // extra blur → fewer noise edges
-        val edges = cannyLite(gray, w, h)
-        val quad = findBestQuad(edges, gray, w, h) ?: return null
-        return scoreNormalized(quad, gray, w, h)
+        return detectGray(grayFull, srcW, srcH, LIVE)
     }
 
-    fun detectBitmap(source: Bitmap): Detection? {
-        val scale = ANALYZE_WIDTH.toFloat() / max(source.width, 1)
+    fun detectBitmap(source: Bitmap, mode: Mode = Mode.STILL): Detection? {
+        val params = when (mode) {
+            Mode.LIVE -> LIVE
+            Mode.STILL -> STILL
+            Mode.STILL_STRONG -> STILL_STRONG
+        }
+        val scale = params.analyzeWidth.toFloat() / max(source.width, 1)
         val w = max(32, (source.width * min(scale, 1f)).roundToInt())
         val h = max(32, (source.height * min(scale, 1f)).roundToInt())
         val small = Bitmap.createScaledBitmap(source, w, h, true)
@@ -62,33 +117,125 @@ object DocumentEdgeDetector {
                 val b = c and 0xff
                 gray[i] = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
             }
-            blur3x3(gray, w, h)
-            blur3x3(gray, w, h)
-            val edges = cannyLite(gray, w, h)
-            val quad = findBestQuad(edges, gray, w, h) ?: return null
-            return scoreNormalized(quad, gray, w, h)
+            return detectGray(gray, w, h, params)
+                ?: if (mode == Mode.STILL || mode == Mode.STILL_STRONG) {
+                    detectPaperMask(gray, w, h, params)
+                } else null
         } finally {
             if (small !== source && !small.isRecycled) small.recycle()
         }
     }
 
-    private fun scoreNormalized(quad: Array<PointF>, gray: IntArray, w: Int, h: Int): Detection? {
+    private fun detectGray(grayIn: IntArray, srcW: Int, srcH: Int, params: Params): Detection? {
+        val scale = params.analyzeWidth.toFloat() / max(srcW, 1)
+        val w = max(32, (srcW * min(scale, 1f)).roundToInt())
+        val h = max(32, (srcH * min(scale, 1f)).roundToInt())
+        val gray = if (w == srcW && h == srcH) grayIn.copyOf() else downsampleGray(grayIn, srcW, srcH, w, h)
+        repeat(params.blurPasses) { blur3x3(gray, w, h) }
+        val edges = cannyLite(gray, w, h, params.cannyMeanMul, params.cannyFloor)
+        val quad = findBestQuad(edges, gray, w, h, params) ?: return null
+        return scoreNormalized(quad, gray, w, h, params)
+    }
+
+    /**
+     * Fallback for white page on dark desk: threshold bright region → corners.
+     * Catches pages when Canny contour is fragmented by print/text.
+     */
+    private fun detectPaperMask(gray: IntArray, w: Int, h: Int, params: Params): Detection? {
+        var sum = 0L
+        for (v in gray) sum += v
+        val mean = sum.toFloat() / gray.size
+        // Otsu-ish: threshold between mean and high white
+        val thr = ((mean + 200f) * 0.5f).roundToInt().coerceIn(110, 200)
+        val mask = BooleanArray(w * h)
+        for (i in gray.indices) mask[i] = gray[i] >= thr
+
+        // Largest bright component (skip border-touching full frames)
+        val visited = BooleanArray(w * h)
+        var bestPts: ArrayList<PointF>? = null
+        var bestArea = 0
+        val stackX = IntArray(w * h)
+        val stackY = IntArray(w * h)
+
+        for (y in 1 until h - 1 step 2) {
+            for (x in 1 until w - 1 step 2) {
+                val start = y * w + x
+                if (!mask[start] || visited[start]) continue
+                var sp = 0
+                stackX[sp] = x
+                stackY[sp] = y
+                sp++
+                visited[start] = true
+                val pts = ArrayList<PointF>(512)
+                var minX = x
+                var maxX = x
+                var minY = y
+                var maxY = y
+                var area = 0
+                while (sp > 0) {
+                    sp--
+                    val cx = stackX[sp]
+                    val cy = stackY[sp]
+                    pts.add(PointF(cx.toFloat(), cy.toFloat()))
+                    area++
+                    minX = min(minX, cx)
+                    maxX = max(maxX, cx)
+                    minY = min(minY, cy)
+                    maxY = max(maxY, cy)
+                    for (dy in -1..1) for (dx in -1..1) {
+                        if (dx == 0 && dy == 0) continue
+                        val nx = cx + dx
+                        val ny = cy + dy
+                        if (nx <= 0 || ny <= 0 || nx >= w - 1 || ny >= h - 1) continue
+                        val ni = ny * w + nx
+                        if (!mask[ni] || visited[ni]) continue
+                        visited[ni] = true
+                        stackX[sp] = nx
+                        stackY[sp] = ny
+                        sp++
+                    }
+                }
+                val bw = maxX - minX + 1
+                val bh = maxY - minY + 1
+                if (area < w * h * params.minAreaRatio * 0.5f) continue
+                if (bw < w * params.minBlobFrac || bh < h * params.minBlobFrac) continue
+                if (minX < 2 && maxX > w - 3 && minY < 2 && maxY > h - 3 &&
+                    area > w * h * 0.92f
+                ) continue
+                if (area > bestArea) {
+                    bestArea = area
+                    bestPts = pts
+                }
+            }
+        }
+        val pts = bestPts ?: return null
+        val quad = cornersFromPoints(pts) ?: return null
+        return scoreNormalized(quad, gray, w, h, params)
+    }
+
+    private fun scoreNormalized(
+        quad: Array<PointF>,
+        gray: IntArray,
+        w: Int,
+        h: Int,
+        params: Params
+    ): Detection? {
         val area = polygonArea(quad)
         val frameArea = (w * h).toFloat()
         val areaRatio = area / frameArea
-        if (areaRatio < MIN_AREA_RATIO || areaRatio > MAX_AREA_RATIO) return null
+        if (areaRatio < params.minAreaRatio || areaRatio > params.maxAreaRatio) return null
         val rectScore = rectangularity(quad)
-        if (rectScore < MIN_RECT) return null
+        if (rectScore < params.minRect) return null
         val centerScore = centrality(quad, w, h)
         val contrastScore = interiorContrast(quad, gray, w, h)
         // Prefer large, centered, rectangular pages with page/bg separation
         val score = (
-            areaRatio * 0.35f +
-                rectScore * 0.30f +
-                centerScore * 0.20f +
-                contrastScore * 0.15f
+            areaRatio * 0.32f +
+                rectScore * 0.28f +
+                centerScore * 0.18f +
+                contrastScore * 0.22f
             ).coerceIn(0f, 1f)
-        if (score < MIN_SCORE) return null
+        if (score < params.minScore) return null
         val norm = Array(4) { i ->
             PointF(
                 (quad[i].x / w).coerceIn(0f, 1f),
@@ -185,7 +332,13 @@ object DocumentEdgeDetector {
         }
     }
 
-    private fun cannyLite(gray: IntArray, w: Int, h: Int): BooleanArray {
+    private fun cannyLite(
+        gray: IntArray,
+        w: Int,
+        h: Int,
+        meanMul: Float,
+        floor: Float
+    ): BooleanArray {
         val mag = FloatArray(w * h)
         for (y in 1 until h - 1) {
             for (x in 1 until w - 1) {
@@ -208,9 +361,8 @@ object DocumentEdgeDetector {
             }
         }
         val mean = if (count == 0) 0f else (sum / count).toFloat()
-        // Higher thresholds → fewer false page edges on busy backgrounds
-        val hi = max(55f, mean * 2.0f)
-        val lo = hi * 0.50f
+        val hi = max(floor, mean * meanMul)
+        val lo = hi * 0.45f
         val edges = BooleanArray(w * h)
         for (i in mag.indices) {
             edges[i] = mag[i] >= hi
@@ -231,15 +383,22 @@ object DocumentEdgeDetector {
         return edges
     }
 
-    private fun findBestQuad(edges: BooleanArray, gray: IntArray, w: Int, h: Int): Array<PointF>? {
+    private fun findBestQuad(
+        edges: BooleanArray,
+        gray: IntArray,
+        w: Int,
+        h: Int,
+        params: Params
+    ): Array<PointF>? {
         val visited = BooleanArray(w * h)
         var best: Array<PointF>? = null
         var bestScore = 0f
         val stackX = IntArray(w * h)
         val stackY = IntArray(w * h)
+        val step = params.step.coerceAtLeast(1)
 
-        for (y in 1 until h - 1 step 2) {
-            for (x in 1 until w - 1 step 2) {
+        for (y in 1 until h - 1 step step) {
+            for (x in 1 until w - 1 step step) {
                 val start = y * w + x
                 if (!edges[start] || visited[start]) continue
                 var sp = 0
@@ -274,19 +433,19 @@ object DocumentEdgeDetector {
                         sp++
                     }
                 }
-                if (pts.size < 60) continue
+                if (pts.size < params.minBlobPts) continue
                 val bw = (maxX - minX + 1).toFloat()
                 val bh = (maxY - minY + 1).toFloat()
-                if (bw < w * 0.30f || bh < h * 0.30f) continue
+                if (bw < w * params.minBlobFrac || bh < h * params.minBlobFrac) continue
                 // Reject edge-hugging “frames” that are just the screen border
                 if (minX < 2 && maxX > w - 3 && minY < 2 && maxY > h - 3) continue
-                val quad = approxQuadFromBounds(minX, minY, maxX, maxY, pts) ?: continue
+                val quad = cornersFromPoints(pts) ?: continue
                 val area = polygonArea(quad)
                 val rect = rectangularity(quad)
-                if (rect < 0.55f) continue
+                if (rect < params.minRect * 0.9f) continue
                 val center = centrality(quad, w, h)
                 val contrast = interiorContrast(quad, gray, w, h)
-                val score = area * (0.45f + 0.30f * rect + 0.15f * center + 0.10f * contrast)
+                val score = area * (0.40f + 0.30f * rect + 0.15f * center + 0.15f * contrast)
                 if (score > bestScore) {
                     bestScore = score
                     best = quad
@@ -347,48 +506,60 @@ object DocumentEdgeDetector {
         }
 
         val inside = meanRect(il, it, ir, ib)
-        // Outside ring samples (clamped)
         val outL = meanRect(max(0, l - padX), t, l, b)
         val outR = meanRect(r, t, min(w, r + padX), b)
         val outT = meanRect(l, max(0, t - padY), r, t)
         val outB = meanRect(l, b, r, min(h, b + padY))
         val outside = (outL + outR + outT + outB) / 4f
         val delta = abs(inside - outside)
-        return (delta / 80f).coerceIn(0f, 1f)
+        return (delta / 70f).coerceIn(0f, 1f)
     }
 
     /**
-     * Fit a quad by taking extreme points near the bounding-box corners of the blob.
+     * Robust document corners from contour / mask points using sum/diff extremes
+     * (works under perspective better than bbox-farthest alone).
      */
-    private fun approxQuadFromBounds(
-        minX: Int,
-        minY: Int,
-        maxX: Int,
-        maxY: Int,
-        pts: List<PointF>
-    ): Array<PointF>? {
-        fun farthest(tx: Float, ty: Float): PointF {
-            var best = pts[0]
-            var bestD = -1f
-            for (p in pts) {
-                val d = hypot(p.x - tx, p.y - ty)
-                if (d > bestD) {
-                    bestD = d
-                    best = p
-                }
+    private fun cornersFromPoints(pts: List<PointF>): Array<PointF>? {
+        if (pts.size < 4) return null
+        var tl = pts[0]
+        var tr = pts[0]
+        var br = pts[0]
+        var bl = pts[0]
+        var minSum = Float.POSITIVE_INFINITY
+        var maxSum = Float.NEGATIVE_INFINITY
+        var minDiff = Float.POSITIVE_INFINITY
+        var maxDiff = Float.NEGATIVE_INFINITY
+        for (p in pts) {
+            val sum = p.x + p.y
+            val diff = p.x - p.y
+            if (sum < minSum) {
+                minSum = sum
+                tl = p
             }
-            return PointF(best.x, best.y)
+            if (sum > maxSum) {
+                maxSum = sum
+                br = p
+            }
+            if (diff > maxDiff) {
+                maxDiff = diff
+                tr = p
+            }
+            if (diff < minDiff) {
+                minDiff = diff
+                bl = p
+            }
         }
-        // Corner targets of bbox
-        val tl = farthest(minX.toFloat(), minY.toFloat())
-        val tr = farthest(maxX.toFloat(), minY.toFloat())
-        val br = farthest(maxX.toFloat(), maxY.toFloat())
-        val bl = farthest(minX.toFloat(), maxY.toFloat())
-        val quad = arrayOf(tl, tr, br, bl)
-        // Reject degenerate
+        val quad = arrayOf(
+            PointF(tl.x, tl.y),
+            PointF(tr.x, tr.y),
+            PointF(br.x, br.y),
+            PointF(bl.x, bl.y)
+        )
         if (polygonArea(quad) < 100f) return null
         if (hypot(tl.x - tr.x, tl.y - tr.y) < 8f) return null
         if (hypot(tr.x - br.x, tr.y - br.y) < 8f) return null
+        if (hypot(br.x - bl.x, br.y - bl.y) < 8f) return null
+        if (hypot(bl.x - tl.x, bl.y - tl.y) < 8f) return null
         return quad
     }
 
@@ -417,19 +588,44 @@ object DocumentEdgeDetector {
             val b = q[(i + 1) % 4]
             val c = q[(i + 2) % 4]
             val angle = ang(a, b, c)
-            // prefer ~90° (π/2)
             score += 1f - (abs(angle - (Math.PI.toFloat() / 2f)) / (Math.PI.toFloat() / 2f)).coerceIn(0f, 1f)
         }
         return (score / 4f).coerceIn(0f, 1f)
     }
 
+    /** Order by sum/diff extremes — stable under camera perspective. */
     private fun orderQuadTlTrBrBl(q: Array<PointF>) {
-        val sorted = q.sortedWith(compareBy({ it.y }, { it.x }))
-        val top = sorted.take(2).sortedBy { it.x }
-        val bottom = sorted.takeLast(2).sortedBy { it.x }
-        q[0] = top[0]
-        q[1] = top[1]
-        q[2] = bottom[1]
-        q[3] = bottom[0]
+        var tl = q[0]
+        var tr = q[0]
+        var br = q[0]
+        var bl = q[0]
+        var minSum = Float.POSITIVE_INFINITY
+        var maxSum = Float.NEGATIVE_INFINITY
+        var minDiff = Float.POSITIVE_INFINITY
+        var maxDiff = Float.NEGATIVE_INFINITY
+        for (p in q) {
+            val sum = p.x + p.y
+            val diff = p.x - p.y
+            if (sum < minSum) {
+                minSum = sum
+                tl = p
+            }
+            if (sum > maxSum) {
+                maxSum = sum
+                br = p
+            }
+            if (diff > maxDiff) {
+                maxDiff = diff
+                tr = p
+            }
+            if (diff < minDiff) {
+                minDiff = diff
+                bl = p
+            }
+        }
+        q[0] = tl
+        q[1] = tr
+        q[2] = br
+        q[3] = bl
     }
 }

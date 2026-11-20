@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -12,8 +13,8 @@ import kotlin.math.roundToInt
 object PerspectiveHelper {
 
     /**
-     * Warp [src] so [quad] (normalized TL,TR,BR,BL) becomes an upright rectangle.
-     * Returns null if the quad is unusable.
+     * Warp [src] so [quadNorm] (normalized TL,TR,BR,BL) becomes an upright rectangle.
+     * Returns null if the quad is unusable or nearly degenerate.
      */
     fun warpDocument(src: Bitmap, quadNorm: Array<PointF>): Bitmap? {
         if (quadNorm.size < 4) return null
@@ -26,11 +27,26 @@ object PerspectiveHelper {
         val widthB = hypot((br.x - bl.x).toDouble(), (br.y - bl.y).toDouble())
         val heightA = hypot((bl.x - tl.x).toDouble(), (bl.y - tl.y).toDouble())
         val heightB = hypot((br.x - tr.x).toDouble(), (br.y - tr.y).toDouble())
+        if (widthA < 32.0 || widthB < 32.0 || heightA < 32.0 || heightB < 32.0) return null
+
+        // Reject near-collinear / crossed quads that produce garbage warps
+        val area = abs(
+            (tr.x - tl.x) * (bl.y - tl.y) - (bl.x - tl.x) * (tr.y - tl.y)
+        ) * 0.5f + abs(
+            (br.x - tr.x) * (bl.y - br.y) - (bl.x - br.x) * (tr.y - br.y)
+        ) * 0.5f
+        if (area < src.width * src.height * 0.04f) return null
+
         val outW = max(widthA, widthB).roundToInt().coerceIn(64, 4096)
         val outH = max(heightA, heightB).roundToInt().coerceIn(64, 4096)
 
         val srcPts = floatArrayOf(tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y)
-        val dstPts = floatArrayOf(0f, 0f, outW.toFloat(), 0f, outW.toFloat(), outH.toFloat(), 0f, outH.toFloat())
+        val dstPts = floatArrayOf(
+            0f, 0f,
+            outW.toFloat(), 0f,
+            outW.toFloat(), outH.toFloat(),
+            0f, outH.toFloat()
+        )
         val matrix = Matrix()
         if (!matrix.setPolyToPoly(srcPts, 0, dstPts, 0, 4)) return null
 
@@ -52,8 +68,7 @@ object PerspectiveHelper {
             maxX = maxOf(maxX, p.x)
             maxY = maxOf(maxY, p.y)
         }
-        // slight padding
-        val pad = 0.01f
+        val pad = 0.008f
         return floatArrayOf(
             (minX - pad).coerceIn(0f, 0.9f),
             (minY - pad).coerceIn(0f, 0.9f),

@@ -16,6 +16,8 @@ class DocumentEdgeTracker {
         val visible: Boolean,
         /** True when lock criteria met long enough for auto-capture. */
         val lockedForCapture: Boolean,
+        /** Outline is good enough — user can hold for auto or tap. */
+        val ready: Boolean,
         val holdProgress: Int,
         val holdNeeded: Int
     )
@@ -40,14 +42,23 @@ class DocumentEdgeTracker {
         if (raw == null || raw.score < SHOW_SCORE) {
             missStreak++
             hitStreak = 0
-            lockStreak = 0
+            lockStreak = (lockStreak - 1).coerceAtLeast(0)
             // Decay score; keep last smooth briefly (hysteresis)
-            smoothScore *= 0.85f
+            smoothScore *= 0.88f
             if (missStreak >= MISS_CLEAR || smoothScore < HIDE_SCORE) {
                 visible = false
                 smooth = null
                 smoothScore = 0f
-                return FrameResult(null, 0f, visible = false, lockedForCapture = false, 0, LOCK_NEED)
+                lockStreak = 0
+                return FrameResult(
+                    displayQuad = null,
+                    smoothedScore = 0f,
+                    visible = false,
+                    lockedForCapture = false,
+                    ready = false,
+                    holdProgress = 0,
+                    holdNeeded = LOCK_NEED
+                )
             }
             // Keep showing faded last quad without advancing lock
             return FrameResult(
@@ -55,7 +66,8 @@ class DocumentEdgeTracker {
                 smoothedScore = smoothScore,
                 visible = visible,
                 lockedForCapture = false,
-                holdProgress = 0,
+                ready = visible && smoothScore >= READY_SCORE,
+                holdProgress = lockStreak.coerceAtMost(LOCK_NEED),
                 holdNeeded = LOCK_NEED
             )
         }
@@ -72,8 +84,8 @@ class DocumentEdgeTracker {
             val iou = DocumentEdgeDetector.iou(prev, incoming)
             if (iou < JUMP_REJECT) {
                 // Sudden jump — treat as miss for lock, light blend only
-                lockStreak = 0
-                blendInto(prev, incoming, alpha = 0.15f)
+                lockStreak = (lockStreak - 1).coerceAtLeast(0)
+                blendInto(prev, incoming, alpha = 0.18f)
                 smoothScore = smoothScore * 0.7f + raw.score * 0.3f
             } else {
                 blendInto(prev, incoming, alpha = SMOOTH_ALPHA)
@@ -90,22 +102,26 @@ class DocumentEdgeTracker {
         val iouToSmooth = if (prev != null) DocumentEdgeDetector.iou(prev, incoming) else 1f
         val lockOk = visible &&
             smoothScore >= LOCK_SCORE &&
-            raw.score >= LOCK_SCORE &&
+            raw.score >= LOCK_SCORE * 0.92f &&
             iouToSmooth >= LOCK_IOU
 
         if (lockOk) {
             lockStreak++
+        } else if (visible && smoothScore >= READY_SCORE && iouToSmooth >= LOCK_IOU * 0.9f) {
+            // Near-ready: soft decay so brief wobble doesn't wipe progress
+            lockStreak = (lockStreak - 1).coerceAtLeast(0)
         } else {
-            // Soft decay: one miss doesn't wipe progress entirely
             lockStreak = (lockStreak - 2).coerceAtLeast(0)
         }
 
         val locked = lockStreak >= LOCK_NEED
+        val ready = visible && smoothScore >= READY_SCORE
         return FrameResult(
             displayQuad = if (visible) copyQuad(smoothed) else null,
             smoothedScore = smoothScore,
             visible = visible,
             lockedForCapture = locked,
+            ready = ready,
             holdProgress = lockStreak.coerceAtMost(LOCK_NEED),
             holdNeeded = LOCK_NEED
         )
@@ -130,19 +146,24 @@ class DocumentEdgeTracker {
 
     companion object {
         /** Overlay appears only after this many consecutive usable hits. */
-        private const val ENTER_NEED = 3
+        private const val ENTER_NEED = 2
         /** Clear overlay after this many consecutive misses. */
-        private const val MISS_CLEAR = 8
-        private const val SHOW_SCORE = 0.52f
-        private const val HIDE_SCORE = 0.38f
-        /** Auto-capture requires this smoothed score. */
-        const val LOCK_SCORE = 0.68f
-        private const val LOCK_IOU = 0.90f
-        /** ~1.5–2s at typical analysis cadence after throttle. */
-        const val LOCK_NEED = 14
-        private const val SMOOTH_ALPHA = 0.28f
-        private const val SCORE_ALPHA = 0.25f
+        private const val MISS_CLEAR = 10
+        private const val SHOW_SCORE = 0.48f
+        private const val HIDE_SCORE = 0.34f
+        /** Clear “ready” UI — hold or tap. */
+        const val READY_SCORE = 0.52f
+        /**
+         * Auto-capture lock. 3.14.2 used 0.68 which rarely cleared for white-on-dark
+         * pages (typical score ~0.55–0.65). 3.14.4 targets reliable auto in that range.
+         */
+        const val LOCK_SCORE = 0.56f
+        private const val LOCK_IOU = 0.80f
+        /** ~1s at ~8 fps analysis cadence. */
+        const val LOCK_NEED = 8
+        private const val SMOOTH_ALPHA = 0.30f
+        private const val SCORE_ALPHA = 0.28f
         /** Reject wild jumps from blending hard. */
-        private const val JUMP_REJECT = 0.45f
+        private const val JUMP_REJECT = 0.40f
     }
 }
