@@ -182,7 +182,9 @@ class ScanActivity : AppCompatActivity() {
         captureButton = findViewById(R.id.captureButton)
         btnFromPhotos = findViewById(R.id.btnFromPhotos)
 
-        reviewViews = listOf(
+        // Explicit <View>: bare listOf() inferred RecyclerView from thumbStrip and
+        // crashed with ArrayStoreException when storing FrameLayout previewContainer.
+        reviewViews = listOf<View>(
             findViewById(R.id.previewContainer),
             thumbStrip,
             findViewById(R.id.filterRow),
