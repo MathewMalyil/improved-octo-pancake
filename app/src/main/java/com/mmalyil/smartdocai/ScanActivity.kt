@@ -5,9 +5,12 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.PointF
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +22,13 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
@@ -30,7 +40,10 @@ import com.google.android.material.chip.Chip
 import com.mmalyil.smartdocai.model.AppDatabase
 import com.mmalyil.smartdocai.model.ScannedFile
 import com.mmalyil.smartdocai.scan.CropOverlayView
+import com.mmalyil.smartdocai.scan.DocumentEdgeDetector
+import com.mmalyil.smartdocai.scan.EdgeOverlayView
 import com.mmalyil.smartdocai.scan.ImagePdfWriter
+import com.mmalyil.smartdocai.scan.PerspectiveHelper
 import com.mmalyil.smartdocai.scan.ScanFilter
 import com.mmalyil.smartdocai.scan.ScanPage
 import com.mmalyil.smartdocai.scan.ScanPageRenderer
@@ -39,17 +52,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Capture → review (crop / rotate / filters) → multi-page image PDF.
- * System camera + photo picker; output is bitmap pages drawn into [android.graphics.pdf.PdfDocument].
+ * Live CameraX capture (edge highlight + auto/manual) → review (crop/rotate/filters)
+ * → multi-page image PDF. From-photos path unchanged.
  */
 class ScanActivity : AppCompatActivity() {
 
     companion object {
+        private const val TAG = "ScanActivity"
         const val EXTRA_START_MODE = "start_mode"
         const val MODE_CAMERA = "camera"
         const val MODE_PHOTOS = "photos"
@@ -58,12 +76,20 @@ class ScanActivity : AppCompatActivity() {
         const val EXTRA_PDF_PATH = "pdfPath"
         const val EXTRA_PAGE_COUNT = "scanPageCount"
         const val EXTRA_SCANNED_TEXT = "scannedText"
+
+        private const val STABLE_NEED = 4
+        private const val AUTO_SCORE = 0.55f
+        private const val AUTO_IOU = 0.82f
     }
 
     private lateinit var tvTitle: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var tvLiveHint: TextView
     private lateinit var ivPreview: ImageView
     private lateinit var cropOverlay: CropOverlayView
+    private lateinit var edgeOverlay: EdgeOverlayView
+    private lateinit var previewView: PreviewView
+    private lateinit var liveCapturePane: View
     private lateinit var thumbStrip: RecyclerView
     private lateinit var progressSaving: ProgressBar
     private lateinit var emptyPane: View
@@ -80,30 +106,29 @@ class ScanActivity : AppCompatActivity() {
     private lateinit var btnSavePdf: MaterialButton
     private lateinit var captureButton: MaterialButton
     private lateinit var btnFromPhotos: MaterialButton
+    private lateinit var btnCloseLive: MaterialButton
+    private lateinit var btnRetryCamera: MaterialButton
+    private lateinit var btnEmptyFromPhotos: MaterialButton
 
     private val pages = mutableListOf<ScanPage>()
     private var selectedIndex = 0
-    private var pendingCaptureFile: File? = null
     private var cropMode = false
     private var previewBitmap: Bitmap? = null
     private var saving = false
+    private var retakePending = false
 
     private lateinit var thumbAdapter: ThumbAdapter
 
-    private val takePictureLauncher =
-        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-            val file = pendingCaptureFile
-            pendingCaptureFile = null
-            if (success && file != null && file.exists() && file.length() > 0L) {
-                addOrReplacePage(file.absolutePath, replaceSelected = retakePending)
-            } else {
-                Toast.makeText(this, "No image captured", Toast.LENGTH_SHORT).show()
-                if (pages.isEmpty()) showEmptyState()
-            }
-            retakePending = false
-        }
+    private var imageCapture: ImageCapture? = null
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var analysisExecutor: ExecutorService? = null
+    private val analyzing = AtomicBoolean(false)
+    private val capturing = AtomicBoolean(false)
 
-    private var retakePending = false
+    private var lastQuad: Array<PointF>? = null
+    private var lastScore = 0f
+    private var stableCount = 0
+    private var autoArmed = true
 
     private val pickImagesLauncher =
         registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
@@ -111,6 +136,7 @@ class ScanActivity : AppCompatActivity() {
                 if (pages.isEmpty()) showEmptyState()
                 return@registerForActivityResult
             }
+            stopLiveCamera()
             lifecycleScope.launch {
                 val imported = withContext(Dispatchers.IO) {
                     uris.mapNotNull { uri ->
@@ -132,11 +158,11 @@ class ScanActivity : AppCompatActivity() {
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) launchCamera(replaceSelected = retakePending)
+            if (granted) startLiveCamera(replaceSelected = retakePending)
             else {
                 Toast.makeText(this, "Camera permission denied", Toast.LENGTH_SHORT).show()
                 retakePending = false
-                if (pages.isEmpty()) showEmptyState()
+                showEmptyState()
             }
         }
 
@@ -153,9 +179,7 @@ class ScanActivity : AppCompatActivity() {
                 openPhotoPicker()
             }
             else -> {
-                // Default: jump straight into camera when opened as Scan
                 if (pages.isEmpty()) {
-                    showEmptyState()
                     checkCameraPermissionAndStart(replaceSelected = false)
                 }
             }
@@ -165,8 +189,12 @@ class ScanActivity : AppCompatActivity() {
     private fun bindViews() {
         tvTitle = findViewById(R.id.tvScanTitle)
         tvStatus = findViewById(R.id.tvStatus)
+        tvLiveHint = findViewById(R.id.tvLiveHint)
         ivPreview = findViewById(R.id.ivPreview)
         cropOverlay = findViewById(R.id.cropOverlay)
+        edgeOverlay = findViewById(R.id.edgeOverlay)
+        previewView = findViewById(R.id.previewView)
+        liveCapturePane = findViewById(R.id.liveCapturePane)
         thumbStrip = findViewById(R.id.thumbStrip)
         progressSaving = findViewById(R.id.progressSaving)
         emptyPane = findViewById(R.id.emptyCapturePane)
@@ -181,10 +209,11 @@ class ScanActivity : AppCompatActivity() {
         btnSavePdf = findViewById(R.id.btnSavePdf)
         captureButton = findViewById(R.id.captureButton)
         btnFromPhotos = findViewById(R.id.btnFromPhotos)
+        btnCloseLive = findViewById(R.id.btnCloseLive)
+        btnRetryCamera = findViewById(R.id.btnRetryCamera)
+        btnEmptyFromPhotos = findViewById(R.id.btnEmptyFromPhotos)
 
-        // Explicit <View>: bare listOf() inferred RecyclerView from thumbStrip and
-        // crashed with ArrayStoreException when storing FrameLayout previewContainer.
-        reviewViews = listOf<View>(
+        reviewViews = listOf(
             findViewById(R.id.previewContainer),
             thumbStrip,
             findViewById(R.id.filterRow),
@@ -221,10 +250,19 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun setupControls() {
-        captureButton.setOnClickListener {
+        captureButton.setOnClickListener { takeManualCapture() }
+        btnFromPhotos.setOnClickListener {
+            stopLiveCamera()
+            openPhotoPicker()
+        }
+        btnEmptyFromPhotos.setOnClickListener { openPhotoPicker() }
+        btnCloseLive.setOnClickListener {
+            stopLiveCamera()
+            if (pages.isEmpty()) showEmptyState() else showReviewState()
+        }
+        btnRetryCamera.setOnClickListener {
             checkCameraPermissionAndStart(replaceSelected = false)
         }
-        btnFromPhotos.setOnClickListener { openPhotoPicker() }
 
         chipOriginal.setOnClickListener { setFilter(ScanFilter.ORIGINAL) }
         chipEnhance.setOnClickListener { setFilter(ScanFilter.ENHANCE) }
@@ -289,14 +327,28 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun showEmptyState() {
+        stopLiveCamera()
         emptyPane.isVisible = true
+        liveCapturePane.isVisible = false
         reviewViews.forEach { it.isVisible = false }
         tvTitle.text = "Scan document"
         tvStatus.text = "Capture pages, then review and Save PDF"
     }
 
-    private fun showReviewState() {
+    private fun showLiveCaptureState() {
         emptyPane.isVisible = false
+        liveCapturePane.isVisible = true
+        reviewViews.forEach { it.isVisible = false }
+        tvTitle.text = "Scan document"
+        tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
+        tvLiveHint.text = "Align the page — gold outline locks, then auto-captures"
+        edgeOverlay.clear()
+    }
+
+    private fun showReviewState() {
+        stopLiveCamera()
+        emptyPane.isVisible = false
+        liveCapturePane.isVisible = false
         reviewViews.forEach { it.isVisible = true }
         tvTitle.text = "Review scan"
         updateStatus()
@@ -316,32 +368,238 @@ class ScanActivity : AppCompatActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) {
-            launchCamera(replaceSelected)
+            startLiveCamera(replaceSelected)
         } else {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
-    private fun launchCamera(replaceSelected: Boolean) {
+    private fun startLiveCamera(replaceSelected: Boolean) {
         retakePending = replaceSelected
-        try {
-            val photoFile = File.createTempFile(
-                "scan_${System.currentTimeMillis()}",
-                ".jpg",
-                cacheDir
-            )
-            pendingCaptureFile = photoFile
-            val uri = FileProvider.getUriForFile(
-                this,
-                "${BuildConfig.APPLICATION_ID}.fileprovider",
-                photoFile
-            )
-            tvStatus.text = if (replaceSelected) "Retake page…" else "Scanning page ${pages.size + 1}…"
-            takePictureLauncher.launch(uri)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Camera error: ${e.message}", Toast.LENGTH_SHORT).show()
-            retakePending = false
+        autoArmed = true
+        stableCount = 0
+        lastQuad = null
+        capturing.set(false)
+        showLiveCaptureState()
+
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            try {
+                val provider = cameraProviderFuture.get()
+                cameraProvider = provider
+                bindCameraUseCases(provider)
+            } catch (e: Exception) {
+                Log.e(TAG, "Camera start failed", e)
+                Toast.makeText(this, "Camera error: ${e.message}", Toast.LENGTH_LONG).show()
+                showEmptyState()
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun bindCameraUseCases(provider: ProcessCameraProvider) {
+        provider.unbindAll()
+        analysisExecutor?.shutdown()
+        analysisExecutor = Executors.newSingleThreadExecutor()
+
+        val preview = Preview.Builder().build().also {
+            it.surfaceProvider = previewView.surfaceProvider
         }
+
+        imageCapture = ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+
+        val analysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .build()
+
+        analysis.setAnalyzer(analysisExecutor!!) { imageProxy ->
+            if (!analyzing.compareAndSet(false, true)) {
+                imageProxy.close()
+                return@setAnalyzer
+            }
+            try {
+                // Match PreviewView orientation: rotate detection to display space
+                val rotation = imageProxy.imageInfo.rotationDegrees
+                val detection = DocumentEdgeDetector.detect(imageProxy)
+                runOnUiThread {
+                    onDetection(detection, rotation)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "analyze failed", e)
+            } finally {
+                analyzing.set(false)
+                imageProxy.close()
+            }
+        }
+
+        val selector = CameraSelector.DEFAULT_BACK_CAMERA
+        provider.bindToLifecycle(this, selector, preview, imageCapture, analysis)
+    }
+
+    private fun onDetection(detection: DocumentEdgeDetector.Detection?, rotation: Int) {
+        if (!liveCapturePane.isVisible || capturing.get()) return
+        if (detection == null) {
+            stableCount = 0
+            lastQuad = null
+            edgeOverlay.clear()
+            tvLiveHint.text = "Move closer — looking for page edges"
+            return
+        }
+
+        // ImageProxy is sensor-oriented; PreviewView is rotation-compensated.
+        // For overlay we use normalized coords from analysis which matches the
+        // buffer; PreviewView fillCenter typically mirrors sensor after rotation.
+        // Map quad into display space for common 90/270 cases.
+        val displayQuad = mapQuadForDisplay(detection.quad, rotation)
+
+        val prev = lastQuad
+        val iou = if (prev != null) DocumentEdgeDetector.iou(prev, displayQuad) else 0f
+        lastQuad = displayQuad
+        lastScore = detection.score
+
+        val stable = detection.score >= AUTO_SCORE && iou >= AUTO_IOU
+        if (stable) {
+            stableCount++
+        } else if (detection.score >= AUTO_SCORE * 0.85f && iou >= 0.6f) {
+            // soft hold
+        } else {
+            stableCount = 0
+        }
+
+        val locked = stableCount >= STABLE_NEED
+        edgeOverlay.setQuad(displayQuad, locked)
+
+        tvLiveHint.text = when {
+            locked -> "Locked — capturing…"
+            stableCount > 0 -> "Hold still…"
+            detection.score >= AUTO_SCORE -> "Outline found — hold steady"
+            else -> "Align the page inside the frame"
+        }
+
+        if (locked && autoArmed && !capturing.get()) {
+            autoArmed = false
+            takeCapture(auto = true)
+        }
+    }
+
+    private fun mapQuadForDisplay(quad: Array<PointF>, rotation: Int): Array<PointF> {
+        // YUV analysis is already in ImageProxy width/height (pre-rotation dims).
+        // PreviewView applies rotationDegrees; remap normalized points accordingly.
+        fun map(p: PointF): PointF = when ((rotation % 360 + 360) % 360) {
+            90 -> PointF(p.y, 1f - p.x)
+            180 -> PointF(1f - p.x, 1f - p.y)
+            270 -> PointF(1f - p.y, p.x)
+            else -> PointF(p.x, p.y)
+        }
+        val mapped = Array(4) { map(quad[it]) }
+        // re-order TL TR BR BL after rotation
+        val sorted = mapped.sortedWith(compareBy({ it.y }, { it.x }))
+        val top = sorted.take(2).sortedBy { it.x }
+        val bottom = sorted.takeLast(2).sortedBy { it.x }
+        return arrayOf(top[0], top[1], bottom[1], bottom[0])
+    }
+
+    private fun takeManualCapture() {
+        if (!liveCapturePane.isVisible) {
+            checkCameraPermissionAndStart(false)
+            return
+        }
+        takeCapture(auto = false)
+    }
+
+    private fun takeCapture(auto: Boolean) {
+        val capture = imageCapture ?: return
+        if (!capturing.compareAndSet(false, true)) return
+
+        tvLiveHint.text = if (auto) "Auto-capturing…" else "Capturing…"
+        val photoFile = File(cacheDir, "scan_${System.currentTimeMillis()}.jpg")
+        val output = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+        capture.takePicture(
+            output,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    val quad = lastQuad
+                    val score = lastScore
+                    stopLiveCamera()
+                    lifecycleScope.launch {
+                        val path = withContext(Dispatchers.IO) {
+                            finalizeCapturedPage(photoFile, quad, score)
+                        }
+                        capturing.set(false)
+                        if (path == null) {
+                            Toast.makeText(this@ScanActivity, "Capture failed", Toast.LENGTH_SHORT).show()
+                            if (pages.isEmpty()) showEmptyState() else showReviewState()
+                            return@launch
+                        }
+                        addOrReplacePage(path, replaceSelected = retakePending)
+                        retakePending = false
+                    }
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    capturing.set(false)
+                    autoArmed = true
+                    Log.e(TAG, "capture error", exception)
+                    Toast.makeText(
+                        this@ScanActivity,
+                        "Capture failed: ${exception.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        )
+    }
+
+    /**
+     * Apply perspective warp when detection was confident; else save upright JPEG.
+     */
+    private fun finalizeCapturedPage(
+        photoFile: File,
+        quad: Array<PointF>?,
+        score: Float
+    ): String? {
+        val raw = BitmapFactory.decodeFile(photoFile.absolutePath) ?: return null
+        return try {
+            var working = raw
+            // EXIF orientation is usually handled by ImageCapture; keep as-is.
+            val outFile = File(cacheDir, "scan_page_${System.currentTimeMillis()}.jpg")
+            if (quad != null && score >= AUTO_SCORE * 0.9f) {
+                // Re-detect on full bitmap for better crop accuracy
+                val still = DocumentEdgeDetector.detectBitmap(working)
+                val useQuad = still?.quad ?: quad
+                val warped = PerspectiveHelper.warpDocument(working, useQuad)
+                if (warped != null) {
+                    if (working !== raw && !working.isRecycled) working.recycle()
+                    working = warped
+                }
+            }
+            FileOutputStream(outFile).use { fos ->
+                working.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+            }
+            if (working !== raw && !working.isRecycled) working.recycle()
+            if (!raw.isRecycled) raw.recycle()
+            if (photoFile.exists()) photoFile.delete()
+            outFile.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "finalize failed", e)
+            if (!raw.isRecycled) raw.recycle()
+            photoFile.absolutePath.takeIf { photoFile.exists() }
+        }
+    }
+
+    private fun stopLiveCamera() {
+        try {
+            cameraProvider?.unbindAll()
+        } catch (_: Exception) {
+        }
+        analysisExecutor?.shutdown()
+        analysisExecutor = null
+        imageCapture = null
+        edgeOverlay.clear()
+        liveCapturePane.isVisible = false
     }
 
     private fun openPhotoPicker() {
@@ -399,7 +657,6 @@ class ScanActivity : AppCompatActivity() {
     private fun updateCropUi() {
         cropOverlay.isVisible = cropMode
         btnToggleCrop.text = if (cropMode) "Done crop" else "Crop"
-        // While cropping, show uncropped rotated base so handles match; filter still applied after
         if (cropMode) {
             val page = currentPage() ?: return
             lifecycleScope.launch {
@@ -437,7 +694,6 @@ class ScanActivity : AppCompatActivity() {
         val shownH = dh * scale
         val left = (vw - shownW) / 2f + ivPreview.paddingLeft
         val top = (vh - shownH) / 2f + ivPreview.paddingTop
-        // Crop overlay is sibling covering previewContainer; map into overlay coords
         val locIv = IntArray(2)
         val locOverlay = IntArray(2)
         ivPreview.getLocationInWindow(locIv)
@@ -531,7 +787,6 @@ class ScanActivity : AppCompatActivity() {
                     putExtra(EXTRA_PDF_URI, uri.toString())
                     putExtra(EXTRA_PDF_PATH, outFile.absolutePath)
                     putExtra(EXTRA_PAGE_COUNT, pages.size)
-                    // Tools OCR path optional: leave blank — job is image PDF
                     putExtra(EXTRA_SCANNED_TEXT, "")
                 }
                 setResult(Activity.RESULT_OK, returnIntent)
@@ -575,6 +830,7 @@ class ScanActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        stopLiveCamera()
         previewBitmap?.let { if (!it.isRecycled) it.recycle() }
         previewBitmap = null
         super.onDestroy()
@@ -610,7 +866,6 @@ class ScanActivity : AppCompatActivity() {
 
             val page = pages[position]
             holder.iv.tag = page.id
-            // Lightweight thumb decode
             Thread {
                 val bmp = ScanPageRenderer.renderForPreview(page)
                 holder.iv.post {

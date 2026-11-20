@@ -34,8 +34,8 @@ android {
         minSdk = 26
         targetSdk = 36
 
-        versionCode = 45
-        versionName = "3.13.0"
+        versionCode = 46
+        versionName = "3.14.0"
 
 
         ndk {
@@ -160,13 +160,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
-    // CameraX
-   // val camerax = "1.5.0" // or newer stable
-   // implementation("androidx.camera:camera-core:$camerax")
-   // implementation("androidx.camera:camera-camera2:$camerax")
-   // implementation("androidx.camera:camera-lifecycle:$camerax")
-   // implementation("androidx.camera:camera-view:$camerax")
-
+    // CameraX — live preview + analysis + capture for document scan
+    val camerax = "1.4.2"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+    // ListenableFuture used by ProcessCameraProvider.getInstance()
+    implementation("com.google.guava:guava:33.3.1-android")
 
     // ML Kit
     implementation("com.google.mlkit:text-recognition:16.0.1")

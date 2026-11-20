@@ -198,7 +198,93 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Empty / start state -->
+    <!-- Live CameraX capture (edge highlight + auto / manual shutter) -->
+    <FrameLayout
+        android:id="@+id/liveCapturePane"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#111111"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvStatus">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:implementationMode="compatible"
+            app:scaleType="fillCenter" />
+
+        <com.mmalyil.smartdocai.scan.EdgeOverlayView
+            android:id="@+id/edgeOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:background="#99000000"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="20dp">
+
+            <TextView
+                android:id="@+id/tvLiveHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="Align the page — gold outline locks, then auto-captures"
+                android:textColor="#FFF7EA"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnFromPhotos"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="Photos"
+                    android:textAllCaps="false"
+                    android:textColor="#FFF7EA" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/captureButton"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:backgroundTint="@color/md3_primary"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="●"
+                    android:textColor="@color/md3_onPrimary"
+                    android:textSize="22sp"
+                    app:cornerRadius="36dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCloseLive"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="Close"
+                    android:textAllCaps="false"
+                    android:textColor="#FFF7EA" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Fallback when camera unavailable -->
     <LinearLayout
         android:id="@+id/emptyCapturePane"
         android:layout_width="0dp"
@@ -216,21 +302,21 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
-            android:text="Scan documents into a multi-page PDF"
+            android:text="Camera unavailable — use photos or retry"
             android:textColor="@color/md3_onPrimaryContainer"
             android:textSize="16sp" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/captureButton"
+            android:id="@+id/btnRetryCamera"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:backgroundTint="@color/md3_primary"
-            android:text="Scan with camera"
+            android:text="Retry camera"
             android:textColor="@color/md3_onPrimary" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnFromPhotos"
+            android:id="@+id/btnEmptyFromPhotos"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
