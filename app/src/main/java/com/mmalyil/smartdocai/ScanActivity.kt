@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.RectF
 import android.net.Uri
@@ -32,6 +33,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
+import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -45,6 +47,7 @@ import com.mmalyil.smartdocai.scan.DocumentEdgeTracker
 import com.mmalyil.smartdocai.scan.EdgeOverlayView
 import com.mmalyil.smartdocai.scan.ImagePdfWriter
 import com.mmalyil.smartdocai.scan.PerspectiveHelper
+import com.mmalyil.smartdocai.scan.PreviewCoordMapper
 import com.mmalyil.smartdocai.scan.ScanFilter
 import com.mmalyil.smartdocai.scan.ScanPage
 import com.mmalyil.smartdocai.scan.ScanPageRenderer
@@ -79,8 +82,8 @@ class ScanActivity : AppCompatActivity() {
         const val EXTRA_PAGE_COUNT = "scanPageCount"
         const val EXTRA_SCANNED_TEXT = "scannedText"
 
-        /** Still-capture warp uses this floor (tracker LOCK_SCORE is stricter for auto). */
-        private const val WARP_SCORE = 0.60f
+        /** Still re-detect must clear this to perspective-warp the capture. */
+        private const val STILL_WARP_SCORE = 0.48f
     }
 
     private lateinit var tvTitle: TextView
@@ -407,17 +410,24 @@ class ScanActivity : AppCompatActivity() {
         analysisExecutor?.shutdown()
         analysisExecutor = Executors.newSingleThreadExecutor()
 
-        val preview = Preview.Builder().build().also {
-            it.surfaceProvider = previewView.surfaceProvider
-        }
+        val rotation = previewView.display?.rotation ?: windowManager.defaultDisplay.rotation
+
+        previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+
+        val preview = Preview.Builder()
+            .setTargetRotation(rotation)
+            .build()
+            .also { it.surfaceProvider = previewView.surfaceProvider }
 
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setTargetRotation(rotation)
             .build()
 
         val analysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .setTargetRotation(rotation)
             .build()
 
         analysis.setAnalyzer(analysisExecutor!!) { imageProxy ->
@@ -430,10 +440,31 @@ class ScanActivity : AppCompatActivity() {
             }
             lastAnalyzeMs.set(now)
             try {
-                val rotation = imageProxy.imageInfo.rotationDegrees
                 val detection = DocumentEdgeDetector.detect(imageProxy)
+                // Map WHILE ImageProxy is open — CoordinateTransform needs buffer + PreviewView
+                val overlayMapped: DocumentEdgeDetector.Detection? =
+                    if (detection != null) {
+                        val ow = edgeOverlay.width.takeIf { it > 0 } ?: previewView.width
+                        val oh = edgeOverlay.height.takeIf { it > 0 } ?: previewView.height
+                        val viewQuad = PreviewCoordMapper.analysisQuadToOverlay(
+                            imageProxy = imageProxy,
+                            previewView = previewView,
+                            overlayWidth = ow,
+                            overlayHeight = oh,
+                            quadNorm = detection.quad
+                        )
+                        if (viewQuad != null) {
+                            DocumentEdgeDetector.Detection(
+                                quad = viewQuad,
+                                score = detection.score,
+                                analysisWidth = detection.analysisWidth,
+                                analysisHeight = detection.analysisHeight
+                            )
+                        } else null
+                    } else null
+
                 runOnUiThread {
-                    onDetection(detection, rotation)
+                    onDetection(overlayMapped)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "analyze failed", e)
@@ -447,19 +478,11 @@ class ScanActivity : AppCompatActivity() {
         provider.bindToLifecycle(this, selector, preview, imageCapture, analysis)
     }
 
-    private fun onDetection(detection: DocumentEdgeDetector.Detection?, rotation: Int) {
+    /** [detection] quad is already in overlay-normalized PreviewView space. */
+    private fun onDetection(detection: DocumentEdgeDetector.Detection?) {
         if (!liveCapturePane.isVisible || capturing.get()) return
 
-        val mapped = detection?.let {
-            DocumentEdgeDetector.Detection(
-                quad = mapQuadForDisplay(it.quad, rotation),
-                score = it.score,
-                analysisWidth = it.analysisWidth,
-                analysisHeight = it.analysisHeight
-            )
-        }
-
-        val frame = edgeTracker.onFrame(mapped)
+        val frame = edgeTracker.onFrame(detection)
         lastQuad = frame.displayQuad
         lastScore = frame.smoothedScore
 
@@ -488,23 +511,6 @@ class ScanActivity : AppCompatActivity() {
         }
     }
 
-    private fun mapQuadForDisplay(quad: Array<PointF>, rotation: Int): Array<PointF> {
-        // YUV analysis is already in ImageProxy width/height (pre-rotation dims).
-        // PreviewView applies rotationDegrees; remap normalized points accordingly.
-        fun map(p: PointF): PointF = when ((rotation % 360 + 360) % 360) {
-            90 -> PointF(p.y, 1f - p.x)
-            180 -> PointF(1f - p.x, 1f - p.y)
-            270 -> PointF(1f - p.y, p.x)
-            else -> PointF(p.x, p.y)
-        }
-        val mapped = Array(4) { map(quad[it]) }
-        // re-order TL TR BR BL after rotation
-        val sorted = mapped.sortedWith(compareBy({ it.y }, { it.x }))
-        val top = sorted.take(2).sortedBy { it.x }
-        val bottom = sorted.takeLast(2).sortedBy { it.x }
-        return arrayOf(top[0], top[1], bottom[1], bottom[0])
-    }
-
     private fun takeManualCapture() {
         if (!liveCapturePane.isVisible) {
             checkCameraPermissionAndStart(false)
@@ -525,12 +531,12 @@ class ScanActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    val quad = edgeTracker.lastSmoothedQuad() ?: lastQuad
-                    val score = edgeTracker.lastSmoothedScore().takeIf { it > 0f } ?: lastScore
+                    // Do NOT use live overlay quads for warp — they are in PreviewView space,
+                    // not JPEG sensor space. Always re-detect on the still.
                     stopLiveCamera()
                     lifecycleScope.launch {
                         val path = withContext(Dispatchers.IO) {
-                            finalizeCapturedPage(photoFile, quad, score)
+                            finalizeCapturedPage(photoFile)
                         }
                         capturing.set(false)
                         if (path == null) {
@@ -558,40 +564,80 @@ class ScanActivity : AppCompatActivity() {
     }
 
     /**
-     * Apply perspective warp when detection was confident; else save upright JPEG.
+     * Decode capture with EXIF orientation, re-detect page on the still, perspective-warp
+     * to a flat rectangle. Falls back to axis-aligned crop, then full frame.
      */
-    private fun finalizeCapturedPage(
-        photoFile: File,
-        quad: Array<PointF>?,
-        score: Float
-    ): String? {
-        val raw = BitmapFactory.decodeFile(photoFile.absolutePath) ?: return null
+    private fun finalizeCapturedPage(photoFile: File): String? {
+        val oriented = decodeCaptureOriented(photoFile) ?: return null
         return try {
-            var working = raw
-            // EXIF orientation is usually handled by ImageCapture; keep as-is.
+            var working = oriented
             val outFile = File(cacheDir, "scan_page_${System.currentTimeMillis()}.jpg")
-            if (quad != null && score >= WARP_SCORE) {
-                // Prefer still re-detect; fall back to smoothed live quad
-                val still = DocumentEdgeDetector.detectBitmap(working)
-                val useQuad = if (still != null && still.score >= WARP_SCORE) still.quad else quad
-                val warped = PerspectiveHelper.warpDocument(working, useQuad)
+
+            val still = DocumentEdgeDetector.detectBitmap(working)
+            if (still != null && still.score >= STILL_WARP_SCORE) {
+                val warped = PerspectiveHelper.warpDocument(working, still.quad)
                 if (warped != null) {
-                    if (working !== raw && !working.isRecycled) working.recycle()
+                    if (working !== oriented && !working.isRecycled) working.recycle()
                     working = warped
+                    Log.d(TAG, "still warp ok score=${still.score}")
+                } else {
+                    // Axis-aligned crop from quad bbox if poly warp fails
+                    val box = PerspectiveHelper.boundingCrop(still.quad)
+                    val cropped = cropNormalized(working, box)
+                    if (cropped != null) {
+                        if (working !== oriented && !working.isRecycled) working.recycle()
+                        working = cropped
+                    }
                 }
+            } else {
+                Log.d(TAG, "still detect weak score=${still?.score}")
             }
+
             FileOutputStream(outFile).use { fos ->
                 working.compress(Bitmap.CompressFormat.JPEG, 92, fos)
             }
-            if (working !== raw && !working.isRecycled) working.recycle()
-            if (!raw.isRecycled) raw.recycle()
+            if (working !== oriented && !working.isRecycled) working.recycle()
+            if (!oriented.isRecycled) oriented.recycle()
             if (photoFile.exists()) photoFile.delete()
             outFile.absolutePath
         } catch (e: Exception) {
             Log.e(TAG, "finalize failed", e)
-            if (!raw.isRecycled) raw.recycle()
+            if (!oriented.isRecycled) oriented.recycle()
             photoFile.absolutePath.takeIf { photoFile.exists() }
         }
+    }
+
+    private fun decodeCaptureOriented(file: File): Bitmap? {
+        val raw = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+        return try {
+            val exif = ExifInterface(file.absolutePath)
+            val orient = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            val degrees = when (orient) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+            if (degrees == 0) return raw
+            val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+            val rotated = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
+            if (rotated !== raw && !raw.isRecycled) raw.recycle()
+            rotated
+        } catch (_: Exception) {
+            raw
+        }
+    }
+
+    private fun cropNormalized(src: Bitmap, box: FloatArray): Bitmap? {
+        val l = (box[0] * src.width).toInt().coerceIn(0, src.width - 2)
+        val t = (box[1] * src.height).toInt().coerceIn(0, src.height - 2)
+        val r = (box[2] * src.width).toInt().coerceIn(l + 1, src.width)
+        val b = (box[3] * src.height).toInt().coerceIn(t + 1, src.height)
+        if (r - l < 32 || b - t < 32) return null
+        return Bitmap.createBitmap(src, l, t, r - l, b - t)
     }
 
     private fun stopLiveCamera() {
