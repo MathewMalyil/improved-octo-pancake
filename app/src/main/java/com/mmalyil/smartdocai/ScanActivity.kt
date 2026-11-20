@@ -50,6 +50,7 @@ import com.mmalyil.smartdocai.scan.DocumentEdgeDetector
 import com.mmalyil.smartdocai.scan.DocumentEdgeTracker
 import com.mmalyil.smartdocai.scan.EdgeOverlayView
 import com.mmalyil.smartdocai.scan.ImagePdfWriter
+import com.mmalyil.smartdocai.scan.OpenCvDocumentDetector
 import com.mmalyil.smartdocai.scan.PerspectiveHelper
 import com.mmalyil.smartdocai.scan.PreviewCoordMapper
 import com.mmalyil.smartdocai.scan.ScanFilter
@@ -149,24 +150,46 @@ class ScanActivity : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (!BuildConfig.DEBUG) return
             if (intent?.action != ACTION_DEBUG_FEED_PAGE) return
-            Log.i(TAG, "DEBUG_FEED_PAGE — injecting synthetic visible quads")
+            Log.i(TAG, "DEBUG_FEED_PAGE — OpenCV synthetic page + lock→capture")
             edgeTracker.reset()
             autoArmed = true
             capturing.set(false)
-            val quad = arrayOf(
-                PointF(0.18f, 0.22f),
-                PointF(0.82f, 0.20f),
-                PointF(0.85f, 0.80f),
-                PointF(0.15f, 0.82f)
-            )
             lifecycleScope.launch {
+                val det = withContext(Dispatchers.Default) {
+                    OpenCvDocumentDetector.ensureInit()
+                    // White rectangle on dark bg — proves OpenCV contour path
+                    val bmp = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
+                    val c = android.graphics.Canvas(bmp)
+                    c.drawColor(0xFF1A1A1A.toInt())
+                    val paint = android.graphics.Paint().apply { color = 0xFFF5F5F5.toInt() }
+                    c.drawRect(80f, 60f, 560f, 420f, paint)
+                    val found = OpenCvDocumentDetector.detectBitmap(bmp)
+                    bmp.recycle()
+                    found
+                }
+                if (det != null) {
+                    Log.i(TAG, "DEBUG OpenCV synthetic HIT score=${det.score}")
+                } else {
+                    Log.e(TAG, "DEBUG OpenCV synthetic MISS — falling back to fixed quad")
+                }
+                val seed = det ?: DocumentEdgeDetector.Detection(
+                    quad = arrayOf(
+                        PointF(0.18f, 0.22f),
+                        PointF(0.82f, 0.20f),
+                        PointF(0.85f, 0.80f),
+                        PointF(0.15f, 0.82f)
+                    ),
+                    score = 0.70f,
+                    analysisWidth = 480,
+                    analysisHeight = 640
+                )
                 repeat(12) {
                     onDetection(
                         DocumentEdgeDetector.Detection(
-                            quad = Array(4) { PointF(quad[it].x, quad[it].y) },
-                            score = 0.70f,
-                            analysisWidth = 480,
-                            analysisHeight = 640
+                            quad = Array(4) { PointF(seed.quad[it].x, seed.quad[it].y) },
+                            score = seed.score,
+                            analysisWidth = seed.analysisWidth,
+                            analysisHeight = seed.analysisHeight
                         )
                     )
                     delay(100L)
@@ -217,6 +240,12 @@ class ScanActivity : AppCompatActivity() {
         bindViews()
         setupThumbs()
         setupControls()
+
+        // Load OpenCV before first analyze frame (robust document contours)
+        lifecycleScope.launch(Dispatchers.Default) {
+            val ok = OpenCvDocumentDetector.ensureInit()
+            Log.i(TAG, "OpenCV ready=$ok")
+        }
 
         when (intent.getStringExtra(EXTRA_START_MODE)) {
             MODE_PHOTOS -> {
@@ -478,6 +507,7 @@ class ScanActivity : AppCompatActivity() {
         val rotation = previewView.display?.rotation ?: windowManager.defaultDisplay.rotation
 
         previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+        previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
 
         val preview = Preview.Builder()
             .setTargetRotation(rotation)
@@ -491,7 +521,8 @@ class ScanActivity : AppCompatActivity() {
 
         val analysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            // RGBA avoids broken/black Y-plane reads on some S25 streams
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .setTargetRotation(rotation)
             .build()
 
@@ -505,9 +536,26 @@ class ScanActivity : AppCompatActivity() {
             }
             lastAnalyzeMs.set(now)
             try {
-                val detection = DocumentEdgeDetector.detect(imageProxy)
-                if (detection == null && now % 1000L < 130L) {
-                    Log.d(TAG, "analyze: no detection")
+                if (now % 2000L < 130L) {
+                    val p0 = imageProxy.planes[0]
+                    Log.d(
+                        TAG,
+                        "frame fmt=${imageProxy.format} ${imageProxy.width}x${imageProxy.height} " +
+                            "planes=${imageProxy.planes.size} stride=${p0.rowStride}/${p0.pixelStride} " +
+                            "rot=${imageProxy.imageInfo.rotationDegrees}"
+                    )
+                }
+                // OpenCV first (robust); Kotlin heuristic fallback
+                val detection = OpenCvDocumentDetector.detect(imageProxy)
+                    ?: DocumentEdgeDetector.detect(imageProxy)
+                if (detection == null) {
+                    if (now % 1000L < 130L) Log.d(TAG, "analyze: no detection")
+                } else {
+                    Log.d(
+                        TAG,
+                        "analyze HIT score=${"%.2f".format(detection.score)} " +
+                            "opencv=${OpenCvDocumentDetector.isReady()}"
+                    )
                 }
                 // Map WHILE ImageProxy is open — CoordinateTransform needs buffer + PreviewView
                 val overlayMapped: DocumentEdgeDetector.Detection? =
@@ -708,19 +756,20 @@ class ScanActivity : AppCompatActivity() {
      * Never uses live overlay quads (wrong coordinate space).
      */
     private fun deskewStill(src: Bitmap): Bitmap? {
-        val modes = listOf(
-            DocumentEdgeDetector.Mode.STILL,
-            DocumentEdgeDetector.Mode.STILL_STRONG
-        )
+        // Prefer OpenCV still detect, then Kotlin STILL / STILL_STRONG
+        val candidates = mutableListOf<DocumentEdgeDetector.Detection>()
+        OpenCvDocumentDetector.detectBitmap(src)?.let { candidates.add(it) }
+        DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL)?.let { candidates.add(it) }
+        DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL_STRONG)?.let { candidates.add(it) }
+
         var bestQuad: Array<PointF>? = null
         var bestScore = -1f
-        for (mode in modes) {
-            val det = DocumentEdgeDetector.detectBitmap(src, mode) ?: continue
-            Log.d(TAG, "still detect mode=$mode score=${det.score}")
+        for (det in candidates.sortedByDescending { it.score }) {
+            Log.d(TAG, "still detect score=${det.score}")
             if (det.score < STILL_WARP_SCORE) continue
             val warped = PerspectiveHelper.warpDocument(src, det.quad)
             if (warped != null) {
-                Log.d(TAG, "still warp ok mode=$mode score=${det.score}")
+                Log.d(TAG, "still warp ok score=${det.score}")
                 return warped
             }
             if (det.score > bestScore) {
@@ -728,7 +777,6 @@ class ScanActivity : AppCompatActivity() {
                 bestQuad = det.quad
             }
         }
-        // Poly warp failed but we have a quad — axis-aligned crop as last resort
         val quad = bestQuad ?: return null
         val box = PerspectiveHelper.boundingCrop(quad)
         val cropped = cropNormalized(src, box)

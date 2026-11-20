@@ -90,7 +90,7 @@ object DocumentEdgeDetector {
     )
 
     fun detect(imageProxy: ImageProxy): Detection? {
-        val grayFull = yPlaneToGray(imageProxy) ?: return null
+        val grayFull = imageProxyToGray(imageProxy) ?: return null
         val srcW = imageProxy.width
         val srcH = imageProxy.height
         // Canny first; paper-mask fallback for white page on dark desk (LIVE)
@@ -102,6 +102,46 @@ object DocumentEdgeDetector {
                 val gray = if (w == srcW && h == srcH) grayFull else downsampleGray(grayFull, srcW, srcH, w, h)
                 detectPaperMask(gray, w, h, LIVE)
             }
+    }
+
+    /** Supports CameraX RGBA_8888 and YUV_420_888. */
+    private fun imageProxyToGray(image: ImageProxy): IntArray? {
+        val plane = image.planes.getOrNull(0) ?: return null
+        return if (plane.pixelStride == 4 || image.planes.size == 1 && image.format != 35) {
+            rgbaToGray(image)
+        } else {
+            yPlaneToGray(image)
+        }
+    }
+
+    private fun rgbaToGray(image: ImageProxy): IntArray? {
+        return try {
+            val plane = image.planes[0]
+            val buffer = plane.buffer.duplicate()
+            val rowStride = plane.rowStride
+            val pixelStride = plane.pixelStride
+            val width = image.width
+            val height = image.height
+            val out = IntArray(width * height)
+            val row = ByteArray(rowStride)
+            var i = 0
+            for (y in 0 until height) {
+                buffer.position(y * rowStride)
+                buffer.get(row, 0, min(rowStride, buffer.remaining()))
+                var x = 0
+                while (x < width) {
+                    val si = x * pixelStride
+                    val r = row[si].toInt() and 0xff
+                    val g = row[si + 1].toInt() and 0xff
+                    val b = row[si + 2].toInt() and 0xff
+                    out[i++] = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+                    x++
+                }
+            }
+            out
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun detectBitmap(source: Bitmap, mode: Mode = Mode.STILL): Detection? {
@@ -151,12 +191,40 @@ object DocumentEdgeDetector {
      */
     private fun detectPaperMask(gray: IntArray, w: Int, h: Int, params: Params): Detection? {
         var sum = 0L
-        for (v in gray) sum += v
+        var maxL = 0
+        for (v in gray) {
+            sum += v
+            if (v > maxL) maxL = v
+        }
         val mean = sum.toFloat() / gray.size
-        // Otsu-ish: threshold between mean and high white
-        val thr = ((mean + 200f) * 0.5f).roundToInt().coerceIn(110, 200)
+        // Aggressive: for dark desks (low mean) use mid threshold; else Otsu-ish
+        val thr = when {
+            mean < 70f -> max(55, ((mean + maxL) / 2f).roundToInt()).coerceAtMost(140)
+            mean < 120f -> ((mean + 180f) * 0.45f).roundToInt().coerceIn(80, 170)
+            else -> ((mean + 200f) * 0.5f).roundToInt().coerceIn(110, 200)
+        }
         val mask = BooleanArray(w * h)
-        for (i in gray.indices) mask[i] = gray[i] >= thr
+        var brightCount = 0
+        for (i in gray.indices) {
+            val on = gray[i] >= thr
+            mask[i] = on
+            if (on) brightCount++
+        }
+        // If almost nothing bright, try inverted (dark page on light desk)
+        val invert = brightCount < gray.size * 0.05 || brightCount > gray.size * 0.92
+        if (invert) {
+            val darkThr = (mean * 0.85f).roundToInt().coerceIn(40, 140)
+            brightCount = 0
+            for (i in gray.indices) {
+                val on = gray[i] <= darkThr
+                mask[i] = on
+                if (on) brightCount++
+            }
+        }
+        android.util.Log.d(
+            "DocEdgeDetect",
+            "paperMask mean=${"%.0f".format(mean)} max=$maxL thr=$thr bright=$brightCount invert=$invert"
+        )
 
         // Largest bright component (skip border-touching full frames)
         val visited = BooleanArray(w * h)

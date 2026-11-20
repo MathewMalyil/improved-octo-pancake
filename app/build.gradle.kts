@@ -34,8 +34,8 @@ android {
         minSdk = 26
         targetSdk = 36
 
-        versionCode = 51
-        versionName = "3.14.5"
+        versionCode = 52
+        versionName = "3.14.6"
 
 
         ndk {
@@ -169,6 +169,9 @@ dependencies {
     // ListenableFuture used by ProcessCameraProvider.getInstance()
     implementation("com.google.guava:guava:33.3.1-android")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+
+    // OpenCV — robust live document contour detection (arm64 via abiFilters)
+    implementation("org.opencv:opencv:4.10.0")
 
     // ML Kit
     implementation("com.google.mlkit:text-recognition:16.0.1")
