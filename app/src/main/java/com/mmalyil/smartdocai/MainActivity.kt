@@ -19,7 +19,6 @@ import kotlinx.coroutines.launch
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.mmalyil.smartdocai.util.UsageManager
 import android.widget.ProgressBar
 import com.mmalyil.smartdocai.BuildConfig
@@ -39,11 +38,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
 
-
 // Hide banner when keyboard is visible (IME)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-            findViewById<View>(R.id.adViewBanner)?.visibility = if (imeVisible) View.GONE else View.VISIBLE
+            findViewById<View>(R.id.adViewBanner)?.visibility =
+                if (imeVisible) View.GONE else View.VISIBLE
             insets
         }
 
@@ -84,16 +83,55 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-        // Ads
+        // Ads — hidden for Document Pro (and when ADS_ENABLED is false in debug)
         adViewBanner = findViewById(R.id.adViewBanner)
+        refreshBannerAd()
 
-        if (!BuildConfig.ADS_ENABLED) {
-            adViewBanner.visibility = View.GONE
-        } else {
-            adViewBanner.postDelayed({
-                adViewBanner.loadAd(AdRequest.Builder().build())
-            }, 1200)
+        // Restore Document Pro entitlement quietly on launch
+        try {
+            val bm = com.mmalyil.smartdocai.billing.BillingManager(
+                this,
+                object : com.mmalyil.smartdocai.billing.BillingManager.BillingUpdateListener {
+                    override fun onPurchasesUpdated(purchases: List<com.android.billingclient.api.Purchase>) {
+                        refreshBannerAd()
+                    }
+                }
+            )
+            bm.startConnection {
+                bm.queryPurchases {
+                    runOnUiThread { refreshBannerAd() }
+                    bm.destroy()
+                }
+            }
+        } catch (_: Exception) {
         }
+    }
+
+    private fun refreshBannerAd() {
+        if (!::adViewBanner.isInitialized) return
+        val pro = com.mmalyil.smartdocai.util.DocumentEntitlement.isDocumentPro(this)
+        if (!BuildConfig.ADS_ENABLED || pro) {
+            try {
+                adViewBanner.destroy()
+            } catch (_: Exception) {
+            }
+            adViewBanner.visibility = View.GONE
+            return
+        }
+        adViewBanner.visibility = View.INVISIBLE
+        window.decorView.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            if (com.mmalyil.smartdocai.util.DocumentEntitlement.isDocumentPro(this)) {
+                adViewBanner.visibility = View.GONE
+                return@postDelayed
+            }
+            try {
+                adViewBanner.loadAd(AdRequest.Builder().build())
+                adViewBanner.visibility = View.VISIBLE
+            } catch (_: Exception) {
+                adViewBanner.visibility = View.GONE
+            }
+        }, 3500)
     }
 
     // If your Activity is relaunched with a new Intent (rare here),
@@ -223,27 +261,13 @@ class MainActivity : AppCompatActivity() {
     private fun initUi(savedInstanceState: Bundle?) {
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottomNav)
         bottomNav.setOnItemSelectedListener { item ->
-            val selectedFragment = when (item.itemId) {
-                R.id.nav_home -> HomeFragment()
-                R.id.nav_tools -> ToolsFragment()
-                R.id.nav_files -> FilesFragment()
-                R.id.nav_settings -> SettingsFragment()
-                else -> null
-            }
-            selectedFragment?.let {
-                supportFragmentManager.beginTransaction()
-                    .setReorderingAllowed(true)
-                    .replace(R.id.contentFrame, it, it::class.java.simpleName)
-                    .commitAllowingStateLoss()   // ✅ safer for tab navigation
-                true
-            } ?: false
+            switchFragment(item.itemId)
+            true
         }
 
         if (savedInstanceState == null) {
-            supportFragmentManager.beginTransaction()
-                .setReorderingAllowed(true)
-                .replace(R.id.contentFrame, HomeFragment(), HomeFragment::class.java.simpleName)
-                .commitAllowingStateLoss()       // ✅ also safe here
+            // Start with Home fragment safely
+            switchFragment(R.id.nav_home)
         }
 
 
@@ -258,12 +282,22 @@ class MainActivity : AppCompatActivity() {
 
         // Optional quick buttons if you have them
         findViewById<MaterialButton?>(R.id.btnQuickUpload)?.setOnClickListener {
-            goToToolsAndAsk(
-                "upload"
+            goToToolsAndAsk("upload")
+        }
+        findViewById<MaterialButton?>(R.id.btnQuickScan)?.setOnClickListener {
+            startActivity(
+                Intent(this, ScanActivity::class.java).apply {
+                    putExtra(ScanActivity.EXTRA_START_MODE, ScanActivity.MODE_CAMERA)
+                }
             )
         }
-        findViewById<MaterialButton?>(R.id.btnQuickScan)?.setOnClickListener { goToToolsAndAsk("scan") }
-        findViewById<MaterialButton?>(R.id.btnQuickOCR)?.setOnClickListener { goToToolsAndAsk("pickImage") }
+        findViewById<MaterialButton?>(R.id.btnQuickOCR)?.setOnClickListener {
+            startActivity(
+                Intent(this, ScanActivity::class.java).apply {
+                    putExtra(ScanActivity.EXTRA_START_MODE, ScanActivity.MODE_PHOTOS)
+                }
+            )
+        }
 
         // 🔗 Bind usage UI (single source of truth)
         UsageManager.bindUsageUI(
@@ -273,6 +307,38 @@ class MainActivity : AppCompatActivity() {
             aiSourceTextView = tvAiSource
         )
     }
+
+    private fun switchFragment(itemId: Int) {
+        if (supportFragmentManager.isStateSaved) {
+            pendingNav = itemId
+            return
+        }
+
+        val tag = when (itemId) {
+            R.id.nav_home -> HomeFragment::class.java.simpleName
+            R.id.nav_tools -> ToolsFragment::class.java.simpleName
+            R.id.nav_files -> FilesFragment::class.java.simpleName
+            R.id.nav_settings -> SettingsFragment::class.java.simpleName
+            else -> return
+        }
+
+        val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
+        if (currentFragment?.tag == tag) return
+
+        val newFragment = when (itemId) {
+            R.id.nav_home -> HomeFragment()
+            R.id.nav_tools -> ToolsFragment()
+            R.id.nav_files -> FilesFragment()
+            R.id.nav_settings -> SettingsFragment()
+            else -> return
+        }
+
+        supportFragmentManager.beginTransaction()
+            .setReorderingAllowed(true)
+            .replace(R.id.contentFrame, newFragment, tag)
+            .commitAllowingStateLoss()
+    }
+
 
     fun goToToolsAndAsk(action: String) {
         val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
@@ -314,32 +380,63 @@ class MainActivity : AppCompatActivity() {
         val bottomSheet = layoutInflater.inflate(R.layout.dialog_fab_actions, null)
         val dialog = BottomSheetDialog(this).apply { setContentView(bottomSheet) }
 
-        fun choose(action: String) {
-            goToToolsAndAsk(action)
-            dialog.dismiss()
-        }
-
         bottomSheet.findViewById<LinearLayout>(R.id.actionUpload)?.setOnClickListener {
             goToToolsAndAsk("upload")
+            dialog.dismiss()
         }
         bottomSheet.findViewById<LinearLayout>(R.id.actionScan)?.setOnClickListener {
-            goToToolsAndAsk("scan")
+            dialog.dismiss()
+            startActivity(
+                Intent(this, ScanActivity::class.java).apply {
+                    putExtra(ScanActivity.EXTRA_START_MODE, ScanActivity.MODE_CAMERA)
+                }
+            )
         }
         bottomSheet.findViewById<LinearLayout>(R.id.actionPickImage)?.setOnClickListener {
-            goToToolsAndAsk("pickImage")
+            dialog.dismiss()
+            startActivity(
+                Intent(this, ScanActivity::class.java).apply {
+                    putExtra(ScanActivity.EXTRA_START_MODE, ScanActivity.MODE_PHOTOS)
+                }
+            )
         }
 
         dialog.show()
     }
 
 
+    override fun onPause() {
+        try { adViewBanner.pause() } catch (_: Exception) {}
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+
+        refreshBannerAd()
+        if (com.mmalyil.smartdocai.util.DocumentEntitlement.isDocumentPro(this)) {
+            try { adViewBanner.pause() } catch (_: Exception) {}
+        } else {
+            try { adViewBanner.resume() } catch (_: Exception) {}
+        }
+
         pendingNav?.let { id ->
-            findViewById<BottomNavigationView>(R.id.bottomNav).selectedItemId = id
             pendingNav = null
+            window.decorView.post {
+                if (!supportFragmentManager.isStateSaved) {
+                    findViewById<BottomNavigationView>(R.id.bottomNav).selectedItemId = id
+                }
+            }
         }
     }
+
+    override fun onDestroy() {
+        try { adViewBanner.destroy() } catch (_: Exception) {}
+        super.onDestroy()
+    }
+
+
+
 
 
 

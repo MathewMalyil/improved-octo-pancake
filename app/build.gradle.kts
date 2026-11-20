@@ -6,6 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 
     id("com.google.devtools.ksp")
+    alias(libs.plugins.kotlin.compose)
 }
 
 val localProperties = Properties().apply {
@@ -20,7 +21,7 @@ ksp {
 
 android {
     namespace = "com.mmalyil.smartdocai"
-    compileSdk = 35
+    compileSdk = 36
 
     ndkVersion = "28.0.12433566" // any r28 build you have installed is fine
 
@@ -31,10 +32,10 @@ android {
     defaultConfig {
         applicationId = "com.mmalyil.smartdocai"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
 
-        versionCode = 39
-        versionName = "3.9"
+        versionCode = 42
+        versionName = "3.11.0"
 
 
         ndk {
@@ -58,10 +59,6 @@ android {
         viewBinding = true
         buildConfig = true
         compose = true
-    }
-    composeOptions {
-        // Keep aligned with your Compose libs (1.5.x UI is fine with 1.5.10)
-        kotlinCompilerExtensionVersion = "1.5.15"
     }
 
     compileOptions {
@@ -152,12 +149,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
     // Room
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
 
-    // Billing
-    implementation("com.android.billingclient:billing:7.0.0")
+    // Billing (Play requires ≥ 8.0.0)
+    implementation("com.android.billingclient:billing:8.3.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

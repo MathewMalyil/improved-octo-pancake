@@ -42,6 +42,7 @@ import com.mmalyil.smartdocai.model.ChatMessage
 import com.mmalyil.smartdocai.model.ChatRequest
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.mmalyil.smartdocai.util.DocumentEntitlement
 import com.mmalyil.smartdocai.util.UsageManager
 import com.google.android.gms.auth.api.signin.*
 import com.google.android.gms.common.api.Scope
@@ -115,6 +116,8 @@ class ToolsFragment : Fragment() {
 
     private var lastGeneratedExcelUri: Uri? = null
 
+    /** Pages from last camera scan (for multi-page scan → PDF free cap). */
+    private var lastScanPageCount: Int = 0
 
     private var extractedText = ""
     private var aiAnswer = ""
@@ -927,7 +930,10 @@ class ToolsFragment : Fragment() {
                 toast("Please select at least one option to export")
                 return@setOnClickListener
             }
-            exportAsTxt(chkIncludeDoc.isChecked, chkIncludeAI.isChecked)
+            val ctx = context ?: return@setOnClickListener
+            DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.OTHER_EXPORT) {
+                exportAsTxt(chkIncludeDoc.isChecked, chkIncludeAI.isChecked)
+            }
         }
 
         btnExportPdf.setOnClickListener {
@@ -935,7 +941,17 @@ class ToolsFragment : Fragment() {
                 toast("Please select at least one option to export")
                 return@setOnClickListener
             }
-            exportAsPdf(chkIncludeDoc.isChecked, chkIncludeAI.isChecked)
+            val ctx = context ?: return@setOnClickListener
+            val multiPageScan = lastScanPageCount > 1 ||
+                extractedText.contains("--- Page Break ---")
+            val feature = if (multiPageScan) {
+                DocumentEntitlement.Feature.SCAN_TO_PDF
+            } else {
+                DocumentEntitlement.Feature.OTHER_EXPORT
+            }
+            DocumentEntitlement.requireOrPaywall(ctx, feature) {
+                exportAsPdf(chkIncludeDoc.isChecked, chkIncludeAI.isChecked, feature)
+            }
         }
 
         exportShareButton.setOnClickListener {
@@ -966,10 +982,14 @@ class ToolsFragment : Fragment() {
         val btnExportDocx = view.findViewById<Button>(R.id.btnExportDocx)
         btnExportDocx.setOnClickListener {
             val xlsxUri = runCatching { Uri.parse(selectedFileUri) }.getOrNull()
-            if (xlsxUri == null) {
-                toast("Load an XLSX first"); return@setOnClickListener
+            if (xlsxUri == null || selectedFileUri.isBlank()) {
+                toast("Load an Excel (.xlsx) file first")
+                return@setOnClickListener
             }
-            showAiReportPromptOptions(xlsxUri)
+            val ctx = context ?: return@setOnClickListener
+            DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.AI_REPORT) {
+                showAiReportPromptOptions(xlsxUri)
+            }
         }
 
 
@@ -989,7 +1009,10 @@ class ToolsFragment : Fragment() {
 // new Image → Excel behavior
         btnImageToExcel.setOnClickListener {
             stopWalkthroughIfRunning()
-            imageToExcelLauncher.launch(arrayOf("image/*"))
+            val ctx = context ?: return@setOnClickListener
+            DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.IMAGE_TO_EXCEL) {
+                imageToExcelLauncher.launch(arrayOf("image/*"))
+            }
         }
 
 
@@ -1350,6 +1373,10 @@ class ToolsFragment : Fragment() {
                     showLoading(false)
 
                     result.onSuccess { file ->
+                        context?.let {
+                            DocumentEntitlement.recordUse(it, DocumentEntitlement.Feature.AI_REPORT)
+                        }
+
                         // --- choose target URI: Q+ => Downloads, else FileProvider ---
                         val downloadsUri: Uri? =
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q)
@@ -1454,25 +1481,26 @@ class ToolsFragment : Fragment() {
                         // (Optional) add to your in-app Saved list here if you want
 
                     }.onFailure { e ->
-                        com.google.android.material.snackbar.Snackbar
-                            .make(
-                                requireView(),
-                                "Export failed: ${e.message}",
-                                com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-                            )
-                            .show()
+                        Log.e(TAG, "AI report export failed", e)
+                        val root = view
+                        if (root != null) {
+                            com.google.android.material.snackbar.Snackbar
+                                .make(
+                                    root,
+                                    "Couldn't create the Word report. Try again.",
+                                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                                )
+                                .show()
+                        } else {
+                            toast("Couldn't create the Word report. Try again.")
+                        }
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     showLoading(false)
-                    com.google.android.material.snackbar.Snackbar
-                        .make(
-                            requireView(),
-                            "Export error: ${e.message}",
-                            com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-                        )
-                        .show()
+                    Log.e(TAG, "AI report export error", e)
+                    toast("Couldn't create the Word report. Try again.")
                 }
             } finally {
                 withContext(Dispatchers.Main) { isGeneratingDocx = false }
@@ -1644,46 +1672,65 @@ class ToolsFragment : Fragment() {
 
 
     private fun processImageToExcel(uri: Uri) {
+        val ctx = context ?: return
+        if (!DocumentEntitlement.canUse(ctx, DocumentEntitlement.Feature.IMAGE_TO_EXCEL)) {
+            DocumentEntitlement.openPaywall(
+                ctx,
+                DocumentEntitlement.freeLimitMessage(ctx, DocumentEntitlement.Feature.IMAGE_TO_EXCEL)
+            )
+            return
+        }
+
         showLoading(true)
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val ctx = context ?: return@launch.also { showLoading(false) }
+                val appCtx = context?.applicationContext ?: return@launch.also { showLoading(false) }
 
                 val xlsxFile = withContext(Dispatchers.IO) {
-                    ImageToExcelProcessor.processImageUriToExcel(ctx, uri)
+                    ImageToExcelProcessor.processImageUriToExcel(appCtx, uri)
                 }
 
-                if (!isAdded || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                if (!isAdded || view == null ||
+                    !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                ) {
                     showLoading(false)
                     return@launch
                 }
 
-                val shareUri = getFileUri(ctx, xlsxFile.name, subDir = "exports")
+                if (!xlsxFile.exists() || xlsxFile.length() <= 0L) {
+                    toast("Couldn't create Excel from this image. Try a clearer photo.")
+                    return@launch
+                }
 
-                // 🔐 Explicit grants for Excel / Sheets
+                DocumentEntitlement.recordUse(appCtx, DocumentEntitlement.Feature.IMAGE_TO_EXCEL)
+
+                val shareUri = getFileUri(appCtx, xlsxFile.name, subDir = "exports")
+
                 try {
-                    ctx.grantUriPermission(
+                    appCtx.grantUriPermission(
                         "com.microsoft.office.excel",
                         shareUri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
-                    ctx.grantUriPermission(
+                    appCtx.grantUriPermission(
                         "com.google.android.apps.docs",
                         shareUri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
-                } catch (_: Exception) { }
+                } catch (_: Exception) {
+                }
 
                 withContext(Dispatchers.Main) {
-                    // Open intent
+                    if (!isAdded || view == null) return@withContext
+
                     val intent = Intent(Intent.ACTION_VIEW).apply {
                         setDataAndType(
                             shareUri,
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        clipData = ClipData.newUri(ctx.contentResolver, xlsxFile.name, shareUri)
+                        clipData = ClipData.newUri(appCtx.contentResolver, xlsxFile.name, shareUri)
                     }
 
                     try {
@@ -1695,38 +1742,15 @@ class ToolsFragment : Fragment() {
                     lastGeneratedExcelUri = shareUri
                     saveLastExcelUri(shareUri)
 
+                    val root = view ?: return@withContext
                     Snackbar.make(
-                        requireView(),
-                        "Excel created. Reopen anytime from SmartDocAI or Excel app",
+                        root,
+                        "Excel created",
                         Snackbar.LENGTH_LONG
                     ).setAction("Open") {
                         if (!isAdded) return@setAction
-
-                        // re-grant before reopening (some devices need it again)
                         try {
-                            ctx.grantUriPermission(
-                                "com.microsoft.office.excel",
-                                shareUri,
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            )
-                            ctx.grantUriPermission(
-                                "com.google.android.apps.docs",
-                                shareUri,
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            )
-                        } catch (_: Exception) { }
-
-                        val openAgain = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(
-                                shareUri,
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            clipData = ClipData.newUri(ctx.contentResolver, xlsxFile.name, shareUri)
-                        }
-
-                        try {
-                            startActivity(Intent.createChooser(openAgain, "Open Excel with"))
+                            startActivity(Intent.createChooser(intent, "Open Excel with"))
                         } catch (_: Exception) {
                             toast("No app found to open Excel")
                         }
@@ -1734,7 +1758,8 @@ class ToolsFragment : Fragment() {
                 }
 
             } catch (e: Exception) {
-                toast("Image → Excel failed: ${e.message}")
+                Log.e(TAG, "Image→Excel failed", e)
+                toast("Image → Excel failed. Try another image.")
             } finally {
                 showLoading(false)
             }
@@ -1775,61 +1800,27 @@ class ToolsFragment : Fragment() {
         fileUri: String,
         viewModel: ScannedFileViewModel
     ) {
-        val gpt4Limit = 300
-        val gpt35Limit = 300
-        val groqLimit = 500
+        // Free AI only: monthly token cap via UsageManager (~30k). No Pro / paid AI path.
+        val freeUsed = UsageManager.getGroqUsed(context)
+        val freeCap = UsageManager.getGroqCap(context)
 
-        val gpt4Used = GPTUsageManager.getUsage(context, "gpt-4")
-        val gpt35Used = GPTUsageManager.getUsage(context, "gpt-3.5")
-        val groqUsed = GPTUsageManager.getUsage(context, "groq")
-
-        when {
-            gpt4Used < gpt4Limit && isProUser() -> {
-                GPTUsageManager.incrementUsage(context, "gpt-4")
-                analyzeWithAI(
-                    prompt,
-                    "gpt-4",
-                    "openai",
-                    extractedText,
-                    fileName,
-                    fileUri,
-                    viewModel
-                )
-            }
-
-            groqUsed < groqLimit -> {
-                GPTUsageManager.incrementUsage(context, "groq")
-                analyzeWithAI(
-                    prompt,
-                    "llama3-8b-8192",
-                    "groq",
-                    extractedText,
-                    fileName,
-                    fileUri,
-                    viewModel
-                )
-            }
-
-            gpt35Used < gpt35Limit -> {
-                GPTUsageManager.incrementUsage(context, "gpt-3.5")
-                analyzeWithAI(
-                    prompt,
-                    "gpt-3.5-turbo",
-                    "openai",
-                    extractedText,
-                    fileName,
-                    fileUri,
-                    viewModel
-                )
-            }
-
-            else -> {
-                Toast.makeText(
-                    context,
-                    "All free model limits used. Upgrade for more access.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+        if (freeUsed < freeCap) {
+            GPTUsageManager.incrementUsage(context, "groq")
+            analyzeWithAI(
+                prompt,
+                com.mmalyil.smartdocai.util.FREE_CHAT_MODEL,
+                "groq",
+                extractedText,
+                fileName,
+                fileUri,
+                viewModel
+            )
+        } else {
+            Toast.makeText(
+                context,
+                "Monthly free AI limit reached. It resets next month.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -1848,10 +1839,10 @@ class ToolsFragment : Fragment() {
         isAnalyzing = true
         showLoading(true)
 
-        val messages = listOf(
+                val messages = listOf(
             ChatMessage(
                 role = "system",
-                content = "You are GPT-4o. Always reply clearly, concisely, and only in the same language as the user's input."
+                content = "You are a helpful document assistant. Reply clearly and concisely in the same language as the user."
             ),
             ChatMessage("user", "Here is the document text:\n$extractedText"),
             ChatMessage("user", prompt)
@@ -1875,12 +1866,25 @@ class ToolsFragment : Fragment() {
 
                 val raw = reply.raw.orEmpty()
 
-                // ✅ NON-NULL AI reply
-                val aiReply: String =
+                // ✅ NON-NULL AI reply (never show raw provider JSON)
+                var aiReply: String =
                     reply.content?.takeIf { it.isNotBlank() }
                         ?: raw.let { if (it.isNotBlank()) extractAiText(it) else null }
                             ?.takeIf { it.isNotBlank() }
-                        ?: "[No content returned from AI]"
+                        ?: ""
+
+                if (aiReply.isBlank() && raw.isNotBlank()) {
+                    aiReply = com.mmalyil.smartdocai.util.friendlyAiErrorMessage(raw)
+                } else if (aiReply.trim().startsWith("{") && aiReply.contains("\"error\"")) {
+                    aiReply = com.mmalyil.smartdocai.util.friendlyAiErrorMessage(aiReply)
+                }
+                if (aiReply.isBlank()) {
+                    aiReply = "No response from AI. Please try again."
+                }
+
+                val isErrorReply = aiReply.startsWith("AI ") ||
+                    aiReply.startsWith("Network ") ||
+                    aiReply.startsWith("No response")
 
                 // ✅ NON-NULL model used
                 val modelUsed: String =
@@ -1894,9 +1898,8 @@ class ToolsFragment : Fragment() {
                         }
                         ?: modelName
 
-                // ✅ Save only if meaningful
-                val isEmptyAi = aiReply.isBlank() || aiReply == "[No content returned from AI]"
-                if (!isEmptyAi) {
+                // ✅ Save only if meaningful success
+                if (!isErrorReply) {
                     viewModel.insertFile(
                         fileUri = fileUri,
                         fileName = fileName,
@@ -1907,21 +1910,11 @@ class ToolsFragment : Fragment() {
 
                 // ✅ Track usage SAFELY (avoid requireContext crash if detached)
                 val appCtx = context?.applicationContext
-                if (appCtx != null) {
+                if (appCtx != null && !isErrorReply) {
                     val estimated = com.mmalyil.smartdocai.util.estimateTokens(prompt, aiReply)
                     com.mmalyil.smartdocai.util.UsageManager.getPrefs(appCtx)
                         .edit().putString("lastModelUsed", modelUsed).apply()
-
-                    when {
-                        modelUsed.startsWith("gpt-4") ->
-                            com.mmalyil.smartdocai.util.UsageManager.recordUsage(appCtx, estimated)
-
-                        modelUsed.startsWith("gpt-3.5") ->
-                            com.mmalyil.smartdocai.util.UsageManager.incrementGpt35Usage(appCtx, estimated)
-
-                        else ->
-                            com.mmalyil.smartdocai.util.UsageManager.recordUsage(appCtx, estimated)
-                    }
+                    com.mmalyil.smartdocai.util.UsageManager.recordGroqUsage(appCtx, estimated)
                 }
 
                 // ✅ UI update on main (only if fragment still active)
@@ -1932,30 +1925,29 @@ class ToolsFragment : Fragment() {
                     aiResponseDisplay.visibility = View.VISIBLE
                     aiAnswer = aiReply
 
-                    toast("AI analysis complete and saved")
-
                     quickAiActions.visibility = View.VISIBLE
                     promptContainer.visibility = View.GONE
 
-                    // ✅ If this is a summary prompt, also show in the summary card
-                    val p = prompt.lowercase()
-                    if (p.contains("summarize") || p.contains("summary")) {
-                        // these must exist as fields + be bound in onCreateView()
-
+                    if (isErrorReply) {
+                        toast(aiReply)
+                    } else {
+                        toast("AI analysis complete and saved")
                     }
-
-                    toast("AI analysis complete and saved")
                 }
 
             } catch (e: Exception) {
-                val msg = e.localizedMessage ?: e.toString()
-                Log.e("AI_ERROR", "Model: $modelName, Source: $source, Error: $msg", e)
+                val body = (e as? retrofit2.HttpException)
+                    ?.response()?.errorBody()?.string()?.take(1000)
+                val msg = com.mmalyil.smartdocai.util.friendlyAiErrorMessage(
+                    body ?: e.localizedMessage
+                )
+                Log.e("AI_ERROR", "Model: $modelName, Source: $source, Error: ${e.localizedMessage}", e)
 
                 withContext(Dispatchers.Main) {
                     if (!isAdded || view == null) return@withContext
-                    aiResponseDisplay.text = "Error: $msg"
+                    aiResponseDisplay.text = msg
                     aiResponseDisplay.visibility = View.VISIBLE
-                    toast("AI Error: $msg")
+                    toast(msg)
                 }
 
             } finally {
@@ -2078,82 +2070,109 @@ class ToolsFragment : Fragment() {
 
 
     // ---- PDF export (no iText) ----
-    private fun exportAsPdf(includeDoc: Boolean, includeAI: Boolean) {
+    private fun exportAsPdf(
+        includeDoc: Boolean,
+        includeAI: Boolean,
+        capFeature: DocumentEntitlement.Feature = DocumentEntitlement.Feature.OTHER_EXPORT
+    ) {
         val content = buildExportContent(includeDoc, includeAI)
-        if (content.isBlank()) { toast("Nothing to export"); return }
-
-        // Save under exports/
-        val outDir = File(requireContext().getExternalFilesDir(null), "exports").apply { mkdirs() }
-        val file = File(outDir, "SmartDocAI_Export.pdf")
-
-        // Page setup (A4 @ ~72dpi)
-        val pageWidth = 595
-        val pageHeight = 842
-        val margin = 40f
-
-        val titlePaint = android.graphics.Paint().apply {
-            isAntiAlias = true; textSize = 16f
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT_BOLD, android.graphics.Typeface.BOLD)
-        }
-        val bodyPaint = android.graphics.Paint().apply {
-            isAntiAlias = true; textSize = 12f
-            typeface = android.graphics.Typeface.MONOSPACE
-        }
-
-        val pdf = android.graphics.pdf.PdfDocument()
-        var pageNum = 1
-        var y = 0f
-
-        fun newPage(): android.graphics.pdf.PdfDocument.Page {
-            val info = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create()
-            val page = pdf.startPage(info)
-            val c = page.canvas
-            y = margin + titlePaint.textSize
-            c.drawText("SmartDocAI Export", margin, y, titlePaint)
-            // footer
-            val footer = "Page $pageNum"
-            val fw = titlePaint.measureText(footer)
-            c.drawText(footer, pageWidth - margin - fw, pageHeight - margin / 2, bodyPaint)
-            y += titlePaint.textSize + 12f
-            return page
-        }
-
-        val lines = wrapText(content, bodyPaint, pageWidth - 2 * margin)
-        var page = newPage()
-        val usableBottom = pageHeight - margin - (bodyPaint.textSize + 4f)
-
-        lines.forEach { line ->
-            if (y + bodyPaint.textSize > usableBottom) {
-                pdf.finishPage(page)
-                pageNum++
-                page = newPage()
-            }
-            page.canvas.drawText(line, margin, y, bodyPaint)
-            y += bodyPaint.textSize + 4f
-        }
-        pdf.finishPage(page)
-
-        try {
-            FileOutputStream(file).use { pdf.writeTo(it) }
-        } catch (e: Exception) {
-            pdf.close()
-            toast("PDF write error: ${e.message}")
+        if (content.isBlank()) {
+            toast("Nothing to export")
             return
-        } finally {
-            pdf.close()
         }
 
-        // Build share URI that matches file_paths.xml (exports/)
-        val uri = getFileUri(requireContext(), file.name, subDir = "exports")
+        showLoading(true)
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val ctx = context ?: return@launch
+                val outFile = withContext(Dispatchers.IO) {
+                    val outDir = File(ctx.getExternalFilesDir(null), "exports").apply { mkdirs() }
+                    val file = File(outDir, "SmartDocAI_Export.pdf")
 
-        val share = Intent(Intent.ACTION_SEND).apply {
-            type = "application/pdf"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI PDF Export")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            clipData = ClipData.newUri(requireContext().contentResolver, file.name, uri)
+                    val pageWidth = 595
+                    val pageHeight = 842
+                    val margin = 40f
+
+                    val titlePaint = android.graphics.Paint().apply {
+                        isAntiAlias = true; textSize = 16f
+                        typeface = android.graphics.Typeface.create(
+                            android.graphics.Typeface.DEFAULT_BOLD,
+                            android.graphics.Typeface.BOLD
+                        )
+                    }
+                    val bodyPaint = android.graphics.Paint().apply {
+                        isAntiAlias = true; textSize = 12f
+                        typeface = android.graphics.Typeface.MONOSPACE
+                    }
+
+                    val pdf = android.graphics.pdf.PdfDocument()
+                    var pageNum = 1
+                    var y = 0f
+
+                    fun newPage(): android.graphics.pdf.PdfDocument.Page {
+                        val info =
+                            android.graphics.pdf.PdfDocument.PageInfo.Builder(
+                                pageWidth,
+                                pageHeight,
+                                pageNum
+                            ).create()
+                        val page = pdf.startPage(info)
+                        val c = page.canvas
+                        y = margin + titlePaint.textSize
+                        c.drawText("SmartDocAI Export", margin, y, titlePaint)
+                        val footer = "Page $pageNum"
+                        val fw = titlePaint.measureText(footer)
+                        c.drawText(
+                            footer,
+                            pageWidth - margin - fw,
+                            pageHeight - margin / 2,
+                            bodyPaint
+                        )
+                        y += titlePaint.textSize + 12f
+                        return page
+                    }
+
+                    val lines = wrapText(content, bodyPaint, pageWidth - 2 * margin)
+                    var page = newPage()
+                    val usableBottom = pageHeight - margin - (bodyPaint.textSize + 4f)
+
+                    lines.forEach { line ->
+                        if (y + bodyPaint.textSize > usableBottom) {
+                            pdf.finishPage(page)
+                            pageNum++
+                            page = newPage()
+                        }
+                        page.canvas.drawText(line, margin, y, bodyPaint)
+                        y += bodyPaint.textSize + 4f
+                    }
+                    pdf.finishPage(page)
+
+                    try {
+                        FileOutputStream(file).use { pdf.writeTo(it) }
+                    } finally {
+                        pdf.close()
+                    }
+                    file
+                }
+
+                if (!isAdded) return@launch
+                DocumentEntitlement.recordUse(ctx, capFeature)
+                val uri = getFileUri(ctx, outFile.name, subDir = "exports")
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI PDF Export")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    clipData = ClipData.newUri(ctx.contentResolver, outFile.name, uri)
+                }
+                startActivity(Intent.createChooser(share, "Share PDF via"))
+            } catch (e: Exception) {
+                Log.e(TAG, "PDF export failed", e)
+                toast("Couldn't create PDF. Try again.")
+            } finally {
+                showLoading(false)
+            }
         }
-        startActivity(Intent.createChooser(share, "Share PDF via"))
     }
 
     /** Wraps a long string into lines that fit a given width using the provided Paint. */
@@ -2193,14 +2212,16 @@ class ToolsFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val ctx = requireContext()
+                val ctx = context ?: return@launch
                 val outDir = File(ctx.getExternalFilesDir(null), "exports").apply { mkdirs() }
                 val file = File(outDir, "SmartDocAI_Export.txt")
                 file.writeText(content)
 
                 val uri = getFileUri(ctx, file.name, subDir = "exports")
+                DocumentEntitlement.recordUse(ctx, DocumentEntitlement.Feature.OTHER_EXPORT)
 
                 withContext(Dispatchers.Main) {
+                    if (!isAdded) return@withContext
                     val share = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_STREAM, uri)
@@ -2211,8 +2232,9 @@ class ToolsFragment : Fragment() {
                     startActivity(Intent.createChooser(share, "Share TXT via"))
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "TXT export failed", e)
                 withContext(Dispatchers.Main) {
-                    toast("TXT write error: ${e.message}")
+                    toast("Couldn't create text export. Try again.")
                 }
             }
         }
@@ -2257,24 +2279,51 @@ class ToolsFragment : Fragment() {
     private val scanLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                val scannedText = result.data?.getStringExtra("scannedText") ?: ""
+                lastScanPageCount =
+                    result.data?.getIntExtra(ScanActivity.EXTRA_PAGE_COUNT, 1) ?: 1
+                val pdfUri = result.data?.getStringExtra(ScanActivity.EXTRA_PDF_URI).orEmpty()
+                val scannedText =
+                    result.data?.getStringExtra(ScanActivity.EXTRA_SCANNED_TEXT).orEmpty()
+                val pages = lastScanPageCount.coerceAtLeast(1)
+
+                if (pdfUri.isNotBlank()) {
+                    selectedFileUri = pdfUri
+                    selectedFileName = result.data?.getStringExtra(ScanActivity.EXTRA_PDF_PATH)
+                        ?.substringAfterLast('/')
+                        ?: "SmartDocAI_Scan.pdf"
+                    if (scannedText.isNotBlank()) {
+                        extractedText = scannedText
+                        pdfTextDisplay.text = scannedText
+                        analyzeButton.isEnabled = true
+                        quickAiActions.visibility = View.VISIBLE
+                    } else {
+                        extractedText = "Scanned document · $pages page(s) · image PDF saved"
+                        pdfTextDisplay.text = extractedText
+                    }
+                    toast(
+                        if (pages > 1) "Saved $pages-page scan PDF"
+                        else "Saved scan PDF"
+                    )
+                    return@registerForActivityResult
+                }
+
+                if (scannedText.isBlank()) {
+                    toast("Scan cancelled or empty")
+                    return@registerForActivityResult
+                }
                 extractedText = scannedText
                 pdfTextDisplay.text = scannedText
-                toast("Scanned text loaded")
+                analyzeButton.isEnabled = true
+                quickAiActions.visibility = View.VISIBLE
+                toast(if (pages > 1) "Scanned $pages pages" else "Scanned text loaded")
             }
         }
 
     fun triggerScanFromFab() {
-        val intent = Intent(requireContext(), ScanActivity::class.java)
+        val intent = Intent(requireContext(), ScanActivity::class.java).apply {
+            putExtra(ScanActivity.EXTRA_START_MODE, ScanActivity.MODE_CAMERA)
+        }
         scanLauncher.launch(intent)
-    }
-
-    private fun isProUser(): Boolean {
-
-        val prefs = requireContext().getSharedPreferences("billingPrefs", 0)
-        return prefs.getBoolean("isPro", false)
-
-
     }
 
     /**

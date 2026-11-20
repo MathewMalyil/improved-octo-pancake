@@ -46,35 +46,51 @@ class ScannedFileDetailActivity : AppCompatActivity() {
 
         binding.btnShare.setOnClickListener {
             val file = intent.getSerializableExtra("scannedFile") as? ScannedFile
-            if (file != null) {
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, file.fileName)
-                    putExtra(
-                        Intent.EXTRA_TEXT,
-                        """
-                📄 File: ${file.fileName}
-                🕒 Date: ${
-                            SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(
-                                Date(
-                                    file.timestamp
-                                )
-                            )
-                        }
-
-                📑 Extracted Text:
-                ${file.content}
-
-                🤖 AI Response:
-                ${file.aiResponse ?: "None"}
-                """.trimIndent()
-                    )
-                }
-                startActivity(Intent.createChooser(shareIntent, "Share via"))
-            } else {
+            if (file == null) {
                 Toast.makeText(this, "File not available", Toast.LENGTH_SHORT).show()
                 finish()
+                return@setOnClickListener
             }
+
+            // Prefer sharing the saved scan PDF when the history entry points at one
+            val uri = runCatching { android.net.Uri.parse(file.fileUri) }.getOrNull()
+            val looksLikePdf = file.fileName.endsWith(".pdf", ignoreCase = true) ||
+                file.fileUri.contains(".pdf", ignoreCase = true) ||
+                file.content.contains("image PDF", ignoreCase = true)
+            if (uri != null && looksLikePdf && !file.fileUri.isBlank()) {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, file.fileName)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    clipData = android.content.ClipData.newUri(contentResolver, file.fileName, uri)
+                }
+                startActivity(Intent.createChooser(shareIntent, "Share PDF"))
+                return@setOnClickListener
+            }
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, file.fileName)
+                putExtra(
+                    Intent.EXTRA_TEXT,
+                    """
+                File: ${file.fileName}
+                Date: ${
+                        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(
+                            Date(file.timestamp)
+                        )
+                    }
+
+                Extracted Text:
+                ${file.content}
+
+                AI Response:
+                ${file.aiResponse ?: "None"}
+                """.trimIndent()
+                )
+            }
+            startActivity(Intent.createChooser(shareIntent, "Share via"))
         }
 
 

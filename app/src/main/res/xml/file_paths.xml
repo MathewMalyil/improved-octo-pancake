@@ -4,6 +4,9 @@
     <external-files-path
         name="exports"
         path="exports/" />
+    <external-files-path
+        name="scans"
+        path="scans/" />
     <!-- Optional: temp/cache if you share temp files -->
     <cache-path
         name="cache"
