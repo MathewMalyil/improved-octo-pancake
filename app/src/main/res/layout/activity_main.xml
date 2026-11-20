@@ -29,14 +29,17 @@
         app:layout_constraintEnd_toEndOf="parent"
         android:background="?attr/colorSurface" />
 
-    <!-- Hero header with gradient + quick actions -->
+    <!-- Compact AI usage strip (jobs live on Home; FAB covers quick capture) -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/heroCard"
         android:layout_width="0dp"
-        android:layout_height="140dp"
-        android:layout_margin="16dp"
-        app:cardCornerRadius="20dp"
-        app:cardUseCompatPadding="true"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp"
+        android:visibility="gone"
+        app:cardCornerRadius="14dp"
+        app:cardUseCompatPadding="false"
         app:strokeWidth="0dp"
         app:layout_constraintTop_toBottomOf="@id/topAppBar"
         app:layout_constraintStart_toStartOf="parent"
@@ -44,97 +47,56 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="12dp"
             android:background="@drawable/bg_header_gradient">
 
-            <!-- AI source + token bar -->
             <TextView
                 android:id="@+id/tvAiSource"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="AI Source: –"
+                android:textColor="@color/md3_onPrimary"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/tvUsageText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:text="Usage: 0 / 300,000 tokens"
-                android:textSize="14sp" />
+                android:textColor="@color/md3_onPrimary"
+                android:textSize="13sp" />
 
             <ProgressBar
                 android:id="@+id/usageProgressBar"
                 style="@android:style/Widget.ProgressBar.Horizontal"
                 android:layout_width="match_parent"
-                android:layout_height="8dp"
+                android:layout_height="6dp"
+                android:layout_marginTop="6dp"
                 android:progress="0"
                 android:indeterminate="false"
-                android:progressTint="?attr/colorPrimary" />
+                android:progressTint="@color/md3_onPrimary" />
 
-            <!-- Quick actions row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center"
-                android:weightSum="3">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnQuickUpload"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="Upload"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:textAllCaps="false"
-                    android:includeFontPadding="false"
-                    app:icon="@drawable/ic_uploadfile"
-                    app:iconPadding="8dp"
-                    app:iconGravity="textStart"
-                    android:textSize="9sp"/>
-                <Space
-                    android:layout_width="8dp"
-                    android:layout_height="0dp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnQuickScan"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="Scan"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:textAllCaps="false"
-                    android:includeFontPadding="false"
-                    app:icon="@drawable/ic_camera"
-                    app:iconPadding="8dp"
-                    app:iconGravity="textStart"
-                    android:textSize="13sp"/>
-                <Space
-                    android:layout_width="8dp"
-                    android:layout_height="0dp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnQuickOCR"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="OCR"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:textAllCaps="false"
-                    android:includeFontPadding="false"
-                    app:icon="@drawable/ic_image"
-                    app:iconPadding="8dp"
-                    app:iconGravity="textStart"
-                    android:textSize="13sp"/>
-            </LinearLayout>
+            <!-- Kept for MainActivity findViewById; actions moved to Home / FAB -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickUpload"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickScan"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickOCR"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 

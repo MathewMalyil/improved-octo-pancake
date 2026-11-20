@@ -333,6 +333,11 @@ class MainActivity : AppCompatActivity() {
             else -> return
         }
 
+        // Home owns job CTAs — hide usage strip there so jobs are immediate.
+        // Tools keeps the compact AI usage strip.
+        findViewById<View>(R.id.heroCard)?.visibility =
+            if (itemId == R.id.nav_tools) View.VISIBLE else View.GONE
+
         supportFragmentManager.beginTransaction()
             .setReorderingAllowed(true)
             .replace(R.id.contentFrame, newFragment, tag)

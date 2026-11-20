@@ -651,6 +651,13 @@ class ToolsFragment : Fragment() {
         pickImageHybrid()
     }
 
+    fun triggerImageToExcelFromHome() {
+        val ctx = requireContext()
+        DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.IMAGE_TO_EXCEL) {
+            imageToExcelLauncher.launch(arrayOf("image/*"))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -726,6 +733,7 @@ class ToolsFragment : Fragment() {
                 "upload" -> triggerUploadFromFab()
                 "scan" -> triggerScanFromFab()
                 "pickImage" -> triggerPickImageFromFab()
+                "imageToExcel" -> triggerImageToExcelFromHome()
             }
             parentFragmentManager.clearFragmentResult("toolsFabRequest")
         }

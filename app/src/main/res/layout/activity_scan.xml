@@ -12,12 +12,12 @@
         android:id="@+id/tvScanTitle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:paddingHorizontal="16dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="8dp"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="4dp"
         android:text="Review scan"
         android:textColor="@color/md3_onPrimaryContainer"
-        android:textSize="20sp"
+        android:textSize="22sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -27,8 +27,8 @@
         android:id="@+id/tvStatus"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:paddingHorizontal="16dp"
-        android:paddingBottom="8dp"
+        android:paddingHorizontal="20dp"
+        android:paddingBottom="10dp"
         android:text="Capture a page to begin"
         android:textColor="@color/md3_tertiary"
         android:textSize="14sp"
@@ -169,7 +169,9 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="12dp"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="16dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -178,19 +180,22 @@
             android:id="@+id/btnKeepScanning"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
+            android:layout_height="52dp"
+            android:layout_marginEnd="10dp"
             android:layout_weight="1"
-            android:text="Keep scanning" />
+            android:text="Keep scanning"
+            android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSavePdf"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="52dp"
             android:layout_weight="1"
             android:backgroundTint="@color/md3_primary"
             android:text="Save PDF"
-            android:textColor="@color/md3_onPrimary" />
+            android:textAllCaps="false"
+            android:textColor="@color/md3_onPrimary"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- Empty / start state -->
