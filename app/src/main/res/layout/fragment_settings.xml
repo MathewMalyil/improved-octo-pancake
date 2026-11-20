@@ -1,135 +1,171 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp"
+    android:background="@color/md3_background"
     android:clipToPadding="false"
-    android:background="?attr/colorBackground">
+    android:fillViewport="true"
+    android:paddingBottom="88dp">
 
     <LinearLayout
-        android:orientation="vertical"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center"
-        android:divider="?android:attr/dividerHorizontal"
-        android:showDividers="middle"
-        android:dividerPadding="10dp"
-        android:padding="4dp">
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="24dp">
 
-        <com.google.android.material.card.MaterialCardView
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
-            android:padding="16dp"
-            app:cardElevation="8dp"
-            app:cardCornerRadius="20dp"
-            app:strokeWidth="1dp"
-            app:strokeColor="?attr/colorOutline"
-            app:cardBackgroundColor="?attr/colorSurfaceContainer">
+            android:text="Settings"
+            android:textColor="@color/md3_onPrimaryContainer"
+            android:textSize="24sp"
+            android:textStyle="bold" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center">
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Help, plan, and appearance."
+            android:textColor="@color/md3_tertiary"
+            android:textSize="13sp" />
 
-                <!-- Replay Onboarding (filled by default via Material3) -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnReplayOnboarding"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Replay Onboarding Walkthrough"
-                    android:textStyle="bold"
-                    app:cornerRadius="16dp"
-                    app:icon="@drawable/ic_walkthrough"
-                    app:iconPadding="8dp"
-                    app:iconGravity="start"
-                    app:iconTint="?attr/colorOnPrimary" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:text="Get started"
+            android:textColor="@color/md3_onPrimaryContainer"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnShowGuidedWalkthrough"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="Show Guided Walkthrough (Tools)"
-                    android:textStyle="bold"
-                    app:cornerRadius="16dp"
-                    app:iconPadding="8dp"
-                    app:iconGravity="start"
-                    app:iconTint="?attr/colorOnPrimary" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReplayOnboarding"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="10dp"
+            android:text="Replay walkthrough"
+            android:textAllCaps="false"
+            app:icon="@drawable/ic_walkthrough"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:strokeColor="@color/md3_outline" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnHelpFaq"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="Help and FAQ"
-                    android:textStyle="bold"
-                    app:cornerRadius="16dp"
-                    app:icon="@drawable/ic_help"
-                    app:iconPadding="8dp"
-                    app:iconGravity="start"
-                    app:iconTint="?attr/colorOnPrimary" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnShowGuidedWalkthrough"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:text="Tools guided tips"
+            android:textAllCaps="false"
+            app:icon="@drawable/ic_tools"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:strokeColor="@color/md3_outline" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnFeedback"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="Send Feedback"
-                    android:textStyle="bold"
-                    app:cornerRadius="16dp"
-                    app:icon="@drawable/ic_feedback"
-                    app:iconPadding="8dp"
-                    app:iconGravity="start"
-                    app:iconTint="?attr/colorOnPrimary" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:text="Support"
+            android:textColor="@color/md3_onPrimaryContainer"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnPrivacyPolicy"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="Privacy Policy"
-                    android:textStyle="bold"
-                    app:cornerRadius="16dp"
-                    app:icon="@drawable/ic_privacy"
-                    app:iconPadding="8dp"
-                    app:iconGravity="start"
-                    app:iconTint="?attr/colorOnPrimary" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHelpFaq"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="10dp"
+            android:text="Help and FAQ"
+            android:textAllCaps="false"
+            app:icon="@drawable/ic_help"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:strokeColor="@color/md3_outline" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnTerms"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="Terms of Service"
-                    android:textStyle="bold"
-                    app:cornerRadius="16dp"
-                    app:icon="@drawable/ic_terms"
-                    app:iconPadding="8dp"
-                    app:iconGravity="start"
-                    app:iconTint="?attr/colorOnPrimary" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFeedback"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:text="Send feedback"
+            android:textAllCaps="false"
+            app:icon="@drawable/ic_feedback"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:strokeColor="@color/md3_outline" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnManagePlan"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
-                    android:layout_marginBottom="16dp"
-                    android:textStyle="bold"
-                    android:text="Manage AI Plan / Upgrade" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPrivacyPolicy"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:text="Privacy Policy"
+            android:textAllCaps="false"
+            android:textColor="@color/md3_tertiary"
+            app:icon="@drawable/ic_privacy"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:iconTint="@color/md3_tertiary" />
 
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/switchDarkMode"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:layout_gravity="start"
-                    android:textStyle="bold"
-                    android:text="Enable Dark Mode" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTerms"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Terms of Service"
+            android:textAllCaps="false"
+            android:textColor="@color/md3_tertiary"
+            app:icon="@drawable/ic_terms"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:iconTint="@color/md3_tertiary" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="Plan &amp; look"
+            android:textColor="@color/md3_onPrimaryContainer"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnManagePlan"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="10dp"
+            android:backgroundTint="@color/md3_primary"
+            android:text="Document Pro / Restore"
+            android:textAllCaps="false"
+            android:textColor="@color/md3_onPrimary"
+            android:textStyle="bold" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchDarkMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:minHeight="48dp"
+            android:text="Dark mode"
+            android:textColor="@color/md3_onPrimaryContainer"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvAppVersion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Version"
+            android:textColor="@color/md3_tertiary"
+            android:textSize="12sp" />
     </LinearLayout>
-</ScrollView>
+</androidx.core.widget.NestedScrollView>

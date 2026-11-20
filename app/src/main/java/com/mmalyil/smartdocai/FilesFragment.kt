@@ -52,8 +52,10 @@ class FilesFragment : Fragment() {
         adapter = ScannedFileAdapter(
             fileList = emptyList(),
             onClick = { file ->
-                val intent = Intent(requireContext(), ScannedFileDetailActivity::class.java)
-                intent.putExtra("scannedFile", file)
+                val intent = Intent(requireContext(), ScannedFileDetailActivity::class.java).apply {
+                    putExtra("scannedFile", file)
+                    putExtra(ScannedFileDetailActivity.EXTRA_AUTO_OPEN, true)
+                }
                 startActivity(intent)
             },
             onDelete = { file ->
@@ -64,9 +66,20 @@ class FilesFragment : Fragment() {
         binding.rvFiles.layoutManager = LinearLayoutManager(requireContext())
         binding.rvFiles.adapter = adapter
 
+        binding.btnFilesEmptyScan.setOnClickListener {
+            startActivity(
+                Intent(requireContext(), ScanActivity::class.java).apply {
+                    putExtra(ScanActivity.EXTRA_START_MODE, ScanActivity.MODE_CAMERA)
+                }
+            )
+        }
+
         viewModel.allFiles.observe(viewLifecycleOwner) { files ->
             Log.d("DEBUG", "Observed ${files.size} files")
             adapter.updateFiles(files)
+            val empty = files.isEmpty()
+            binding.filesEmpty.visibility = if (empty) View.VISIBLE else View.GONE
+            binding.rvFiles.visibility = if (empty) View.GONE else View.VISIBLE
         }
     }
 }

@@ -10,126 +10,146 @@
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp"
+        android:background="@color/md3_background"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="88dp"
         android:clipToPadding="false"
         android:fillViewport="true">
 
         <LinearLayout
             android:orientation="vertical"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:divider="?android:attr/dividerHorizontal"
-            android:showDividers="middle"
-            android:dividerPadding="8dp">
+            android:layout_height="wrap_content">
 
-            <!-- 🔹 AI Source & Usage -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Tools"
+                android:textColor="@color/md3_onPrimaryContainer"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="12dp"
+                android:text="Upload, OCR, Image→Excel, then ask AI."
+                android:textColor="@color/md3_tertiary"
+                android:textSize="13sp" />
+
+            <!-- AI Source & Usage (also mirrored in MainActivity Tools strip) -->
             <TextView
                 android:id="@+id/tvAiSource"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="AI Source: Auto-detecting..."
-                android:textStyle="italic"
-                android:textColor="?android:attr/textColorSecondary"
-                android:paddingBottom="4dp" />
+                android:textStyle="bold"
+                android:textColor="@color/md3_tertiary"
+                android:textSize="12sp"
+                android:paddingBottom="2dp" />
 
             <LinearLayout
                 android:id="@+id/usageContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:paddingBottom="12dp">
+                android:paddingBottom="14dp">
 
                 <TextView
                     android:id="@+id/tvUsageText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Usage: 0 / 300,000 tokens"
-                    android:textSize="14sp" />
+                    android:textColor="@color/md3_onPrimaryContainer"
+                    android:textSize="13sp" />
 
                 <ProgressBar
                     android:id="@+id/usageProgressBar"
                     style="@android:style/Widget.ProgressBar.Horizontal"
                     android:layout_width="match_parent"
-                    android:layout_height="8dp"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="4dp"
                     android:progress="0"
-                    android:progressTint="?attr/colorPrimary"
+                    android:progressTint="@color/md3_primary"
                     android:indeterminate="false" />
             </LinearLayout>
 
-            <!-- 🔹 Upload Section -->
+            <!-- Upload / Scan jobs -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="12dp"
+                app:cardBackgroundColor="@color/md3_surface"
                 app:cardCornerRadius="16dp"
-                app:cardElevation="2dp">
+                app:cardElevation="0dp"
+                app:strokeColor="@color/md3_outline"
+                app:strokeWidth="1dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="12dp">
+                    android:padding="14dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Upload or Scan Input"
+                        android:text="Get a document in"
                         android:textStyle="bold"
+                        android:textColor="@color/md3_onPrimaryContainer"
                         android:textSize="16sp"
-                        android:paddingTop="8dp"
-                        android:paddingBottom="4dp"/>
+                        android:paddingBottom="8dp"/>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/selectPdfButton"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Upload Documents"
+                        android:layout_height="48dp"
+                        android:text="Upload documents"
+                        android:textAllCaps="false"
                         app:icon="@drawable/ic_uploadfile"
                         app:iconPadding="8dp"
-                        app:iconGravity="textStart"
-                        android:showDividers="middle"
-                        android:divider="?android:attr/dividerHorizontal"
-                        android:dividerPadding="8dp"/>
+                        app:iconGravity="textStart" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnScanDocument"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Scan Document"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="6dp"
+                        android:text="Scan document"
+                        android:textAllCaps="false"
                         app:icon="@drawable/ic_camera"
                         app:iconPadding="8dp"
                         app:iconGravity="textStart"
-                        android:showDividers="middle"
-                        android:divider="?android:attr/dividerHorizontal"
-                        android:dividerPadding="8dp"/>
+                        app:strokeColor="@color/md3_outline" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnPickImage"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Pick Image for OCR"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="6dp"
+                        android:text="Pick image for OCR"
+                        android:textAllCaps="false"
                         app:icon="@drawable/ic_image"
                         app:iconPadding="8dp"
                         app:iconGravity="textStart"
-                        android:showDividers="middle"
-                        android:divider="?android:attr/dividerHorizontal"
-                        android:dividerPadding="8dp"/>
+                        app:strokeColor="@color/md3_outline" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnImageToExcel"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="6dp"
                         android:text="Image → Excel"
+                        android:textAllCaps="false"
                         app:icon="@drawable/ic_excel"
-                    app:iconPadding="8dp"
-                    app:iconGravity="textStart"
-                    android:showDividers="middle"
-                    android:divider="?android:attr/dividerHorizontal"
-                    android:dividerPadding="8dp" />
-
-
-
-
+                        app:iconPadding="8dp"
+                        app:iconGravity="textStart"
+                        app:strokeColor="@color/md3_outline" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -183,27 +203,42 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnAiSummary"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🧠 Quick Summary" />
+                    android:layout_height="48dp"
+                    android:text="Quick summary"
+                    android:textAllCaps="false"
+                    app:strokeColor="@color/md3_outline" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnAiActions"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="✅ Action Items" />
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:text="Action items"
+                    android:textAllCaps="false"
+                    app:strokeColor="@color/md3_outline" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnAiKeyPoints"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="📌 Key Points" />
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:text="Key points"
+                    android:textAllCaps="false"
+                    app:strokeColor="@color/md3_outline" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnAiAsk"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="❓ Ask a Question" />
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:text="Ask a question"
+                    android:textAllCaps="false"
+                    app:strokeColor="@color/md3_outline" />
             </LinearLayout>
 
 

@@ -60,6 +60,7 @@ class HomeFragment : Fragment() {
             startActivity(
                 Intent(requireContext(), ScannedFileDetailActivity::class.java).apply {
                     putExtra("scannedFile", file)
+                    putExtra(ScannedFileDetailActivity.EXTRA_AUTO_OPEN, true)
                 }
             )
         }

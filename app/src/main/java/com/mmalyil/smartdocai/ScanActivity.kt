@@ -538,7 +538,10 @@ class ScanActivity : AppCompatActivity() {
 
                 AlertDialog.Builder(this@ScanActivity)
                     .setTitle("PDF saved")
-                    .setMessage("${outFile.name}\n${pages.size} page(s) saved to Files. Share or open it?")
+                    .setMessage(
+                        "${outFile.name}\n${pages.size} page(s) saved in SmartDocAI " +
+                            "(app storage — not phone Downloads yet). Share now, or open later from Recents / Files."
+                    )
                     .setPositiveButton("Share") { _, _ ->
                         sharePdf(uri, outFile.name)
                         finish()
