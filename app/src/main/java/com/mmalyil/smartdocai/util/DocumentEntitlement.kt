@@ -9,18 +9,28 @@ import java.util.Calendar
 /**
  * Document Pro entitlement + soft free daily caps.
  * Free AI tokens remain in [UsageManager] (separate).
+ *
+ * Pro unlock via lifetime INAPP or yearly/monthly subscription — all set
+ * [isDocumentPro] true (unlimited tools, ad-free, clean export).
  */
 object DocumentEntitlement {
 
     private const val PREF = "document_pro_prefs"
     private const val KEY_IS_DOCUMENT_PRO = "isDocumentPro"
+    private const val KEY_PRO_SOURCE = "proSource"
     private const val KEY_DAY = "cap_day" // yyyyMMdd
+
+    enum class ProSource {
+        NONE, LIFETIME, YEARLY, MONTHLY
+    }
 
     enum class Feature(val key: String, val dailyFreeLimit: Int, val label: String) {
         IMAGE_TO_EXCEL("img_excel", 3, "Image → Excel"),
         SCAN_TO_PDF("scan_pdf", 2, "Multi-page scan → PDF"),
         AI_REPORT("ai_report", 2, "Excel ↔ Word / AI report"),
         OTHER_EXPORT("other_export", 5, "Other exports"),
+        /** Clean PDF Share / Save to Downloads (no free watermark). */
+        CLEAN_SHARE("clean_share", 2, "Clean PDF share / Downloads"),
     }
 
     private fun prefs(context: Context): SharedPreferences =
@@ -29,9 +39,28 @@ object DocumentEntitlement {
     fun isDocumentPro(context: Context): Boolean =
         prefs(context).getBoolean(KEY_IS_DOCUMENT_PRO, false)
 
-    fun setDocumentPro(context: Context, value: Boolean) {
-        prefs(context).edit().putBoolean(KEY_IS_DOCUMENT_PRO, value).apply()
+    fun proSource(context: Context): ProSource {
+        val raw = prefs(context).getString(KEY_PRO_SOURCE, ProSource.NONE.name) ?: ProSource.NONE.name
+        return try {
+            ProSource.valueOf(raw)
+        } catch (_: Exception) {
+            if (isDocumentPro(context)) ProSource.LIFETIME else ProSource.NONE
+        }
     }
+
+    fun setDocumentPro(
+        context: Context,
+        value: Boolean,
+        source: ProSource = if (value) ProSource.LIFETIME else ProSource.NONE
+    ) {
+        prefs(context).edit()
+            .putBoolean(KEY_IS_DOCUMENT_PRO, value)
+            .putString(KEY_PRO_SOURCE, if (value) source.name else ProSource.NONE.name)
+            .apply()
+    }
+
+    /** Free users get a light footer watermark on Save PDF; Pro is clean. */
+    fun shouldWatermarkPdf(context: Context): Boolean = !isDocumentPro(context)
 
     private fun todayKey(): Int {
         val c = Calendar.getInstance()
@@ -76,7 +105,7 @@ object DocumentEntitlement {
     fun freeLimitMessage(context: Context, feature: Feature): String {
         val used = usedToday(context, feature)
         return "${feature.label}: free limit reached ($used/${feature.dailyFreeLimit} today). " +
-            "Unlock Document Pro for unlimited use and an ad-free app."
+            "Unlock Document Pro for unlimited tools, ad-free app, and clean PDF export."
     }
 
     fun openPaywall(context: Context, reason: String? = null) {
@@ -103,5 +132,14 @@ object DocumentEntitlement {
         } else {
             openPaywall(context, freeLimitMessage(context, feature))
         }
+    }
+
+    /**
+     * High-value Share / Save to Downloads gate.
+     * Pro or under clean-share cap → [onAllowed].
+     * Exhausted → paywall (caller may offer watermarked share separately).
+     */
+    fun requireCleanShareOrPaywall(context: Context, onAllowed: () -> Unit) {
+        requireOrPaywall(context, Feature.CLEAN_SHARE, onAllowed)
     }
 }

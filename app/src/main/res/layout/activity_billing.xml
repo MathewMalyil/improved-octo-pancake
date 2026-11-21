@@ -1,38 +1,91 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
-    android:padding="24dp">
+    android:fillViewport="true">
 
-    <TextView
-        android:id="@+id/tvUsageText"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Loading usage..."
-        android:textSize="18sp"
-        android:paddingBottom="24dp" />
+        android:padding="24dp">
 
-    <Button
-        android:id="@+id/btnUpgrade"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Upgrade to GPT-4o Pro" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Document Pro"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:paddingBottom="4dp" />
 
-    <Button
-        android:id="@+id/btnBack"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="← Go Back"
-        android:layout_marginTop="24dp" />
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Unlimited tools · ad-free · clean PDF export"
+            android:textSize="15sp"
+            android:paddingBottom="12dp" />
 
-    <Button
-        android:id="@+id/btnRestore"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Restore Purchase"
-        android:layout_marginTop="16dp" />
-</LinearLayout>
+        <TextView
+            android:id="@+id/tvBenefits"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="15sp"
+            android:lineSpacingExtra="4dp"
+            android:paddingBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvFreeNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:paddingBottom="16dp" />
+
+        <!-- Yearly = default / recommended -->
+        <Button
+            android:id="@+id/btnYearly"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Yearly — best value"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Recommended"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingTop="4dp"
+            android:paddingBottom="10dp"
+            android:textColor="?android:attr/colorPrimary" />
+
+        <Button
+            android:id="@+id/btnMonthly"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Monthly" />
+
+        <Button
+            android:id="@+id/btnLifetime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Lifetime — one-time" />
+
+        <Button
+            android:id="@+id/btnRestore"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Restore purchases"
+            android:layout_marginTop="16dp" />
+
+        <Button
+            android:id="@+id/btnBack"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="← Back"
+            android:layout_marginTop="12dp" />
+    </LinearLayout>
+</ScrollView>

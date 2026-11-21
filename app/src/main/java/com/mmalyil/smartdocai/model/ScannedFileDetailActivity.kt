@@ -8,6 +8,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.mmalyil.smartdocai.databinding.ActivityScannedFileDetailBinding
+import com.mmalyil.smartdocai.util.DocumentEntitlement
 import com.mmalyil.smartdocai.util.ScanStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,24 +52,40 @@ class ScannedFileDetailActivity : AppCompatActivity() {
         }
 
         binding.btnSaveToDownloads.setOnClickListener {
-            binding.btnSaveToDownloads.isEnabled = false
-            lifecycleScope.launch {
-                val uri = withContext(Dispatchers.IO) {
-                    ScanStorage.savePdfToDownloads(this@ScannedFileDetailActivity, file)
-                }
-                binding.btnSaveToDownloads.isEnabled = true
-                if (uri != null) {
-                    Toast.makeText(
-                        this@ScannedFileDetailActivity,
-                        "Saved to Downloads — open phone Files / Downloads to find it",
-                        Toast.LENGTH_LONG
-                    ).show()
+            DocumentEntitlement.requireCleanShareOrPaywall(this) {
+                binding.btnSaveToDownloads.isEnabled = false
+                lifecycleScope.launch {
+                    val uri = withContext(Dispatchers.IO) {
+                        ScanStorage.savePdfToDownloads(this@ScannedFileDetailActivity, file)
+                    }
+                    binding.btnSaveToDownloads.isEnabled = true
+                    if (uri != null) {
+                        DocumentEntitlement.recordUse(
+                            this@ScannedFileDetailActivity,
+                            DocumentEntitlement.Feature.CLEAN_SHARE
+                        )
+                        Toast.makeText(
+                            this@ScannedFileDetailActivity,
+                            "Saved to Downloads — open phone Files / Downloads to find it",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             }
         }
 
         binding.btnShare.setOnClickListener {
-            if (isPdf && ScanStorage.sharePdf(this, file)) return@setOnClickListener
+            if (isPdf) {
+                DocumentEntitlement.requireCleanShareOrPaywall(this) {
+                    if (ScanStorage.sharePdf(this, file)) {
+                        DocumentEntitlement.recordUse(
+                            this,
+                            DocumentEntitlement.Feature.CLEAN_SHARE
+                        )
+                    }
+                }
+                return@setOnClickListener
+            }
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"

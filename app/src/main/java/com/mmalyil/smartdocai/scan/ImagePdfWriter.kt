@@ -15,11 +15,13 @@ object ImagePdfWriter {
     /**
      * @param pages rendered page bitmaps in order
      * @param outFile destination .pdf file
+     * @param watermark when true, light free footer (Pro saves with watermark=false)
      * @param maxPageWidthPts PDF page width in points (default ~A4 width)
      */
     fun write(
         pages: List<Bitmap>,
         outFile: File,
+        watermark: Boolean = false,
         maxPageWidthPts: Int = 595,
         maxPageHeightPts: Int = 842
     ) {
@@ -38,12 +40,29 @@ object ImagePdfWriter {
                 val info = PdfDocument.PageInfo.Builder(pageW, pageH, index + 1).create()
                 val page = pdf.startPage(info)
                 drawBitmapFit(page.canvas, bitmap, pageW, pageH)
+                if (watermark) {
+                    drawFreeWatermark(page.canvas, pageW, pageH)
+                }
                 pdf.finishPage(page)
             }
             FileOutputStream(outFile).use { pdf.writeTo(it) }
         } finally {
             pdf.close()
         }
+    }
+
+    private fun drawFreeWatermark(canvas: Canvas, pageW: Int, pageH: Int) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x66807040.toInt()
+            textSize = 11f
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText(
+            "SmartDocAI Free · Unlock Pro for clean export",
+            pageW / 2f,
+            pageH - 14f,
+            paint
+        )
     }
 
     private fun fitPageSize(

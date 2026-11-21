@@ -3,119 +3,165 @@ package com.mmalyil.smartdocai.billing
 import android.app.Activity
 import android.content.Context
 import android.util.Log
-import com.android.billingclient.api.*
-import com.mmalyil.smartdocai.util.UsageManager
+import com.android.billingclient.api.AcknowledgePurchaseParams
+import com.android.billingclient.api.BillingClient
+import com.android.billingclient.api.BillingClientStateListener
+import com.android.billingclient.api.BillingFlowParams
+import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
+import com.android.billingclient.api.Purchase
+import com.android.billingclient.api.PurchasesUpdatedListener
+import com.android.billingclient.api.QueryProductDetailsParams
+import com.android.billingclient.api.QueryPurchasesParams
+import com.mmalyil.smartdocai.util.DocumentEntitlement
 
+/**
+ * Play Billing for Document Pro:
+ * - [DOCUMENT_PRO_LIFETIME] one-time INAPP
+ * - [DOCUMENT_PRO_YEARLY] / [DOCUMENT_PRO_MONTHLY] subscriptions
+ *
+ * Product IDs must match Play Console exactly (see ship notes).
+ */
 class BillingManager(
     private val context: Context,
     private val listener: BillingUpdateListener
 ) : PurchasesUpdatedListener {
 
     companion object {
-        /** MUST match the Play Console product ID exactly. */
-        const val PRO_PRODUCT_ID = "ai_pro_plan"
+        private const val TAG = "BillingManager"
+
+        /** One-time lifetime. Play Console → In-app products. Suggested India: ₹399. */
+        const val DOCUMENT_PRO_LIFETIME = "document_pro"
+        /** @deprecated use DOCUMENT_PRO_LIFETIME */
+        const val DOCUMENT_PRO_PRODUCT_ID = DOCUMENT_PRO_LIFETIME
+
+        /** Subscription. Play Console → Subscriptions. Base plan id: [BASE_PLAN_YEARLY]. Suggested: ₹199/yr. */
+        const val DOCUMENT_PRO_YEARLY = "document_pro_yearly"
+        const val BASE_PLAN_YEARLY = "yearly"
+
+        /** Subscription. Base plan id: [BASE_PLAN_MONTHLY]. Suggested: ₹29/mo. */
+        const val DOCUMENT_PRO_MONTHLY = "document_pro_monthly"
+        const val BASE_PLAN_MONTHLY = "monthly"
+
+        @Deprecated("Replaced by document_pro; kept only to ignore legacy SKUs")
+        const val LEGACY_AI_SUB_ID = "ai_pro_plan"
+
+        val ALL_PRO_PRODUCT_IDS = setOf(
+            DOCUMENT_PRO_LIFETIME,
+            DOCUMENT_PRO_YEARLY,
+            DOCUMENT_PRO_MONTHLY
+        )
+
+        /** India fallback labels when Play price not fetched yet. */
+        const val FALLBACK_PRICE_LIFETIME = "₹399"
+        const val FALLBACK_PRICE_YEARLY = "₹199/yr"
+        const val FALLBACK_PRICE_MONTHLY = "₹29/mo"
     }
 
     private var billingClient: BillingClient = BillingClient.newBuilder(context)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder()
+                .enableOneTimeProducts()
+                .build()
+        )
+        .enableAutoServiceReconnection()
         .build()
 
     private var isConnecting = false
 
-    /** Explicitly start the BillingClient connection. */
     fun startConnection(onReady: (() -> Unit)? = null) {
         if (isReady()) {
             onReady?.invoke()
             return
         }
         if (isConnecting) {
-            // we could keep a list of callbacks; for now just log
-            Log.d("BillingManager", "startConnection: already connecting")
+            Log.d(TAG, "startConnection: already connecting")
             return
         }
 
         isConnecting = true
-
         billingClient.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(r: BillingResult) {
                 isConnecting = false
                 if (r.responseCode == BillingClient.BillingResponseCode.OK) {
-                    Log.d("BillingManager", "BillingClient ready")
+                    Log.d(TAG, "BillingClient ready")
                     onReady?.invoke()
                 } else {
-                    Log.w("BillingManager", "Setup failed: ${r.responseCode} ${r.debugMessage}")
+                    Log.w(TAG, "Setup failed: ${r.responseCode} ${r.debugMessage}")
                 }
             }
 
             override fun onBillingServiceDisconnected() {
-                Log.w("BillingManager", "Service disconnected")
-                // Let caller decide if/when to reconnect.
+                Log.w(TAG, "Service disconnected")
             }
         })
     }
 
-    /** Defensive readiness check. */
     private fun isReady(): Boolean = try {
         billingClient.isReady
     } catch (_: Exception) {
         false
     }
 
-    /** Query current entitlement (subs + inapp). Call on resume or after purchase. */
+    /** Query owned INAPP + SUBS and sync Document Pro entitlement. */
     fun queryPurchases(onComplete: (() -> Unit)? = null) {
         if (!isReady()) {
-            Log.w("BillingManager", "queryPurchases: BillingClient not ready yet")
+            Log.w(TAG, "queryPurchases: BillingClient not ready yet")
             onComplete?.invoke()
             return
         }
 
-        var remaining = 2
+        val collected = mutableListOf<Purchase>()
+        var pending = 2
+
         fun done() {
-            remaining--
-            if (remaining <= 0) onComplete?.invoke()
+            pending--
+            if (pending > 0) return
+            syncEntitlement(collected, clearIfMissing = true)
+            listener.onPurchasesUpdated(collected.toList())
+            onComplete?.invoke()
         }
 
-        // SUBSCRIPTIONS
-        billingClient.queryPurchasesAsync(
-            QueryPurchasesParams.newBuilder()
-                .setProductType(BillingClient.ProductType.SUBS)
-                .build()
-        ) { res, purchases ->
-            if (res.responseCode == BillingClient.BillingResponseCode.OK) {
-                val list = purchases ?: emptyList()
-                handlePurchases(list)
-                listener.onPurchasesUpdated(list)
-            } else {
-                Log.w("BillingManager", "SUBS query failed: ${res.debugMessage}")
-                listener.onPurchasesUpdated(emptyList())
-            }
-            done()
-        }
-
-        // INAPP (future-proofing)
         billingClient.queryPurchasesAsync(
             QueryPurchasesParams.newBuilder()
                 .setProductType(BillingClient.ProductType.INAPP)
                 .build()
         ) { res, purchases ->
             if (res.responseCode == BillingClient.BillingResponseCode.OK) {
-                val list = purchases ?: emptyList()
-                handlePurchases(list)
-                listener.onPurchasesUpdated(list)
+                collected.addAll(purchases ?: emptyList())
             } else {
-                Log.w("BillingManager", "INAPP query failed: ${res.debugMessage}")
-                listener.onPurchasesUpdated(emptyList())
+                Log.w(TAG, "INAPP query failed: ${res.debugMessage}")
+            }
+            done()
+        }
+
+        billingClient.queryPurchasesAsync(
+            QueryPurchasesParams.newBuilder()
+                .setProductType(BillingClient.ProductType.SUBS)
+                .build()
+        ) { res, purchases ->
+            if (res.responseCode == BillingClient.BillingResponseCode.OK) {
+                collected.addAll(purchases ?: emptyList())
+            } else {
+                Log.w(TAG, "SUBS query failed: ${res.debugMessage}")
             }
             done()
         }
     }
 
-    /** Launch the purchase flow for the Pro subscription. */
-    fun launchPurchaseFlow(activity: Activity, productId: String = PRO_PRODUCT_ID) {
+    fun launchPurchaseFlow(activity: Activity, productId: String = DOCUMENT_PRO_LIFETIME) {
         if (!isReady()) {
-            Log.w("BillingManager", "launchPurchaseFlow: BillingClient not ready yet")
+            Log.w(TAG, "launchPurchaseFlow: BillingClient not ready yet")
             return
+        }
+
+        val isSub = productId == DOCUMENT_PRO_YEARLY || productId == DOCUMENT_PRO_MONTHLY
+        val productType = if (isSub) BillingClient.ProductType.SUBS else BillingClient.ProductType.INAPP
+        val basePlanId = when (productId) {
+            DOCUMENT_PRO_YEARLY -> BASE_PLAN_YEARLY
+            DOCUMENT_PRO_MONTHLY -> BASE_PLAN_MONTHLY
+            else -> null
         }
 
         val queryParams = QueryProductDetailsParams.newBuilder()
@@ -123,68 +169,157 @@ class BillingManager(
                 listOf(
                     QueryProductDetailsParams.Product.newBuilder()
                         .setProductId(productId)
-                        .setProductType(BillingClient.ProductType.SUBS)
+                        .setProductType(productType)
                         .build()
                 )
             )
             .build()
 
-        billingClient.queryProductDetailsAsync(queryParams) { result, details ->
+        billingClient.queryProductDetailsAsync(queryParams) { result, detailsResult ->
+            val details = detailsResult.productDetailsList
             if (result.responseCode != BillingClient.BillingResponseCode.OK || details.isNullOrEmpty()) {
-                Log.w("BillingManager", "No ProductDetails for $productId: ${result.debugMessage}")
+                val unfetched = detailsResult.unfetchedProductList
+                    ?.joinToString { "${it.productId}:${it.statusCode}" }
+                Log.w(TAG, "No ProductDetails for $productId: ${result.debugMessage} unfetched=$unfetched")
+                listener.onProductUnavailable(productId, result.debugMessage)
                 return@queryProductDetailsAsync
             }
 
             val pd = details.first()
-            val offerToken = pd.subscriptionOfferDetails?.firstOrNull()?.offerToken
-            if (offerToken.isNullOrBlank()) {
-                Log.w("BillingManager", "No offerToken for $productId")
-                return@queryProductDetailsAsync
+            val prodBuilder = BillingFlowParams.ProductDetailsParams.newBuilder()
+                .setProductDetails(pd)
+
+            if (isSub) {
+                val offers = pd.subscriptionOfferDetails
+                if (offers.isNullOrEmpty()) {
+                    Log.w(TAG, "No subscription offers for $productId")
+                    listener.onProductUnavailable(productId, "No base plan / offer")
+                    return@queryProductDetailsAsync
+                }
+                val offer = offers.firstOrNull { it.basePlanId == basePlanId }
+                    ?: offers.first()
+                prodBuilder.setOfferToken(offer.offerToken)
+                Log.d(TAG, "Launching sub $productId basePlan=${offer.basePlanId}")
             }
 
-            val prodParams = BillingFlowParams.ProductDetailsParams.newBuilder()
-                .setProductDetails(pd)
-                .setOfferToken(offerToken)
-                .build()
-
             val flowParams = BillingFlowParams.newBuilder()
-                .setProductDetailsParamsList(listOf(prodParams))
+                .setProductDetailsParamsList(listOf(prodBuilder.build()))
                 .build()
 
             billingClient.launchBillingFlow(activity, flowParams)
         }
     }
 
-    /** Get localized price string for UI (e.g., “$4.99/month”). */
-    fun queryPrice(productId: String = PRO_PRODUCT_ID, onPrice: (String?) -> Unit) {
+    data class PriceInfo(
+        val productId: String,
+        val formattedPrice: String?,
+        val fallbackLabel: String
+    ) {
+        fun display(): String = formattedPrice ?: fallbackLabel
+    }
+
+    /** Fetch localized prices for lifetime + yearly + monthly. */
+    fun queryAllPrices(onResult: (List<PriceInfo>) -> Unit) {
         if (!isReady()) {
-            Log.w("BillingManager", "queryPrice: BillingClient not ready yet")
-            onPrice(null)
+            onResult(
+                listOf(
+                    PriceInfo(DOCUMENT_PRO_LIFETIME, null, FALLBACK_PRICE_LIFETIME),
+                    PriceInfo(DOCUMENT_PRO_YEARLY, null, FALLBACK_PRICE_YEARLY),
+                    PriceInfo(DOCUMENT_PRO_MONTHLY, null, FALLBACK_PRICE_MONTHLY)
+                )
+            )
             return
         }
 
-        val params = QueryProductDetailsParams.newBuilder()
-            .setProductList(
+        val out = mutableMapOf<String, PriceInfo>()
+        var pending = 2
+
+        fun finish() {
+            pending--
+            if (pending > 0) return
+            onResult(
                 listOf(
-                    QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(productId)
-                        .setProductType(BillingClient.ProductType.SUBS)
-                        .build()
+                    out[DOCUMENT_PRO_YEARLY]
+                        ?: PriceInfo(DOCUMENT_PRO_YEARLY, null, FALLBACK_PRICE_YEARLY),
+                    out[DOCUMENT_PRO_MONTHLY]
+                        ?: PriceInfo(DOCUMENT_PRO_MONTHLY, null, FALLBACK_PRICE_MONTHLY),
+                    out[DOCUMENT_PRO_LIFETIME]
+                        ?: PriceInfo(DOCUMENT_PRO_LIFETIME, null, FALLBACK_PRICE_LIFETIME)
                 )
             )
-            .build()
+        }
 
-        billingClient.queryProductDetailsAsync(params) { res, details ->
-            if (res.responseCode != BillingClient.BillingResponseCode.OK || details.isNullOrEmpty()) {
-                onPrice(null)
-                return@queryProductDetailsAsync
+        // Lifetime INAPP
+        billingClient.queryProductDetailsAsync(
+            QueryProductDetailsParams.newBuilder()
+                .setProductList(
+                    listOf(
+                        QueryProductDetailsParams.Product.newBuilder()
+                            .setProductId(DOCUMENT_PRO_LIFETIME)
+                            .setProductType(BillingClient.ProductType.INAPP)
+                            .build()
+                    )
+                )
+                .build()
+        ) { res, detailsResult ->
+            if (res.responseCode == BillingClient.BillingResponseCode.OK) {
+                val pd = detailsResult.productDetailsList?.firstOrNull()
+                val price = pd?.oneTimePurchaseOfferDetailsList
+                    ?.firstOrNull()
+                    ?.formattedPrice
+                    ?: pd?.oneTimePurchaseOfferDetails?.formattedPrice
+                out[DOCUMENT_PRO_LIFETIME] =
+                    PriceInfo(DOCUMENT_PRO_LIFETIME, price, FALLBACK_PRICE_LIFETIME)
             }
-            val price = details.first().subscriptionOfferDetails
-                ?.firstOrNull()
-                ?.pricingPhases?.pricingPhaseList
-                ?.firstOrNull()
-                ?.formattedPrice
-            onPrice(price)
+            finish()
+        }
+
+        // Yearly + monthly SUBS in one query
+        billingClient.queryProductDetailsAsync(
+            QueryProductDetailsParams.newBuilder()
+                .setProductList(
+                    listOf(
+                        QueryProductDetailsParams.Product.newBuilder()
+                            .setProductId(DOCUMENT_PRO_YEARLY)
+                            .setProductType(BillingClient.ProductType.SUBS)
+                            .build(),
+                        QueryProductDetailsParams.Product.newBuilder()
+                            .setProductId(DOCUMENT_PRO_MONTHLY)
+                            .setProductType(BillingClient.ProductType.SUBS)
+                            .build()
+                    )
+                )
+                .build()
+        ) { res, detailsResult ->
+            if (res.responseCode == BillingClient.BillingResponseCode.OK) {
+                detailsResult.productDetailsList?.forEach { pd ->
+                    val offer = when (pd.productId) {
+                        DOCUMENT_PRO_YEARLY ->
+                            pd.subscriptionOfferDetails?.firstOrNull { it.basePlanId == BASE_PLAN_YEARLY }
+                                ?: pd.subscriptionOfferDetails?.firstOrNull()
+                        DOCUMENT_PRO_MONTHLY ->
+                            pd.subscriptionOfferDetails?.firstOrNull { it.basePlanId == BASE_PLAN_MONTHLY }
+                                ?: pd.subscriptionOfferDetails?.firstOrNull()
+                        else -> null
+                    }
+                    val price = offer?.pricingPhases?.pricingPhaseList
+                        ?.firstOrNull()
+                        ?.formattedPrice
+                    val fallback = when (pd.productId) {
+                        DOCUMENT_PRO_YEARLY -> FALLBACK_PRICE_YEARLY
+                        else -> FALLBACK_PRICE_MONTHLY
+                    }
+                    out[pd.productId] = PriceInfo(pd.productId, price, fallback)
+                }
+            }
+            finish()
+        }
+    }
+
+    /** Localized one-time price from Play (e.g. "₹399"), or null if unavailable. */
+    fun queryPrice(productId: String = DOCUMENT_PRO_LIFETIME, onPrice: (String?) -> Unit) {
+        queryAllPrices { list ->
+            onPrice(list.firstOrNull { it.productId == productId }?.formattedPrice)
         }
     }
 
@@ -192,52 +327,64 @@ class BillingManager(
         when (result.responseCode) {
             BillingClient.BillingResponseCode.OK -> {
                 val list = purchases ?: emptyList()
-                handlePurchases(list)
+                syncEntitlement(list, clearIfMissing = false)
                 listener.onPurchasesUpdated(list)
             }
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
                 queryPurchases()
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> {
-                Log.i("BillingManager", "User canceled purchase")
+                Log.i(TAG, "User canceled purchase")
             }
             else -> {
-                Log.w("BillingManager", "Purchase failed: ${result.responseCode} ${result.debugMessage}")
+                Log.w(TAG, "Purchase failed: ${result.responseCode} ${result.debugMessage}")
             }
         }
     }
 
-    private fun handlePurchases(purchases: List<Purchase>) {
+    private fun syncEntitlement(purchases: List<Purchase>, clearIfMissing: Boolean) {
+        var owned = false
+        var source = DocumentEntitlement.ProSource.NONE
         purchases.forEach { p ->
-            if (!p.products.contains(PRO_PRODUCT_ID)) return@forEach
-
+            val proId = p.products.firstOrNull { it in ALL_PRO_PRODUCT_IDS } ?: return@forEach
             when (p.purchaseState) {
                 Purchase.PurchaseState.PURCHASED -> {
-                    UsageManager.setPro(context, true)
-                    Log.d("BillingManager", "✅ Pro entitlement active")
+                    owned = true
+                    source = when (proId) {
+                        DOCUMENT_PRO_YEARLY -> DocumentEntitlement.ProSource.YEARLY
+                        DOCUMENT_PRO_MONTHLY -> DocumentEntitlement.ProSource.MONTHLY
+                        else -> DocumentEntitlement.ProSource.LIFETIME
+                    }
                     if (!p.isAcknowledged) {
                         val ack = AcknowledgePurchaseParams.newBuilder()
                             .setPurchaseToken(p.purchaseToken)
                             .build()
                         billingClient.acknowledgePurchase(ack) { br ->
                             if (br.responseCode == BillingClient.BillingResponseCode.OK) {
-                                Log.d("BillingManager", "✅ Purchase acknowledged")
+                                Log.d(TAG, "Purchase acknowledged $proId")
                             } else {
-                                Log.w("BillingManager", "Ack failed: ${br.debugMessage}")
+                                Log.w(TAG, "Ack failed: ${br.debugMessage}")
                             }
                         }
                     }
                 }
                 Purchase.PurchaseState.PENDING -> {
-                    Log.i("BillingManager", "⏳ Purchase pending")
+                    Log.i(TAG, "Purchase pending $proId")
                 }
                 else -> Unit
             }
+        }
+        if (owned) {
+            DocumentEntitlement.setDocumentPro(context, true, source)
+            Log.d(TAG, "Document Pro entitlement active source=$source")
+        } else if (clearIfMissing) {
+            DocumentEntitlement.setDocumentPro(context, false, DocumentEntitlement.ProSource.NONE)
         }
     }
 
     interface BillingUpdateListener {
         fun onPurchasesUpdated(purchases: List<Purchase>)
+        fun onProductUnavailable(productId: String, debugMessage: String?) {}
     }
 
     fun destroy() {

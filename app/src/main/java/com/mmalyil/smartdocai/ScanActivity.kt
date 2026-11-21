@@ -1354,7 +1354,11 @@ class ScanActivity : AppCompatActivity() {
                     val dir = File(getExternalFilesDir(null), "scans").apply { mkdirs() }
                     val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                     val outFile = File(dir, "SmartDocAI_Scan_$stamp.pdf")
-                    ImagePdfWriter.write(bitmaps, outFile)
+                    ImagePdfWriter.write(
+                        bitmaps,
+                        outFile,
+                        watermark = DocumentEntitlement.shouldWatermarkPdf(this@ScanActivity)
+                    )
                     bitmaps.forEach { if (!it.isRecycled) it.recycle() }
 
                     val uri = FileProvider.getUriForFile(
@@ -1396,15 +1400,20 @@ class ScanActivity : AppCompatActivity() {
                 }
                 setResult(Activity.RESULT_OK, returnIntent)
 
+                val freeMark = DocumentEntitlement.shouldWatermarkPdf(this@ScanActivity)
                 AlertDialog.Builder(this@ScanActivity)
                     .setTitle("PDF saved")
                     .setMessage(
                         "${outFile.name}\n${pages.size} page(s) saved in SmartDocAI " +
-                            "(app storage — not phone Downloads yet). Share now, or open later from Recents / Files."
+                            "(app storage — not phone Downloads yet). " +
+                            if (freeMark) {
+                                "Free PDF includes a light mark — Unlock Pro for clean export. Share or Done."
+                            } else {
+                                "Share now, or open later from Recents / Files."
+                            }
                     )
                     .setPositiveButton("Share") { _, _ ->
                         sharePdf(uri, outFile.name)
-                        finish()
                     }
                     .setNeutralButton("Done") { _, _ -> finish() }
                     .setCancelable(false)
@@ -1424,14 +1433,18 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun sharePdf(uri: Uri, name: String) {
-        val share = Intent(Intent.ACTION_SEND).apply {
-            type = "application/pdf"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, name)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            clipData = android.content.ClipData.newUri(contentResolver, name, uri)
+        DocumentEntitlement.requireCleanShareOrPaywall(this) {
+            DocumentEntitlement.recordUse(this, DocumentEntitlement.Feature.CLEAN_SHARE)
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, name)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = android.content.ClipData.newUri(contentResolver, name, uri)
+            }
+            startActivity(Intent.createChooser(share, "Share PDF"))
+            finish()
         }
-        startActivity(Intent.createChooser(share, "Share PDF"))
     }
 
     override fun onDestroy() {
