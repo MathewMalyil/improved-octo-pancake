@@ -16,6 +16,11 @@ class ScannedFileRepository(private val dao: ScannedFileDao) {
         return dao.getAllFiles()
     }
 
+    /** One-shot list for first paint / resume when LiveData has not emitted yet. */
+    suspend fun getAllFilesOnce(): List<ScannedFile> {
+        return dao.getAllFilesOnce()
+    }
+
     suspend fun insert(file: ScannedFile) {
         dao.insert(file)
     }

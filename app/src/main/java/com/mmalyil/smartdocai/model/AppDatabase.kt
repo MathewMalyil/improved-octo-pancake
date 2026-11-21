@@ -39,7 +39,8 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     // Do NOT use fallbackToDestructiveMigration() in production
                     .addMigrations(*MIGRATIONS)
-                    .enableMultiInstanceInvalidation() // safe for multi-process/use cases
+                    // Single-process app: multi-instance invalidation can delay/drop the
+                    // first LiveData emission on cold Files-tab open (S25 blank list).
                     .build()
                     .also { INSTANCE = it }
             }

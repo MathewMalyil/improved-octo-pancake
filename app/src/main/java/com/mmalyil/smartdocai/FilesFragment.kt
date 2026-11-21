@@ -1,53 +1,53 @@
 package com.mmalyil.smartdocai
-// FilesFragment.kt
 
-
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.mmalyil.smartdocai.model.ScannedFileAdapter
-import com.mmalyil.smartdocai.model.ScannedFileViewModel
-import com.mmalyil.smartdocai.model.ScannedFileRepository
-import com.mmalyil.smartdocai.model.AppDatabase
-import android.content.Intent
-import com.mmalyil.smartdocai.model.ScannedFileDetailActivity
-import android.util.Log
-import android.widget.ScrollView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updatePadding
-import kotlin.math.max
 import com.mmalyil.smartdocai.databinding.FragmentFilesBinding
+import com.mmalyil.smartdocai.model.AppDatabase
+import com.mmalyil.smartdocai.model.ScannedFile
+import com.mmalyil.smartdocai.model.ScannedFileAdapter
+import com.mmalyil.smartdocai.model.ScannedFileDetailActivity
+import com.mmalyil.smartdocai.model.ScannedFileRepository
+import com.mmalyil.smartdocai.model.ScannedFileViewModel
+import com.mmalyil.smartdocai.model.ScannedFileViewModelFactory
 
-
-
-
-
+/**
+ * Files history. Must paint on first open — Room LiveData alone can miss the first
+ * emission until another screen warms/invalidates the DB (S25 blank-tab bug).
+ */
 class FilesFragment : Fragment() {
 
-    private lateinit var binding: FragmentFilesBinding
+    private var _binding: FragmentFilesBinding? = null
+    private val binding get() = _binding!!
+
     private lateinit var adapter: ScannedFileAdapter
     private lateinit var viewModel: ScannedFileViewModel
 
-
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        binding = FragmentFilesBinding.inflate(inflater, container, false)
+        _binding = FragmentFilesBinding.inflate(inflater, container, false)
         return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
-
-        val dao = AppDatabase.getDatabase(requireContext()).scannedFileDao()
-        val repository = ScannedFileRepository(dao)
-        viewModel = ScannedFileViewModel(repository)
-
+        val db = AppDatabase.getDatabase(requireContext())
+        val repository = ScannedFileRepository(db.scannedFileDao())
+        viewModel = ViewModelProvider(
+            requireActivity(),
+            ScannedFileViewModelFactory(repository)
+        )[ScannedFileViewModel::class.java]
 
         adapter = ScannedFileAdapter(
             fileList = emptyList(),
@@ -78,12 +78,38 @@ class FilesFragment : Fragment() {
             startActivity(Intent(requireContext(), CombinePdfActivity::class.java))
         }
 
-        viewModel.allFiles.observe(viewLifecycleOwner) { files ->
-            Log.d("DEBUG", "Observed ${files.size} files")
-            adapter.updateFiles(files)
-            val empty = files.isEmpty()
-            binding.filesEmpty.visibility = if (empty) View.VISIBLE else View.GONE
-            binding.rvFiles.visibility = if (empty) View.GONE else View.VISIBLE
+        // Snapshot covers cold first open; LiveData covers later invalidations.
+        viewModel.filesSnapshot.observe(viewLifecycleOwner) { files ->
+            bindFiles(files, source = "snapshot")
         }
+        viewModel.allFiles.observe(viewLifecycleOwner) { files ->
+            bindFiles(files, source = "live")
+        }
+
+        // Eager one-shot so first resume is never blank waiting on LiveData.
+        viewModel.refreshNow()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::viewModel.isInitialized) {
+            viewModel.refreshNow()
+        }
+    }
+
+    private fun bindFiles(files: List<ScannedFile>?, source: String) {
+        if (files == null) return
+        Log.d("FilesFragment", "bindFiles source=$source count=${files.size}")
+        adapter.updateFiles(files)
+        val empty = files.isEmpty()
+        binding.filesEmpty.visibility = if (empty) View.VISIBLE else View.GONE
+        binding.rvFiles.visibility = if (empty) View.GONE else View.VISIBLE
+        // Keep Combine reachable even when empty (button sits above the list).
+        binding.btnFilesCombinePdfs.visibility = View.VISIBLE
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 }
