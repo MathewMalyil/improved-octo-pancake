@@ -54,6 +54,8 @@ class CombinePdfActivity : AppCompatActivity() {
     private lateinit var btnPickAppFiles: MaterialButton
     private lateinit var btnClearPages: MaterialButton
     private lateinit var btnSaveCombined: MaterialButton
+    private lateinit var chipCompressNormal: com.google.android.material.chip.Chip
+    private lateinit var chipCompressSmaller: com.google.android.material.chip.Chip
 
     private val pages = mutableListOf<CombinePage>()
     private lateinit var adapter: CombinePageAdapter
@@ -101,6 +103,23 @@ class CombinePdfActivity : AppCompatActivity() {
         btnPickAppFiles = findViewById(R.id.btnPickAppFiles)
         btnClearPages = findViewById(R.id.btnClearPages)
         btnSaveCombined = findViewById(R.id.btnSaveCombined)
+        chipCompressNormal = findViewById(R.id.chipCompressNormal)
+        chipCompressSmaller = findViewById(R.id.chipCompressSmaller)
+
+        chipCompressNormal.setOnClickListener {
+            chipCompressNormal.isChecked = true
+        }
+        chipCompressSmaller.setOnClickListener {
+            if (!DocumentEntitlement.isDocumentPro(this)) {
+                chipCompressNormal.isChecked = true
+                DocumentEntitlement.openPaywall(
+                    this,
+                    "Smaller file is a Document Pro perk — unlimited tools, ad-free, clean PDF export."
+                )
+                return@setOnClickListener
+            }
+            chipCompressSmaller.isChecked = true
+        }
 
         adapter = CombinePageAdapter(
             pages = pages,
@@ -357,6 +376,21 @@ class CombinePdfActivity : AppCompatActivity() {
             return
         }
 
+        val wantSmaller = chipCompressSmaller.isChecked
+        if (wantSmaller && !DocumentEntitlement.isDocumentPro(this)) {
+            chipCompressNormal.isChecked = true
+            DocumentEntitlement.openPaywall(
+                this,
+                "Smaller file is a Document Pro perk — unlimited tools, ad-free, clean PDF export."
+            )
+            return
+        }
+        val compression = if (wantSmaller) {
+            ImagePdfWriter.Compression.SMALLER
+        } else {
+            ImagePdfWriter.Compression.NORMAL
+        }
+
         saving = true
         setLoading(true, "Building PDF…")
 
@@ -371,7 +405,8 @@ class CombinePdfActivity : AppCompatActivity() {
                     ImagePdfWriter.write(
                         bitmaps,
                         outFile,
-                        watermark = DocumentEntitlement.shouldWatermarkPdf(this@CombinePdfActivity)
+                        watermark = DocumentEntitlement.shouldWatermarkPdf(this@CombinePdfActivity),
+                        compression = compression
                     )
 
                     val uri = FileProvider.getUriForFile(

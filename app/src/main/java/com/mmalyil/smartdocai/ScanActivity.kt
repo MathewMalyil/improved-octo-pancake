@@ -121,6 +121,9 @@ class ScanActivity : AppCompatActivity() {
     private lateinit var chipOriginal: Chip
     private lateinit var chipEnhance: Chip
     private lateinit var chipBw: Chip
+    private lateinit var compressRow: View
+    private lateinit var chipCompressNormal: Chip
+    private lateinit var chipCompressSmaller: Chip
     private lateinit var btnRotateLeft: MaterialButton
     private lateinit var btnRotateRight: MaterialButton
     private lateinit var btnToggleCrop: MaterialButton
@@ -361,6 +364,9 @@ class ScanActivity : AppCompatActivity() {
         chipOriginal = findViewById(R.id.chipOriginal)
         chipEnhance = findViewById(R.id.chipEnhance)
         chipBw = findViewById(R.id.chipBw)
+        compressRow = findViewById(R.id.compressRow)
+        chipCompressNormal = findViewById(R.id.chipCompressNormal)
+        chipCompressSmaller = findViewById(R.id.chipCompressSmaller)
         btnRotateLeft = findViewById(R.id.btnRotateLeft)
         btnRotateRight = findViewById(R.id.btnRotateRight)
         btnToggleCrop = findViewById(R.id.btnToggleCrop)
@@ -382,6 +388,7 @@ class ScanActivity : AppCompatActivity() {
             thumbStrip,
             filterRow,
             findViewById(R.id.editRow),
+            compressRow,
             findViewById(R.id.actionRow)
         )
 
@@ -441,6 +448,20 @@ class ScanActivity : AppCompatActivity() {
         chipOriginal.setOnClickListener { setFilter(ScanFilter.ORIGINAL) }
         chipEnhance.setOnClickListener { setFilter(ScanFilter.ENHANCE) }
         chipBw.setOnClickListener { setFilter(ScanFilter.BW) }
+        chipCompressNormal.setOnClickListener {
+            chipCompressNormal.isChecked = true
+        }
+        chipCompressSmaller.setOnClickListener {
+            if (!DocumentEntitlement.isDocumentPro(this)) {
+                chipCompressNormal.isChecked = true
+                DocumentEntitlement.openPaywall(
+                    this,
+                    "Smaller file is a Document Pro perk — unlimited tools, ad-free, clean PDF export."
+                )
+                return@setOnClickListener
+            }
+            chipCompressSmaller.isChecked = true
+        }
 
         btnRotateLeft.setOnClickListener {
             if (adjustMode) return@setOnClickListener
@@ -1126,6 +1147,7 @@ class ScanActivity : AppCompatActivity() {
         btnSavePdf.isVisible = !adjusting
         btnKeepScanning.isVisible = !adjusting
         filterRow.isVisible = !adjusting && !liveCapturePane.isVisible && pages.isNotEmpty()
+        compressRow.isVisible = !adjusting && !liveCapturePane.isVisible && pages.isNotEmpty()
         btnToggleCrop.isVisible = !adjusting
         // Escape hatch: always after Apply / auto-Apply when we still have the original still
         btnAdjustCorners.isVisible = !adjusting && page?.originalPath != null && pages.isNotEmpty()
@@ -1340,6 +1362,21 @@ class ScanActivity : AppCompatActivity() {
             return
         }
 
+        val wantSmaller = chipCompressSmaller.isChecked
+        if (wantSmaller && !DocumentEntitlement.isDocumentPro(this)) {
+            chipCompressNormal.isChecked = true
+            DocumentEntitlement.openPaywall(
+                this,
+                "Smaller file is a Document Pro perk — unlimited tools, ad-free, clean PDF export."
+            )
+            return
+        }
+        val compression = if (wantSmaller) {
+            ImagePdfWriter.Compression.SMALLER
+        } else {
+            ImagePdfWriter.Compression.NORMAL
+        }
+
         saving = true
         progressSaving.isVisible = true
         btnSavePdf.isEnabled = false
@@ -1357,7 +1394,8 @@ class ScanActivity : AppCompatActivity() {
                     ImagePdfWriter.write(
                         bitmaps,
                         outFile,
-                        watermark = DocumentEntitlement.shouldWatermarkPdf(this@ScanActivity)
+                        watermark = DocumentEntitlement.shouldWatermarkPdf(this@ScanActivity),
+                        compression = compression
                     )
                     bitmaps.forEach { if (!it.isRecycled) it.recycle() }
 

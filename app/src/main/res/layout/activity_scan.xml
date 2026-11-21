@@ -137,7 +137,7 @@
         android:orientation="horizontal"
         android:paddingHorizontal="8dp"
         android:paddingVertical="4dp"
-        app:layout_constraintBottom_toTopOf="@id/actionRow"
+        app:layout_constraintBottom_toTopOf="@id/compressRow"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
@@ -176,6 +176,50 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Retake" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/compressRow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingBottom="4dp"
+        app:layout_constraintBottom_toTopOf="@id/actionRow"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingEnd="8dp"
+            android:text="File size"
+            android:textColor="@color/md3_tertiary"
+            android:textSize="13sp" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipCompress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipCompressNormal"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Normal" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipCompressSmaller"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Smaller file · Pro" />
+        </com.google.android.material.chip.ChipGroup>
     </LinearLayout>
 
     <LinearLayout
