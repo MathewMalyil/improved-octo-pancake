@@ -10,17 +10,35 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <!-- Title -->
         <TextView
-            android:text="Help and FAQ"
+            android:text="Help &amp; FAQ"
             android:textSize="22sp"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="8dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content" />
 
-        <!-- Q1 -->
+        <TextView
+            android:text="Short answers for today’s SmartDocAI — Scan, jobs, free AI, Files, and Document Pro."
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:lineSpacingExtra="2dp"
+            android:layout_marginBottom="16dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <!-- Basics -->
+        <TextView
+            android:text="Basics"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
         <TextView
             android:text="Q: What is SmartDocAI?"
             android:textStyle="bold"
@@ -30,16 +48,15 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: SmartDocAI is your intelligent document assistant. You can scan, upload, or pick files (PDF, XLSX, DOCX, PPTX), extract key content, and get AI-powered summaries or answers instantly."
+            android:text="A: Home + Analyse for paper jobs — scan, combine, convert (Image→Excel, Excel→Word), then ask free AI. Exports land in Files."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp" />
 
-        <!-- Q2 -->
         <TextView
-            android:text="Q: How do I scan a document?"
+            android:text="Q: Where are my files stored?"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
             android:layout_marginTop="8dp"
@@ -47,16 +64,42 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Tap the + button, choose 'Scan', and capture an image. SmartDocAI will perform OCR to extract text and analyze it with AI."
+            android:text="A: On your device. Open Saved Files anytime. Only the text you send for AI leaves the phone (securely), not your whole library."
+            android:lineSpacingExtra="4dp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Scan -->
+        <TextView
+            android:text="Scan"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="Q: How do I scan a page?"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginTop="8dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="A: Home or Analyse → Scan. Hold the phone above the page (not flat on the table). Edge detect + auto-capture lock the page when steady; or tap the shutter. Use Adjust corners before you save."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp" />
 
-        <!-- Q3 -->
         <TextView
-            android:text="Q: How does AI analysis work?"
+            android:text="Q: What is Scan ID?"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
             android:layout_marginTop="8dp"
@@ -64,16 +107,42 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Once a document is uploaded or scanned, you can ask SmartDocAI to summarize, explain, or answer questions based on its content."
+            android:text="A: Scan ID captures Front + Back (Aadhaar-style cards) into one PDF. Same edge/auto flow and Adjust corners on each side."
+            android:lineSpacingExtra="4dp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Document jobs -->
+        <TextView
+            android:text="Document jobs"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="Q: How do I combine PDFs?"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginTop="8dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="A: Home or Analyse → Combine PDFs. Pick pages/files, reorder if needed, then save. The result appears in Files."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp" />
 
-        <!-- Q4 -->
         <TextView
-            android:text="Q: Is my data stored online?"
+            android:text="Q: Where is Compress?"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
             android:layout_marginTop="8dp"
@@ -81,16 +150,15 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: No. All documents are stored locally on your device for your privacy. Only AI queries are sent securely to the selected AI model."
+            android:text="A: On Save after Scan or Combine — choose Normal or Smaller. Smaller file size is a Document Pro perk."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp" />
 
-        <!-- Q5 -->
         <TextView
-            android:text="Q: Can I export results?"
+            android:text="Q: Image → Excel?"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
             android:layout_marginTop="8dp"
@@ -98,33 +166,15 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Yes, you can export AI results as TXT or PDF, and share them via WhatsApp, Gmail, etc."
-            android:lineSpacingExtra="4dp"
-            android:textColor="?attr/colorOnSurface"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp" />
-
-        <!-- ⭐ NEW Q6: Excel → Word AI Report -->
-        <TextView
-            android:text="Q: Can SmartDocAI turn my Excel sheet into a Word report?"
-            android:textStyle="bold"
-            android:textColor="?attr/colorOnSurface"
-            android:layout_marginTop="8dp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
-        <TextView
-            android:text="A: Yes. After loading an XLSX file, tap 'Export Word (AI Report)'. SmartDocAI will generate a ready-to-edit DOCX report with trends, summaries, and insights based on your data."
+            android:text="A: Analyse → Image → Excel. Pick a photo or screenshot of a table; SmartDocAI builds an XLSX you can open in Excel, Sheets, or Numbers. Soft daily free cap; unlimited with Document Pro."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp" />
 
-        <!-- ⭐ NEW Q7: Image → Excel -->
         <TextView
-            android:text="Q: Can I convert a photo of a table into Excel?"
+            android:text="Q: Excel → Word?"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
             android:layout_marginTop="8dp"
@@ -132,18 +182,26 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Yes. Use 'Image → Excel' to pick a photo or screenshot of a table. SmartDocAI will detect rows and columns and create an XLSX file you can open in Excel, Sheets, or Numbers."
+            android:text="A: Analyse → Excel → Word. Pick an XLSX; SmartDocAI writes a DOCX report (trends/summary). Soft daily free cap; unlimited with Document Pro. Saved to Files."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp" />
+            android:layout_marginBottom="16dp" />
 
-        <!-- (existing ones shift down: Dark Mode etc.) -->
-
-        <!-- Q8 (was Q6) -->
+        <!-- Analyse AI -->
         <TextView
-            android:text="Q: How do I enable Dark Mode?"
+            android:text="Analyse &amp; AI"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="Q: How does Analyse AI work?"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
             android:layout_marginTop="8dp"
@@ -151,33 +209,15 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Go to Settings and toggle 'Enable Dark Mode'. The app will instantly switch to a dark-friendly theme for comfortable reading."
-            android:lineSpacingExtra="4dp"
-            android:textColor="?attr/colorOnSurface"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp" />
-
-        <!-- Q9 (was Q7) -->
-        <TextView
-            android:text="Q: What AI models are available?"
-            android:textStyle="bold"
-            android:textColor="?attr/colorOnSurface"
-            android:layout_marginTop="8dp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
-        <TextView
-            android:text="A: Everyone gets free Groq (LLaMA) AI within a monthly token cap. Document Pro unlocks unlimited document tools, ad-free use, and clean PDF export — it is not the old AI Pro subscription."
+            android:text="A: Upload or scan into Analyse, then summarize, key points, or chat. AI uses free Groq (LLaMA) within a monthly token cap — free for everyone, with or without Document Pro. Usage shows under Analyse."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp" />
 
-        <!-- Q10 (was Q8) -->
         <TextView
-            android:text="Q: Can I replay the guided walkthrough?"
+            android:text="Q: Where do exports go?"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
             android:layout_marginTop="8dp"
@@ -185,7 +225,109 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Settings → Replay intro walkthrough opens the full product intro. Settings → Tools guided tips shows short Analyse tips (jobs → upload → free AI → export) as a dialog pager — Next/Done. Tips stay dismissed until you replay."
+            android:text="A: Saved Files (and a “Saved to Files” toast). Share PDF/DOCX/XLSX from there or right after export."
+            android:lineSpacingExtra="4dp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Document Pro -->
+        <TextView
+            android:text="Document Pro"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="Q: What is Document Pro?"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginTop="8dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="A: The paid plan for document tools: Lifetime, Yearly, or Monthly. Unlocks unlimited tools, ad-free app, Smaller compress, and clean PDF share/export (no free watermark). Free Groq AI stays free either way."
+            android:lineSpacingExtra="4dp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:text="Q: What are soft caps?"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginTop="8dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="A: Free daily limits while you try Pro (e.g. Image→Excel, multi-page scan→PDF, Word reports, clean share). When a cap is reached, Settings → Document Pro / Restore. Caps reset each day."
+            android:lineSpacingExtra="4dp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:text="Q: Watermark on PDF share?"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginTop="8dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="A: Free saves may add a light footer watermark. Document Pro shares and Downloads saves are clean."
+            android:lineSpacingExtra="4dp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Settings -->
+        <TextView
+            android:text="Settings"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="Q: Can I replay intros and tips?"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginTop="8dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="A: Settings → Replay intro walkthrough = full product intro. Settings → Tools guided tips = short Analyse tips (jobs → upload → free AI → export) as a dialog — Next / Done / Skip."
+            android:lineSpacingExtra="4dp"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:text="Q: Dark Mode?"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface"
+            android:layout_marginTop="8dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="A: Settings → Enable Dark Mode."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
