@@ -104,6 +104,11 @@ class ScanActivity : AppCompatActivity() {
 
         /** Still-detect score at/above this → auto-Apply warp; skip corner UI. */
         private const val HIGH_AUTO_APPLY_SCORE = 0.72f
+
+        /** Near-black / flat-on-table — tip only, no outline/auto. */
+        private const val PREVIEW_DARK_MEAN = 18f
+        /** Dim preview — outline may show, but auto-lock stays off. */
+        private const val PREVIEW_DIM_LOCK_MEAN = 28f
     }
 
     private lateinit var tvTitle: TextView
@@ -181,6 +186,9 @@ class ScanActivity : AppCompatActivity() {
     private var autoArmed = true
     private val edgeTracker = DocumentEdgeTracker()
     private val lastAnalyzeMs = AtomicLong(0L)
+    /** Latest preview mean luma — used to block auto on dim/flat previews. */
+    @Volatile
+    private var lastPreviewMean = 0f
     private var debugFeedRegistered = false
     private val previewDetectHandler = Handler(Looper.getMainLooper())
     private var previewDetectRunning = false
@@ -749,10 +757,11 @@ class ScanActivity : AppCompatActivity() {
         executor.execute {
             try {
                 val mean = sampleMeanLuma(bmp)
+                lastPreviewMean = mean
                 if (System.currentTimeMillis() % 1500L < 150L) {
                     Log.d(TAG, "previewBmp ${bmp.width}x${bmp.height} mean=${"%.1f".format(mean)}")
                 }
-                if (mean < 12f) {
+                if (mean < PREVIEW_DARK_MEAN) {
                     // Flat on table / lens covered — don't show Ready
                     runOnUiThread { onPreviewTooDark(mean) }
                     return@execute
@@ -765,7 +774,7 @@ class ScanActivity : AppCompatActivity() {
                     Log.d(TAG, "preview MISS mean=${"%.0f".format(mean)}")
                 }
                 // Already view-normalized
-                runOnUiThread { onDetection(detection) }
+                runOnUiThread { onDetection(detection, mean) }
             } catch (e: Exception) {
                 Log.w(TAG, "preview detect failed", e)
                 runOnUiThread { onDetection(null) }
@@ -818,7 +827,7 @@ class ScanActivity : AppCompatActivity() {
     }
 
     /** [detection] quad is already in overlay-normalized PreviewView space. */
-    private fun onDetection(detection: DocumentEdgeDetector.Detection?) {
+    private fun onDetection(detection: DocumentEdgeDetector.Detection?, meanLuma: Float = lastPreviewMean) {
         if (!liveCapturePane.isVisible || capturing.get()) return
 
         val now = System.currentTimeMillis()
@@ -829,7 +838,7 @@ class ScanActivity : AppCompatActivity() {
         if (detection != null) {
             Log.d(
                 TAG,
-                "det score=${"%.2f".format(detection.score)} " +
+                "det score=${"%.2f".format(detection.score)} mean=${"%.0f".format(meanLuma)} " +
                     "vis=${frame.visible} hold=${frame.holdProgress}/${frame.holdNeeded} " +
                     "lock=${frame.lockedForCapture} armed=$autoArmed"
             )
@@ -837,14 +846,20 @@ class ScanActivity : AppCompatActivity() {
 
         if (frame.displayQuad == null) {
             edgeOverlay.clear()
-            tvLiveHint.text = "Align the page — fill most of the frame, then hold still"
+            tvLiveHint.text = if (meanLuma < PREVIEW_DIM_LOCK_MEAN) {
+                "Hold phone above the page — not flat on the table"
+            } else {
+                "Align the page — fill most of the frame, then hold still"
+            }
             return
         }
 
         // Gold fill brightens while stable; patient hold before auto.
         edgeOverlay.setQuad(frame.displayQuad, frame.ready || frame.lockedForCapture)
 
+        val dimBlock = meanLuma < PREVIEW_DIM_LOCK_MEAN
         tvLiveHint.text = when {
+            dimBlock -> "Hold phone above the page — not flat on the table"
             frame.lockedForCapture -> "Locked — capturing…"
             frame.holdProgress > 0 ->
                 "Hold steady… ${frame.holdProgress}/${frame.holdNeeded}"
@@ -852,9 +867,13 @@ class ScanActivity : AppCompatActivity() {
             else -> "Align the page inside the frame"
         }
 
-        // Auto when tracker locks. Only disarm AFTER takeCapture actually starts.
-        if (frame.lockedForCapture && autoArmed && !capturing.get()) {
-            Log.i(TAG, "AUTO_FIRE score=${"%.2f".format(frame.smoothedScore)} hold=${frame.holdProgress}")
+        // Auto when tracker locks. Dim/flat previews never auto (manual ● still works).
+        if (frame.lockedForCapture && autoArmed && !capturing.get() && !dimBlock) {
+            Log.i(
+                TAG,
+                "AUTO_FIRE score=${"%.2f".format(frame.smoothedScore)} " +
+                    "hold=${frame.holdProgress} mean=${"%.0f".format(meanLuma)}"
+            )
             takeCapture(auto = true)
         }
     }

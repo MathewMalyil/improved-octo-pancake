@@ -2,12 +2,14 @@ package com.mmalyil.smartdocai.scan
 
 import android.graphics.PointF
 import android.util.Log
+import kotlin.math.abs
 
 /**
  * Temporal smoother + patient auto-capture gate.
  *
- * Auto fires only when the overlay is visible, the score is confident, and the
- * quad has stayed stable for a sustained hold — not on the first flash of a hit.
+ * Auto fires only when the overlay is visible, the score is confident, geometry
+ * fills a sensible page fraction, and the quad has stayed stable for a sustained
+ * hold — not on the first flash of a hit or while the phone is moving.
  */
 class DocumentEdgeTracker {
 
@@ -49,9 +51,9 @@ class DocumentEdgeTracker {
             missStreak++
             hitStreak = 0
             // Movement / miss resets patient hold quickly
-            stableHoldStreak = (stableHoldStreak - 2).coerceAtLeast(0)
+            stableHoldStreak = (stableHoldStreak - 3).coerceAtLeast(0)
             if (stableHoldStreak == 0) stableSinceMs = 0L
-            smoothScore *= 0.90f
+            smoothScore *= 0.88f
             if (missStreak >= MISS_CLEAR || smoothScore < HIDE_SCORE) {
                 visible = false
                 smooth = null
@@ -92,8 +94,9 @@ class DocumentEdgeTracker {
         } else {
             frameIou = DocumentEdgeDetector.iou(prev, incoming)
             if (frameIou < JUMP_REJECT) {
-                blendInto(prev, incoming, alpha = 0.18f)
-                smoothScore = smoothScore * 0.70f + raw.score * 0.30f
+                // Big jump / motion — soft follow, don't let score spike for lock
+                blendInto(prev, incoming, alpha = 0.14f)
+                smoothScore = smoothScore * 0.75f + raw.score * 0.25f
             } else {
                 blendInto(prev, incoming, alpha = SMOOTH_ALPHA)
                 smoothScore = smoothScore * (1f - SCORE_ALPHA) + raw.score * SCORE_ALPHA
@@ -107,8 +110,9 @@ class DocumentEdgeTracker {
             Log.i(TAG, "overlay VISIBLE score=${"%.2f".format(smoothScore)}")
         }
 
-        // Patient gate: high confidence + stable geometry only
-        val confident = smoothScore >= LOCK_SCORE && raw.score >= LOCK_SCORE
+        val areaOk = pageAreaOk(smoothed)
+        // Patient gate: high confidence + stable geometry + sensible page fill
+        val confident = smoothScore >= LOCK_SCORE && raw.score >= LOCK_SCORE && areaOk
         val stable = frameIou >= STABLE_IOU
         if (visible && confident && stable) {
             if (stableHoldStreak == 0) stableSinceMs = nowMs
@@ -118,7 +122,7 @@ class DocumentEdgeTracker {
             stableHoldStreak = (stableHoldStreak - 2).coerceAtLeast(0)
             if (stableHoldStreak == 0) stableSinceMs = 0L
         } else {
-            // Low confidence or lost — reset hold (no hurried fire)
+            // Low confidence, partial page, or lost — reset hold (no hurried fire)
             stableHoldStreak = 0
             stableSinceMs = 0L
         }
@@ -129,7 +133,7 @@ class DocumentEdgeTracker {
                 TAG,
                 "LOCK ready frames=$stableHoldStreak ms=${nowMs - stableSinceMs} " +
                     "score=${"%.2f".format(smoothScore)} raw=${"%.2f".format(raw.score)} " +
-                    "iou=${"%.2f".format(frameIou)}"
+                    "iou=${"%.2f".format(frameIou)} area=${"%.2f".format(quadArea(smoothed))}"
             )
         }
 
@@ -138,7 +142,7 @@ class DocumentEdgeTracker {
             smoothedScore = smoothScore,
             visible = visible,
             lockedForCapture = locked,
-            ready = visible && smoothScore >= READY_SCORE,
+            ready = visible && smoothScore >= READY_SCORE && areaOk,
             holdProgress = holdProgress(nowMs),
             holdNeeded = HOLD_FRAMES
         )
@@ -146,6 +150,8 @@ class DocumentEdgeTracker {
 
     private fun checkLocked(nowMs: Long): Boolean {
         if (!visible || smoothScore < LOCK_SCORE) return false
+        val q = smooth ?: return false
+        if (!pageAreaOk(q)) return false
         val heldMs = if (stableSinceMs > 0L) nowMs - stableSinceMs else 0L
         // Require sustained stable frames; wall-clock alone is not enough
         return stableHoldStreak >= HOLD_FRAMES && heldMs >= HOLD_MS_MIN
@@ -176,28 +182,48 @@ class DocumentEdgeTracker {
         private const val TAG = "EdgeTracker"
 
         /** Need a few solid hits before showing / starting the clock. */
-        private const val ENTER_NEED = 3
-        private const val MISS_CLEAR = 16
+        private const val ENTER_NEED = 4
+        private const val MISS_CLEAR = 14
         private const val SHOW_SCORE = 0.40f
         private const val HIDE_SCORE = 0.28f
 
         /**
-         * More patient auto: ~2–2.5s of stable + high-confidence frames at ~8 fps.
+         * Patient auto: ~2.4–2.8s of stable + high-confidence frames at ~8 fps.
          * Wall-clock minimum prevents hurried fire on a burst of hits.
          */
-        const val HOLD_FRAMES = 18
-        const val HOLD_MS_MIN = 2200L
+        const val HOLD_FRAMES = 20
+        const val HOLD_MS_MIN = 2400L
 
         const val READY_SCORE = 0.55f
         /** Auto requires this smoothed + raw confidence (high only). */
-        const val LOCK_SCORE = 0.68f
+        const val LOCK_SCORE = 0.72f
         const val LOCK_NEED = HOLD_FRAMES
 
         /** Quad must stay firmly still between frames. */
-        private const val STABLE_IOU = 0.90f
+        private const val STABLE_IOU = 0.92f
 
-        private const val SMOOTH_ALPHA = 0.26f
-        private const val SCORE_ALPHA = 0.26f
-        private const val JUMP_REJECT = 0.35f
+        /** Reject partial / near-fullscreen desk hits from locking. */
+        private const val MIN_LOCK_AREA = 0.18f
+        private const val MAX_LOCK_AREA = 0.88f
+
+        /** Lower = less outline jitter (laggy but calmer). */
+        private const val SMOOTH_ALPHA = 0.16f
+        private const val SCORE_ALPHA = 0.20f
+        /** Below this IoU → treat as motion jump (soft blend only). */
+        private const val JUMP_REJECT = 0.42f
+
+        private fun quadArea(q: Array<PointF>): Float {
+            var sum = 0f
+            for (i in 0..3) {
+                val j = (i + 1) % 4
+                sum += q[i].x * q[j].y - q[j].x * q[i].y
+            }
+            return abs(sum) * 0.5f
+        }
+
+        private fun pageAreaOk(q: Array<PointF>): Boolean {
+            val a = quadArea(q)
+            return a in MIN_LOCK_AREA..MAX_LOCK_AREA
+        }
     }
 }

@@ -111,7 +111,7 @@ object OpenCvDocumentDetector {
                 Log.w(TAG, "strategy ${names[i]} failed", e)
                 null
             } ?: continue
-            val score = scoreQuad(quad, gray)
+            val score = scoreQuad(quad, gray, liveStrict = analyzeWidth <= ANALYZE_W + 40)
             if (score > bestScore) {
                 bestScore = score
                 best = quad
@@ -124,8 +124,9 @@ object OpenCvDocumentDetector {
             Log.d(TAG, "no quad mean=$mean")
             return null
         }
-        if (bestScore < 0.28f) {
-            Log.d(TAG, "weak score=$bestScore strategy=$bestName")
+        val minAccept = if (analyzeWidth <= ANALYZE_W + 40) 0.32f else 0.28f
+        if (bestScore < minAccept) {
+            Log.d(TAG, "weak score=$bestScore strategy=$bestName live=${analyzeWidth <= ANALYZE_W + 40}")
             return null
         }
         orderTlTrBrBl(quad)
@@ -204,11 +205,14 @@ object OpenCvDocumentDetector {
 
     private fun pickBestQuad(contours: List<MatOfPoint>, w: Int, h: Int): Array<PointF>? {
         val frameArea = (w * h).toDouble()
+        // Live analyze (~480w) uses a higher floor to skip tiny partial desk fragments.
+        val minFrac = if (w <= ANALYZE_W + 40) 0.12 else 0.08
+        val maxFrac = if (w <= ANALYZE_W + 40) 0.94 else 0.96
         var best: Array<PointF>? = null
         var bestArea = 0.0
         for (c in contours) {
             val area = Imgproc.contourArea(c)
-            if (area < frameArea * 0.08 || area > frameArea * 0.96) continue
+            if (area < frameArea * minFrac || area > frameArea * maxFrac) continue
             val peri = Imgproc.arcLength(MatOfPoint2f(*c.toArray()), true)
             val approx = MatOfPoint2f()
             Imgproc.approxPolyDP(MatOfPoint2f(*c.toArray()), approx, 0.02 * peri, true)
@@ -232,11 +236,14 @@ object OpenCvDocumentDetector {
         return best
     }
 
-    private fun scoreQuad(quad: Array<PointF>, gray: Mat): Float {
+    private fun scoreQuad(quad: Array<PointF>, gray: Mat, liveStrict: Boolean = false): Float {
         val area = polygonArea(quad)
-        if (area < 0.08f || area > 0.96f) return 0f
+        val minA = if (liveStrict) 0.14f else 0.08f
+        val maxA = if (liveStrict) 0.92f else 0.96f
+        if (area < minA || area > maxA) return 0f
         val rect = rectangularity(quad)
-        if (rect < 0.35f) return 0f
+        val minRect = if (liveStrict) 0.42f else 0.35f
+        if (rect < minRect) return 0f
         var cx = 0f
         var cy = 0f
         for (p in quad) {
@@ -246,7 +253,12 @@ object OpenCvDocumentDetector {
         cx /= 4f
         cy /= 4f
         val center = (1f - (abs(cx - 0.5f) + abs(cy - 0.5f))).coerceIn(0f, 1f)
-        return (area * 0.35f + rect * 0.40f + center * 0.25f).coerceIn(0f, 1f)
+        // Live: weight rectangularity a bit more (reject skewed partial edges).
+        return if (liveStrict) {
+            (area * 0.30f + rect * 0.48f + center * 0.22f).coerceIn(0f, 1f)
+        } else {
+            (area * 0.35f + rect * 0.40f + center * 0.25f).coerceIn(0f, 1f)
+        }
     }
 
     /**
