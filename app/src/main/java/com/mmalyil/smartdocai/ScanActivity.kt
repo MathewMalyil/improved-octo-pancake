@@ -68,6 +68,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -93,6 +94,9 @@ class ScanActivity : AppCompatActivity() {
 
         /** Still re-detect must clear this to perspective-warp the capture. */
         private const val STILL_WARP_SCORE = 0.22f
+
+        /** Pull still quad inward so Review/PDF sheds desk margin around the page. */
+        private const val STILL_QUAD_INSET = 0.028f
     }
 
     private lateinit var tvTitle: TextView
@@ -818,6 +822,8 @@ class ScanActivity : AppCompatActivity() {
     /**
      * Always try perspective correction on the still. Pass 1 = STILL, pass 2 = STILL_STRONG.
      * Never uses live overlay quads (wrong coordinate space).
+     * Still-only: prefer tighter quads, inset before warp, trim leftover dark desk.
+     * Live auto path is untouched.
      */
     private fun deskewStill(src: Bitmap): Bitmap? {
         // Prefer OpenCV at multiple resolutions, then Kotlin STILL / STILL_STRONG
@@ -829,21 +835,51 @@ class ScanActivity : AppCompatActivity() {
             candidates.add("ktStrong" to it)
         }
 
+        // Among strong scores, prefer smaller area (tighter to paper, less desk).
+        val ranked = candidates
+            .filter { it.second.score >= STILL_WARP_SCORE }
+            .sortedWith(
+                compareByDescending<Pair<String, DocumentEdgeDetector.Detection>> {
+                    // Soft-cap area so huge desk-inclusive quads don't win on score alone
+                    val a = polygonAreaNorm(it.second.quad)
+                    it.second.score - (a - 0.55f).coerceAtLeast(0f) * 0.35f
+                }.thenBy { polygonAreaNorm(it.second.quad) }
+            )
+
         var bestQuad: Array<PointF>? = null
         var bestScore = -1f
         var bestName = ""
-        for ((name, det) in candidates.sortedByDescending { it.second.score }) {
-            Log.i(TAG, "still detect $name score=${"%.2f".format(det.score)}")
-            if (det.score < STILL_WARP_SCORE) continue
-            val warped = PerspectiveHelper.warpDocument(src, det.quad)
+        for ((name, det) in ranked) {
+            val area = polygonAreaNorm(det.quad)
+            Log.i(
+                TAG,
+                "still detect $name score=${"%.2f".format(det.score)} area=${"%.2f".format(area)}"
+            )
+            val tight = PerspectiveHelper.insetQuad(det.quad, STILL_QUAD_INSET)
+            val warped = PerspectiveHelper.warpDocument(src, tight)
             if (warped != null) {
-                Log.i(TAG, "still WARP ok $name score=${"%.2f".format(det.score)} " +
-                    "${warped.width}x${warped.height}")
-                return warped
+                val trimmed = PerspectiveHelper.trimDarkMargins(warped)
+                if (trimmed !== warped && !warped.isRecycled) warped.recycle()
+                Log.i(
+                    TAG,
+                    "still WARP ok $name score=${"%.2f".format(det.score)} " +
+                        "inset=$STILL_QUAD_INSET ${trimmed.width}x${trimmed.height}"
+                )
+                return trimmed
             }
             if (det.score > bestScore) {
                 bestScore = det.score
-                bestQuad = det.quad
+                bestQuad = tight
+                bestName = name
+            }
+        }
+        // Also try leftover weak candidates for bbox fallback only
+        for ((name, det) in candidates.sortedByDescending { it.second.score }) {
+            if (det.score >= STILL_WARP_SCORE) continue
+            Log.i(TAG, "still detect weak $name score=${"%.2f".format(det.score)}")
+            if (det.score > bestScore) {
+                bestScore = det.score
+                bestQuad = PerspectiveHelper.insetQuad(det.quad, STILL_QUAD_INSET)
                 bestName = name
             }
         }
@@ -853,8 +889,23 @@ class ScanActivity : AppCompatActivity() {
         }
         val box = PerspectiveHelper.boundingCrop(quad)
         val cropped = cropNormalized(src, box)
-        if (cropped != null) Log.i(TAG, "still bbox crop fallback $bestName score=$bestScore")
-        return cropped
+        if (cropped != null) {
+            val trimmed = PerspectiveHelper.trimDarkMargins(cropped)
+            if (trimmed !== cropped && !cropped.isRecycled) cropped.recycle()
+            Log.i(TAG, "still bbox crop fallback $bestName score=$bestScore")
+            return trimmed
+        }
+        return null
+    }
+
+    private fun polygonAreaNorm(quad: Array<PointF>): Float {
+        if (quad.size < 3) return 1f
+        var sum = 0f
+        for (i in quad.indices) {
+            val j = (i + 1) % quad.size
+            sum += quad[i].x * quad[j].y - quad[j].x * quad[i].y
+        }
+        return abs(sum) * 0.5f
     }
 
     private fun decodeCaptureOriented(file: File): Bitmap? {

@@ -13,6 +13,106 @@ import kotlin.math.roundToInt
 object PerspectiveHelper {
 
     /**
+     * Shrink a normalized TL,TR,BR,BL quad toward its centroid.
+     * Used on still deskew so Review/PDF hugs paper instead of desk margin.
+     */
+    fun insetQuad(quadNorm: Array<PointF>, fraction: Float): Array<PointF> {
+        if (quadNorm.size < 4 || fraction <= 0f) return quadNorm
+        val f = fraction.coerceIn(0f, 0.2f)
+        var cx = 0f
+        var cy = 0f
+        for (p in quadNorm) {
+            cx += p.x
+            cy += p.y
+        }
+        cx /= quadNorm.size
+        cy /= quadNorm.size
+        return Array(quadNorm.size) { i ->
+            val p = quadNorm[i]
+            PointF(
+                (p.x + (cx - p.x) * f).coerceIn(0f, 1f),
+                (p.y + (cy - p.y) * f).coerceIn(0f, 1f)
+            )
+        }
+    }
+
+    /**
+     * After warp, shave dark desk strips that still hug the border.
+     * Caps each side so a dark header/footer on the page itself is not eaten.
+     */
+    fun trimDarkMargins(src: Bitmap, maxFrac: Float = 0.10f): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w < 64 || h < 64) return src
+        val maxX = (w * maxFrac).toInt().coerceAtLeast(1)
+        val maxY = (h * maxFrac).toInt().coerceAtLeast(1)
+        val center = meanRect(src, w / 4, h / 4, 3 * w / 4, 3 * h / 4)
+        // Desk is usually darker than paper; require a clear gap vs page body.
+        val thresh = (center - 28f).coerceAtLeast(70f)
+
+        fun colMean(x: Int): Float {
+            var s = 0.0
+            var n = 0
+            var y = 0
+            while (y < h) {
+                val c = src.getPixel(x, y)
+                s += 0.299 * ((c shr 16) and 0xFF) + 0.587 * ((c shr 8) and 0xFF) + 0.114 * (c and 0xFF)
+                n++
+                y += 4
+            }
+            return (s / max(n, 1)).toFloat()
+        }
+
+        fun rowMean(y: Int): Float {
+            var s = 0.0
+            var n = 0
+            var x = 0
+            while (x < w) {
+                val c = src.getPixel(x, y)
+                s += 0.299 * ((c shr 16) and 0xFF) + 0.587 * ((c shr 8) and 0xFF) + 0.114 * (c and 0xFF)
+                n++
+                x += 4
+            }
+            return (s / max(n, 1)).toFloat()
+        }
+
+        var left = 0
+        while (left < maxX && colMean(left) < thresh) left++
+        var right = w - 1
+        while (right > w - 1 - maxX && colMean(right) < thresh) right--
+        var top = 0
+        while (top < maxY && rowMean(top) < thresh) top++
+        var bottom = h - 1
+        while (bottom > h - 1 - maxY && rowMean(bottom) < thresh) bottom--
+
+        val cw = right - left + 1
+        val ch = bottom - top + 1
+        if (cw < w * 0.7f || ch < h * 0.7f) return src
+        if (left == 0 && top == 0 && right == w - 1 && bottom == h - 1) return src
+        return Bitmap.createBitmap(src, left, top, cw, ch)
+    }
+
+    private fun meanRect(src: Bitmap, l: Int, t: Int, r: Int, b: Int): Float {
+        var s = 0.0
+        var n = 0
+        var y = t.coerceAtLeast(0)
+        val yMax = b.coerceAtMost(src.height)
+        val x0 = l.coerceAtLeast(0)
+        val x1 = r.coerceAtMost(src.width)
+        while (y < yMax) {
+            var x = x0
+            while (x < x1) {
+                val c = src.getPixel(x, y)
+                s += 0.299 * ((c shr 16) and 0xFF) + 0.587 * ((c shr 8) and 0xFF) + 0.114 * (c and 0xFF)
+                n++
+                x += 8
+            }
+            y += 8
+        }
+        return (s / max(n, 1)).toFloat()
+    }
+
+    /**
      * Warp [src] so [quadNorm] (normalized TL,TR,BR,BL) becomes an upright rectangle.
      * Returns null if the quad is unusable or nearly degenerate.
      */
@@ -68,12 +168,12 @@ object PerspectiveHelper {
             maxX = maxOf(maxX, p.x)
             maxY = maxOf(maxY, p.y)
         }
-        val pad = 0.008f
+        // No outward pad — bbox fallback should hug the detected page.
         return floatArrayOf(
-            (minX - pad).coerceIn(0f, 0.9f),
-            (minY - pad).coerceIn(0f, 0.9f),
-            (maxX + pad).coerceIn(0.1f, 1f),
-            (maxY + pad).coerceIn(0.1f, 1f)
+            minX.coerceIn(0f, 0.9f),
+            minY.coerceIn(0f, 0.9f),
+            maxX.coerceIn(0.1f, 1f),
+            maxY.coerceIn(0.1f, 1f)
         )
     }
 }
