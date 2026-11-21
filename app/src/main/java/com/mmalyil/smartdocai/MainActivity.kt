@@ -336,11 +336,10 @@ class MainActivity : AppCompatActivity() {
 
         // Home owns job CTAs — hide usage strip there so jobs are immediate.
         // Tools keeps the compact AI usage strip.
-        // contentFrame is constrained via contentTopBarrier (not directly to heroCard)
-        // so GONE heroCard never collapses the fragment host to 0 height.
-        val hero = findViewById<View>(R.id.heroCard)
-        hero?.visibility = if (itemId == R.id.nav_tools) View.VISIBLE else View.GONE
-        findViewById<View>(R.id.contentFrame)?.requestLayout()
+        // heroCard lives in a vertical LinearLayout above contentFrame (weight=1),
+        // so GONE never zeroes the fragment host (Barrier still failed after tab switch).
+        findViewById<View>(R.id.heroCard)?.visibility =
+            if (itemId == R.id.nav_tools) View.VISIBLE else View.GONE
 
         supportFragmentManager.beginTransaction()
             .setReorderingAllowed(true)
