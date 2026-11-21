@@ -46,6 +46,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.mmalyil.smartdocai.model.AppDatabase
 import com.mmalyil.smartdocai.model.ScannedFile
+import com.mmalyil.smartdocai.scan.CardGuideOverlayView
 import com.mmalyil.smartdocai.scan.CropOverlayView
 import com.mmalyil.smartdocai.scan.DocumentEdgeDetector
 import com.mmalyil.smartdocai.scan.DocumentEdgeTracker
@@ -84,6 +85,8 @@ class ScanActivity : AppCompatActivity() {
         const val EXTRA_START_MODE = "start_mode"
         const val MODE_CAMERA = "camera"
         const val MODE_PHOTOS = "photos"
+        /** Guided Front → Back ID / Aadhaar capture (2-page PDF). */
+        const val MODE_ID = "id"
 
         const val EXTRA_PDF_URI = "pdfUri"
         const val EXTRA_PDF_PATH = "pdfPath"
@@ -110,6 +113,7 @@ class ScanActivity : AppCompatActivity() {
     private lateinit var cropOverlay: CropOverlayView
     private lateinit var quadAdjustOverlay: QuadAdjustOverlayView
     private lateinit var edgeOverlay: EdgeOverlayView
+    private lateinit var cardGuideOverlay: CardGuideOverlayView
     private lateinit var previewView: PreviewView
     private lateinit var liveCapturePane: View
     private lateinit var thumbStrip: RecyclerView
@@ -146,6 +150,13 @@ class ScanActivity : AppCompatActivity() {
     private var previewBitmap: Bitmap? = null
     private var saving = false
     private var retakePending = false
+    /** Guided ID / Aadhaar Front → Back mode. */
+    private var idMode = false
+    /**
+     * After Front is ready in ID mode, continue to Back capture once
+     * (skip when retaking a single side).
+     */
+    private var idAwaitingBack = false
 
     private data class CapturedPage(
         /** Path Review shows first (warped if auto-applied). */
@@ -314,6 +325,12 @@ class ScanActivity : AppCompatActivity() {
                 showEmptyState()
                 openPhotoPicker()
             }
+            MODE_ID -> {
+                idMode = true
+                if (pages.isEmpty()) {
+                    checkCameraPermissionAndStart(replaceSelected = false)
+                }
+            }
             else -> {
                 if (pages.isEmpty()) {
                     checkCameraPermissionAndStart(replaceSelected = false)
@@ -355,6 +372,7 @@ class ScanActivity : AppCompatActivity() {
         cropOverlay = findViewById(R.id.cropOverlay)
         quadAdjustOverlay = findViewById(R.id.quadAdjustOverlay)
         edgeOverlay = findViewById(R.id.edgeOverlay)
+        cardGuideOverlay = findViewById(R.id.cardGuideOverlay)
         previewView = findViewById(R.id.previewView)
         liveCapturePane = findViewById(R.id.liveCapturePane)
         thumbStrip = findViewById(R.id.thumbStrip)
@@ -409,6 +427,7 @@ class ScanActivity : AppCompatActivity() {
         thumbAdapter = ThumbAdapter(
             pages = pages,
             selectedIndexProvider = { selectedIndex },
+            idModeProvider = { idMode },
             onSelect = { index ->
                 commitCropToPage()
                 selectedIndex = index
@@ -511,6 +530,14 @@ class ScanActivity : AppCompatActivity() {
             commitCropToPage()
             cropMode = false
             updateCropUi()
+            if (idMode && pages.size >= 2) {
+                Toast.makeText(
+                    this,
+                    "ID scan is Front + Back only — retake a side if needed",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
             checkCameraPermissionAndStart(replaceSelected = false)
         }
         btnSavePdf.setOnClickListener {
@@ -552,18 +579,49 @@ class ScanActivity : AppCompatActivity() {
         emptyPane.isVisible = false
         liveCapturePane.isVisible = true
         reviewViews.forEach { it.isVisible = false }
-        tvTitle.text = "Scan document"
-        tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
-        tvLiveHint.text = "Hold phone above the page — hold steady until lock, or tap ●"
+        if (idMode) {
+            tvTitle.text = "Scan ID"
+            val side = idSideLabel()
+            cardGuideOverlay.isVisible = true
+            cardGuideOverlay.setSideLabel(side)
+            tvStatus.text = if (retakePending) {
+                "Retake $side — align card in the frame"
+            } else {
+                "$side — align card in the frame"
+            }
+            tvLiveHint.text = "Hold phone above the ID — fit the card in the gold frame, then tap ●"
+            btnFromPhotos.isVisible = false
+        } else {
+            tvTitle.text = "Scan document"
+            cardGuideOverlay.isVisible = false
+            tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
+            tvLiveHint.text = "Hold phone above the page — hold steady until lock, or tap ●"
+            btnFromPhotos.isVisible = true
+        }
         edgeOverlay.clear()
+    }
+
+    private fun idSideLabel(): String {
+        return when {
+            retakePending && selectedIndex == 0 -> "Front of ID"
+            retakePending && selectedIndex == 1 -> "Back of ID"
+            pages.isEmpty() -> "Front of ID"
+            pages.size == 1 -> "Back of ID"
+            else -> "ID card"
+        }
     }
 
     private fun showReviewState() {
         stopLiveCamera()
         emptyPane.isVisible = false
         liveCapturePane.isVisible = false
+        cardGuideOverlay.isVisible = false
         reviewViews.forEach { it.isVisible = true }
-        tvTitle.text = if (adjustMode) "Adjust crop" else "Review scan"
+        tvTitle.text = when {
+            adjustMode -> "Adjust crop"
+            idMode -> "Review ID"
+            else -> "Review scan"
+        }
         updateStatus()
         updateAdjustUi()
     }
@@ -573,6 +631,8 @@ class ScanActivity : AppCompatActivity() {
         tvStatus.text = when {
             n == 0 -> "No pages yet"
             adjustMode -> "Page ${selectedIndex + 1} of $n · drag the 4 corners, then Apply"
+            idMode && n == 1 -> "Front ready · Scan back, or Save (1 side)"
+            idMode && n >= 2 -> "Front + Back · retake a side or Save PDF"
             else -> "Page ${selectedIndex + 1} of $n · filter, Adjust corners, or Save PDF"
         }
     }
@@ -1099,6 +1159,7 @@ class ScanActivity : AppCompatActivity() {
             needsAdjust = !captured.autoApplied,
             detectScore = captured.score
         )
+        val wasReplace = replaceSelected
         if (replaceSelected && pages.isNotEmpty() && selectedIndex in pages.indices) {
             pages[selectedIndex] = page
         } else {
@@ -1106,6 +1167,8 @@ class ScanActivity : AppCompatActivity() {
             selectedIndex = pages.lastIndex
         }
         cropMode = false
+        // ID Front just added → prompt Back after adjust/apply (unless retake).
+        idAwaitingBack = idMode && !wasReplace && pages.size == 1
         if (captured.autoApplied) {
             adjustMode = false
             Log.i(TAG, "skip corner UI — high confidence score=${"%.2f".format(captured.score)}")
@@ -1113,10 +1176,27 @@ class ScanActivity : AppCompatActivity() {
             updateCropUi()
             refreshThumbs()
             renderSelectedPreview()
-            Toast.makeText(this, "Crop applied — Adjust corners anytime", Toast.LENGTH_SHORT).show()
+            if (idAwaitingBack) {
+                Toast.makeText(this, "Front captured — now scan the back", Toast.LENGTH_SHORT).show()
+                continueIdBackCapture()
+            } else {
+                Toast.makeText(this, "Crop applied — Adjust corners anytime", Toast.LENGTH_SHORT).show()
+            }
         } else {
             Log.i(TAG, "show corner UI — score=${"%.2f".format(captured.score)} < $HIGH_AUTO_APPLY_SCORE")
             enterAdjustModeForSelected()
+        }
+    }
+
+    /** After Front is ready in ID mode, open live camera for Back. */
+    private fun continueIdBackCapture() {
+        if (!idMode || !idAwaitingBack || pages.size != 1) return
+        idAwaitingBack = false
+        lifecycleScope.launch {
+            delay(450)
+            if (isFinishing || isDestroyed) return@launch
+            if (pages.size != 1 || adjustMode) return@launch
+            checkCameraPermissionAndStart(replaceSelected = false)
         }
     }
 
@@ -1146,6 +1226,17 @@ class ScanActivity : AppCompatActivity() {
         btnApplyAdjust.isVisible = adjusting
         btnSavePdf.isVisible = !adjusting
         btnKeepScanning.isVisible = !adjusting
+        if (idMode) {
+            btnKeepScanning.text = when {
+                pages.size >= 2 -> "Front + Back"
+                pages.size == 1 -> "Scan back"
+                else -> "Scan ID"
+            }
+            btnKeepScanning.isEnabled = !adjusting && pages.size < 2
+        } else {
+            btnKeepScanning.text = "Keep scanning"
+            btnKeepScanning.isEnabled = !adjusting
+        }
         filterRow.isVisible = !adjusting && !liveCapturePane.isVisible && pages.isNotEmpty()
         compressRow.isVisible = !adjusting && !liveCapturePane.isVisible && pages.isNotEmpty()
         btnToggleCrop.isVisible = !adjusting
@@ -1155,6 +1246,7 @@ class ScanActivity : AppCompatActivity() {
         btnRotateRight.isEnabled = !adjusting
         tvTitle.text = when {
             adjusting -> "Adjust crop"
+            idMode && pages.isNotEmpty() -> "Review ID"
             pages.isNotEmpty() -> "Review scan"
             else -> tvTitle.text
         }
@@ -1208,11 +1300,20 @@ class ScanActivity : AppCompatActivity() {
                 updateCropUi()
                 refreshThumbs()
                 renderSelectedPreview()
-                Toast.makeText(
-                    this@ScanActivity,
-                    "Crop applied — Adjust corners anytime",
-                    Toast.LENGTH_SHORT
-                ).show()
+                if (idAwaitingBack) {
+                    Toast.makeText(
+                        this@ScanActivity,
+                        "Front ready — now scan the back",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    continueIdBackCapture()
+                } else {
+                    Toast.makeText(
+                        this@ScanActivity,
+                        "Crop applied — Adjust corners anytime",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             } finally {
                 progressSaving.isVisible = false
                 btnApplyAdjust.isEnabled = true
@@ -1390,7 +1491,12 @@ class ScanActivity : AppCompatActivity() {
 
                     val dir = File(getExternalFilesDir(null), "scans").apply { mkdirs() }
                     val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                    val outFile = File(dir, "SmartDocAI_Scan_$stamp.pdf")
+                    val outName = if (idMode) {
+                        "SmartDocAI_ID_$stamp.pdf"
+                    } else {
+                        "SmartDocAI_Scan_$stamp.pdf"
+                    }
+                    val outFile = File(dir, outName)
                     ImagePdfWriter.write(
                         bitmaps,
                         outFile,
@@ -1405,12 +1511,17 @@ class ScanActivity : AppCompatActivity() {
                         outFile
                     )
 
+                    val historyLabel = if (idMode) {
+                        "ID / Aadhaar · ${pages.size} page(s) · image PDF"
+                    } else {
+                        "Scanned document · ${pages.size} page(s) · image PDF"
+                    }
                     val dao = AppDatabase.getDatabase(this@ScanActivity).scannedFileDao()
                     dao.insert(
                         ScannedFile(
                             fileName = outFile.name,
                             fileUri = uri.toString(),
-                            content = "Scanned document · ${pages.size} page(s) · image PDF",
+                            content = historyLabel,
                             aiResponse = null
                         )
                     )
@@ -1495,6 +1606,7 @@ class ScanActivity : AppCompatActivity() {
     private class ThumbAdapter(
         private val pages: List<ScanPage>,
         private val selectedIndexProvider: () -> Int,
+        private val idModeProvider: () -> Boolean,
         private val onSelect: (Int) -> Unit
     ) : RecyclerView.Adapter<ThumbAdapter.VH>() {
 
@@ -1512,7 +1624,11 @@ class ScanActivity : AppCompatActivity() {
         override fun getItemCount(): Int = pages.size
 
         override fun onBindViewHolder(holder: VH, position: Int) {
-            holder.tv.text = "${position + 1}"
+            holder.tv.text = when {
+                idModeProvider() && position == 0 -> "Front"
+                idModeProvider() && position == 1 -> "Back"
+                else -> "${position + 1}"
+            }
             val selected = position == selectedIndexProvider()
             holder.itemView.alpha = if (selected) 1f else 0.65f
             holder.itemView.setBackgroundColor(

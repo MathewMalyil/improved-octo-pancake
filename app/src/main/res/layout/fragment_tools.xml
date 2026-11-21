@@ -163,6 +163,19 @@
                         app:iconPadding="8dp"
                         app:iconGravity="textStart"
                         app:strokeColor="@color/md3_outline" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnScanId"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="6dp"
+                        android:text="Scan ID"
+                        android:textAllCaps="false"
+                        app:icon="@drawable/ic_camera"
+                        app:iconPadding="8dp"
+                        app:iconGravity="textStart"
+                        app:strokeColor="@color/md3_outline" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

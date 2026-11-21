@@ -47,6 +47,9 @@ class HomeFragment : Fragment() {
         view.findViewById<MaterialCardView>(R.id.cardHomeFromPhotos).setOnClickListener {
             openScan(ScanActivity.MODE_PHOTOS)
         }
+        view.findViewById<MaterialCardView>(R.id.cardHomeScanId).setOnClickListener {
+            openScan(ScanActivity.MODE_ID)
+        }
         view.findViewById<MaterialCardView>(R.id.cardHomeImageToExcel).setOnClickListener {
             (activity as? MainActivity)?.goToToolsAndAsk("imageToExcel")
         }
