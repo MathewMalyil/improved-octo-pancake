@@ -43,12 +43,23 @@ class ScannedFileDetailActivity : AppCompatActivity() {
         binding.tvAiResponse.text = file.aiResponse ?: "No AI response saved."
 
         val isPdf = ScanStorage.isPdfEntry(file)
-        binding.btnOpenPdf.visibility = if (isPdf) View.VISIBLE else View.GONE
+        val openKind = ScanStorage.openableKind(file)
+        val canOpenDoc = openKind != null
+        binding.btnOpenPdf.visibility = if (canOpenDoc) View.VISIBLE else View.GONE
+        binding.btnOpenPdf.text = when (openKind) {
+            "docx" -> "Open Word (DOCX)"
+            "txt" -> "Open text file"
+            else -> "Open PDF"
+        }
         binding.btnSaveToDownloads.visibility = if (isPdf) View.VISIBLE else View.GONE
-        binding.tvStorageHint.visibility = if (isPdf) View.VISIBLE else View.GONE
+        binding.tvStorageHint.visibility = if (canOpenDoc) View.VISIBLE else View.GONE
+        if (canOpenDoc && !isPdf) {
+            binding.tvStorageHint.text =
+                "Stored in SmartDocAI (app private). Use Open to view the real file."
+        }
 
         binding.btnOpenPdf.setOnClickListener {
-            ScanStorage.openPdf(this, file)
+            ScanStorage.openDocument(this, file)
         }
 
         binding.btnSaveToDownloads.setOnClickListener {
@@ -119,9 +130,9 @@ class ScannedFileDetailActivity : AppCompatActivity() {
                 .show()
         }
 
-        // PDF entries: open is the primary job — auto-offer once if launched with extra
-        if (isPdf && intent.getBooleanExtra(EXTRA_AUTO_OPEN, false)) {
-            binding.root.post { ScanStorage.openPdf(this, file) }
+        // Openable exports: auto-offer once if launched with extra
+        if (canOpenDoc && intent.getBooleanExtra(EXTRA_AUTO_OPEN, false)) {
+            binding.root.post { ScanStorage.openDocument(this, file) }
         }
     }
 

@@ -674,12 +674,7 @@ class ToolsFragment : Fragment() {
                 showAiReportPromptOptions(uri)
             } else {
                 toast("Pick an Excel (.xlsx) file")
-                excelToWordLauncher.launch(
-                    arrayOf(
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        "application/vnd.ms-excel"
-                    )
-                )
+                launchExcelPickerForWord()
             }
         }
     }
@@ -1028,12 +1023,11 @@ class ToolsFragment : Fragment() {
                 return@setOnClickListener
             }
 
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, content)
-                putExtra(Intent.EXTRA_SUBJECT, "Document Analysis")
+            // Persist a real TXT into Files (valid path), then share that file — no text-only stub.
+            val ctx = context ?: return@setOnClickListener
+            DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.OTHER_EXPORT) {
+                shareAndPersistTxt(content)
             }
-            startActivity(Intent.createChooser(shareIntent, "Share via"))
         }
 
         val btnExportDocx = view.findViewById<Button>(R.id.btnExportDocx)
@@ -1445,37 +1439,37 @@ class ToolsFragment : Fragment() {
                 withContext(Dispatchers.Main) {
                     showLoading(false)
 
-                    result.onSuccess { file ->
+                    result.onSuccess { generated ->
                         context?.let {
                             DocumentEntitlement.recordUse(it, DocumentEntitlement.Feature.AI_REPORT)
                             refreshDocCaps()
                         }
 
-                        // --- choose target URI: Q+ => Downloads, else FileProvider ---
-                        val downloadsUri: Uri? =
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q)
-                                runCatching {
-                                    saveDocxToDownloadsQ(
-                                        requireContext(),
-                                        file
-                                    )
-                                }.getOrNull()
-                            else null
-
-                        val fileProviderUri =
-                            getFileUri(requireContext(), file.name, subDir = "exports")
-                        val targetUri = downloadsUri ?: fileProviderUri
-
-                        if (file.length() <= 0L) {
+                        if (generated.length() <= 0L) {
                             toast("Report file is empty"); return@onSuccess
                         }
 
+                        val ctx = requireContext()
+                        // Always persist under FileProvider-backed exports/ so Files can open it.
+                        val file = persistExportFile(ctx, generated)
+                        val fileProviderUri = uriForExportFile(ctx, file)
+
+                        // --- choose target URI: Q+ => Downloads copy, else FileProvider ---
+                        val downloadsUri: Uri? =
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q)
+                                runCatching { saveDocxToDownloadsQ(ctx, file) }.getOrNull()
+                            else null
+
+                        // Room must reference a readable app file (not a missing path / stub).
+                        val historyUri = fileProviderUri
+                        val targetUri = downloadsUri ?: fileProviderUri
+
                         FilesHistory.saveAsync(
-                            context = requireContext(),
+                            context = ctx,
                             fileName = file.name,
-                            fileUri = targetUri.toString(),
-                            content = "Excel → Word AI report",
-                            aiResponse = null,
+                            fileUri = historyUri.toString(),
+                            content = "Excel → Word AI report — open this DOCX from Files.",
+                            aiResponse = "Word report saved as ${file.name}",
                             scope = viewLifecycleOwner.lifecycleScope,
                             anchor = view
                         )
@@ -2183,7 +2177,7 @@ class ToolsFragment : Fragment() {
                 val ctx = context ?: return@launch
                 val outFile = withContext(Dispatchers.IO) {
                     val outDir = File(ctx.getExternalFilesDir(null), "exports").apply { mkdirs() }
-                    val file = File(outDir, "SmartDocAI_Export.pdf")
+                    val file = File(outDir, "SmartDocAI_Export_${System.currentTimeMillis()}.pdf")
 
                     val pageWidth = 595
                     val pageHeight = 842
@@ -2252,15 +2246,19 @@ class ToolsFragment : Fragment() {
                 }
 
                 if (!isAdded) return@launch
+                if (outFile.length() <= 0L) {
+                    toast("PDF file is empty")
+                    return@launch
+                }
                 DocumentEntitlement.recordUse(ctx, capFeature)
                 refreshDocCaps()
-                val uri = getFileUri(ctx, outFile.name, subDir = "exports")
+                val uri = uriForExportFile(ctx, outFile)
                 FilesHistory.saveAsync(
                     context = ctx,
                     fileName = outFile.name,
                     fileUri = uri.toString(),
                     content = content.take(2000),
-                    aiResponse = null,
+                    aiResponse = if (includeAI) content.take(4000) else null,
                     scope = viewLifecycleOwner.lifecycleScope,
                     anchor = view
                 )
@@ -2316,15 +2314,27 @@ class ToolsFragment : Fragment() {
             raw.take(2_000_000) + "\n\n[Truncated for export]"
         } else raw
 
+        shareAndPersistTxt(content, recordCap = true, chooserTitle = "Share TXT via")
+    }
+
+    /** Write extract/AI text to a real .txt under exports/, save to Room Files, then share. */
+    private fun shareAndPersistTxt(
+        content: String,
+        recordCap: Boolean = true,
+        chooserTitle: String = "Share via"
+    ) {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val ctx = context ?: return@launch
                 val outDir = File(ctx.getExternalFilesDir(null), "exports").apply { mkdirs() }
-                val file = File(outDir, "SmartDocAI_Export.txt")
+                val file = File(outDir, "SmartDocAI_Export_${System.currentTimeMillis()}.txt")
                 file.writeText(content)
+                if (file.length() <= 0L) throw IllegalStateException("empty txt")
 
-                val uri = getFileUri(ctx, file.name, subDir = "exports")
-                DocumentEntitlement.recordUse(ctx, DocumentEntitlement.Feature.OTHER_EXPORT)
+                val uri = uriForExportFile(ctx, file)
+                if (recordCap) {
+                    DocumentEntitlement.recordUse(ctx, DocumentEntitlement.Feature.OTHER_EXPORT)
+                }
 
                 withContext(Dispatchers.Main) {
                     if (!isAdded) return@withContext
@@ -2334,18 +2344,19 @@ class ToolsFragment : Fragment() {
                         fileName = file.name,
                         fileUri = uri.toString(),
                         content = content.take(2000),
-                        aiResponse = null,
+                        aiResponse = if (content.contains("AI Analysis")) content.take(4000) else null,
                         scope = viewLifecycleOwner.lifecycleScope,
                         anchor = view
                     )
                     val share = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_STREAM, uri)
-                        putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI TXT Export")
+                        putExtra(Intent.EXTRA_TEXT, content.take(50_000))
+                        putExtra(Intent.EXTRA_SUBJECT, "SmartDocAI export")
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         clipData = ClipData.newUri(ctx.contentResolver, file.name, uri)
                     }
-                    startActivity(Intent.createChooser(share, "Share TXT via"))
+                    startActivity(Intent.createChooser(share, chooserTitle))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "TXT export failed", e)
@@ -2482,12 +2493,32 @@ class ToolsFragment : Fragment() {
         if (dir != null && !dir.exists()) dir.mkdirs()
 
         val file = File(dir, fileName)
+        return uriForExportFile(context, file)
+    }
 
-        // Match authority declared in manifest: "${applicationId}.fileprovider"
-        return FileProvider.getUriForFile(
+    /** Copy [src] into FileProvider-backed `externalFilesDir/exports/` if needed. */
+    private fun persistExportFile(context: Context, src: File): File {
+        val dir = File(context.getExternalFilesDir(null), "exports").apply { mkdirs() }
+        val dest = File(dir, src.name)
+        if (src.absolutePath != dest.absolutePath) {
+            src.copyTo(dest, overwrite = true)
+        }
+        return dest
+    }
+
+    private fun uriForExportFile(context: Context, file: File): Uri =
+        FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             file
+        )
+
+    private fun launchExcelPickerForWord() {
+        excelToWordLauncher.launch(
+            arrayOf(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel"
+            )
         )
     }
 
@@ -2794,9 +2825,14 @@ class ToolsFragment : Fragment() {
             "Detailed Analysis",
             "Custom Prompt"
         )
+        val label = selectedFileName.ifBlank {
+            uri.lastPathSegment?.substringAfterLast('/') ?: "Excel workbook"
+        }
 
         AlertDialog.Builder(requireContext())
             .setTitle("Choose AI Style")
+            .setMessage("Using: $label\nPick a style, or Change Excel to select another workbook.")
+            .setCancelable(true)
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> exportXlsxAiReportNow(uri) // default auto prompt
@@ -2811,6 +2847,15 @@ class ToolsFragment : Fragment() {
                     2 -> showCustomPromptInput(uri)
                 }
             }
+            .setNeutralButton("Change Excel") { _, _ ->
+                offeredDocxForUri = null
+                // Clear sticky selection so the next pick is required.
+                selectedFileUri = ""
+                selectedFileName = ""
+                toast("Pick another Excel (.xlsx) file")
+                launchExcelPickerForWord()
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -2823,9 +2868,17 @@ class ToolsFragment : Fragment() {
         AlertDialog.Builder(requireContext())
             .setTitle("Custom AI Prompt")
             .setView(input)
+            .setCancelable(true)
             .setPositiveButton("Generate") { _, _ ->
                 val prompt = input.text.toString().trim()
                 exportXlsxAiReportNow(uri, prompt)
+            }
+            .setNeutralButton("Change Excel") { _, _ ->
+                offeredDocxForUri = null
+                selectedFileUri = ""
+                selectedFileName = ""
+                toast("Pick another Excel (.xlsx) file")
+                launchExcelPickerForWord()
             }
             .setNegativeButton("Cancel", null)
             .show()

@@ -215,9 +215,13 @@ object ReportExporter {
             }
         }
 
-        // Save
-        val outDir = File(context.filesDir, "exports").apply { mkdirs() }
-        val outFile = File(outDir, "${fileTitle}_AI_Report.docx")
+        // Save under externalFilesDir/exports — matches FileProvider paths + Files history.
+        val outDir = File(
+            context.getExternalFilesDir(null) ?: context.filesDir,
+            "exports"
+        ).apply { mkdirs() }
+        val safeTitle = fileTitle.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(80)
+        val outFile = File(outDir, "${safeTitle}_AI_Report_${System.currentTimeMillis()}.docx")
         FileOutputStream(outFile).use { doc.write(it) }
         doc.close()
         return outFile

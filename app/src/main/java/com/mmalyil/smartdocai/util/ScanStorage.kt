@@ -32,6 +32,25 @@ object ScanStorage {
             file.content.contains("image PDF", ignoreCase = true)
     }
 
+    /** Kind of on-disk export that Files can open (pdf / docx / txt), else null. */
+    fun openableKind(file: ScannedFile): String? {
+        val name = file.fileName.lowercase()
+        val uri = file.fileUri.lowercase()
+        return when {
+            name.endsWith(".pdf") || uri.contains(".pdf") -> "pdf"
+            name.endsWith(".docx") || uri.contains(".docx") -> "docx"
+            name.endsWith(".txt") || uri.contains(".txt") -> "txt"
+            else -> null
+        }
+    }
+
+    fun mimeForKind(kind: String): String = when (kind) {
+        "pdf" -> "application/pdf"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "txt" -> "text/plain"
+        else -> "*/*"
+    }
+
     fun parseUri(file: ScannedFile): Uri? =
         runCatching { Uri.parse(file.fileUri) }.getOrNull()
             ?.takeIf { !file.fileUri.isBlank() }
@@ -64,27 +83,46 @@ object ScanStorage {
         )
     }
 
-    fun openPdf(context: Context, file: ScannedFile): Boolean {
-        if (!isPdfEntry(file)) {
-            Toast.makeText(context, "This entry has no PDF to open", Toast.LENGTH_SHORT).show()
+    fun openPdf(context: Context, file: ScannedFile): Boolean =
+        openDocument(context, file, preferKind = "pdf")
+
+    /**
+     * Open the persisted export (PDF / DOCX / TXT) from Files history.
+     * Returns false if the file is missing or no handler exists.
+     */
+    fun openDocument(
+        context: Context,
+        file: ScannedFile,
+        preferKind: String? = null
+    ): Boolean {
+        val kind = preferKind ?: openableKind(file)
+        if (kind == null) {
+            Toast.makeText(context, "This entry has no document file to open", Toast.LENGTH_SHORT)
+                .show()
             return false
         }
         val uri = contentUriForView(context, file)
         if (uri == null) {
-            Toast.makeText(context, "PDF file missing from app storage", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                context,
+                "File missing from app storage — re-export to fix this entry",
+                Toast.LENGTH_LONG
+            ).show()
             return false
         }
+        val mime = mimeForKind(kind)
         val view = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/pdf")
+            setDataAndType(uri, mime)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             clipData = ClipData.newUri(context.contentResolver, file.fileName, uri)
         }
         return try {
-            context.startActivity(Intent.createChooser(view, "Open PDF"))
+            context.startActivity(Intent.createChooser(view, "Open ${kind.uppercase()}"))
             true
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(context, "No PDF viewer installed", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "No app installed to open ${kind.uppercase()}", Toast.LENGTH_LONG)
+                .show()
             false
         }
     }
