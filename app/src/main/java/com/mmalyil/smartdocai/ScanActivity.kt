@@ -98,6 +98,9 @@ class ScanActivity : AppCompatActivity() {
 
         /** Pull still quad inward so Review/PDF sheds desk margin around the page. */
         private const val STILL_QUAD_INSET = 0.028f
+
+        /** Still-detect score at/above this → auto-Apply warp; skip corner UI. */
+        private const val HIGH_AUTO_APPLY_SCORE = 0.72f
     }
 
     private lateinit var tvTitle: TextView
@@ -121,6 +124,7 @@ class ScanActivity : AppCompatActivity() {
     private lateinit var btnRotateLeft: MaterialButton
     private lateinit var btnRotateRight: MaterialButton
     private lateinit var btnToggleCrop: MaterialButton
+    private lateinit var btnAdjustCorners: MaterialButton
     private lateinit var btnRetake: MaterialButton
     private lateinit var btnKeepScanning: MaterialButton
     private lateinit var btnApplyAdjust: MaterialButton
@@ -141,8 +145,13 @@ class ScanActivity : AppCompatActivity() {
     private var retakePending = false
 
     private data class CapturedPage(
-        val path: String,
-        val adjustQuad: Array<PointF>
+        /** Path Review shows first (warped if auto-applied). */
+        val displayPath: String,
+        /** Unwarped still for Adjust-corners escape hatch. */
+        val originalPath: String,
+        val adjustQuad: Array<PointF>,
+        val score: Float,
+        val autoApplied: Boolean
     )
 
     private lateinit var thumbAdapter: ThumbAdapter
@@ -266,19 +275,11 @@ class ScanActivity : AppCompatActivity() {
                     return@launch
                 }
                 imported.forEach { path ->
-                    val quad = withContext(Dispatchers.IO) {
-                        detectStillQuadForAdjust(path)
+                    val captured = withContext(Dispatchers.IO) {
+                        finalizeImportedStill(path)
                     }
-                    pages.add(
-                        ScanPage(
-                            sourcePath = path,
-                            adjustQuad = quad,
-                            needsAdjust = true
-                        )
-                    )
+                    addOrReplacePage(captured, replaceSelected = false)
                 }
-                selectedIndex = pages.lastIndex
-                enterAdjustModeForSelected()
             }
         }
 
@@ -363,6 +364,7 @@ class ScanActivity : AppCompatActivity() {
         btnRotateLeft = findViewById(R.id.btnRotateLeft)
         btnRotateRight = findViewById(R.id.btnRotateRight)
         btnToggleCrop = findViewById(R.id.btnToggleCrop)
+        btnAdjustCorners = findViewById(R.id.btnAdjustCorners)
         btnRetake = findViewById(R.id.btnRetake)
         btnKeepScanning = findViewById(R.id.btnKeepScanning)
         btnApplyAdjust = findViewById(R.id.btnApplyAdjust)
@@ -471,6 +473,7 @@ class ScanActivity : AppCompatActivity() {
             updateCropUi()
         }
         btnApplyAdjust.setOnClickListener { applyQuadAdjust() }
+        btnAdjustCorners.setOnClickListener { enterAdjustModeForSelected() }
         btnRetake.setOnClickListener {
             if (pages.isEmpty()) {
                 checkCameraPermissionAndStart(false)
@@ -530,7 +533,7 @@ class ScanActivity : AppCompatActivity() {
         reviewViews.forEach { it.isVisible = false }
         tvTitle.text = "Scan document"
         tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
-        tvLiveHint.text = "Hold phone above the page — hold steady for auto, or tap ●"
+        tvLiveHint.text = "Hold phone above the page — hold steady until lock, or tap ●"
         edgeOverlay.clear()
     }
 
@@ -549,7 +552,7 @@ class ScanActivity : AppCompatActivity() {
         tvStatus.text = when {
             n == 0 -> "No pages yet"
             adjustMode -> "Page ${selectedIndex + 1} of $n · drag the 4 corners, then Apply"
-            else -> "Page ${selectedIndex + 1} of $n · filter or Save PDF"
+            else -> "Page ${selectedIndex + 1} of $n · filter, Adjust corners, or Save PDF"
         }
     }
 
@@ -764,7 +767,7 @@ class ScanActivity : AppCompatActivity() {
             frame.lockedForCapture -> "Locked — capturing…"
             frame.holdProgress > 0 ->
                 "Hold steady… ${frame.holdProgress}/${frame.holdNeeded}"
-            frame.visible -> "Page found — hold steady, or tap ●"
+            frame.visible -> "Page found — hold steady until lock, or tap ●"
             else -> "Align the page inside the frame"
         }
 
@@ -839,26 +842,58 @@ class ScanActivity : AppCompatActivity() {
     }
 
     /**
-     * Decode capture with EXIF orientation and detect page corners for Notes-style
-     * Review adjust. Perspective warp happens on Apply — not here.
+     * Decode capture with EXIF orientation, detect corners + confidence.
+     * High confidence → warp now (auto-Apply). Low/medium → keep still for corner UI.
      */
     private fun finalizeCapturedPage(photoFile: File): CapturedPage? {
         val oriented = decodeCaptureOriented(photoFile) ?: return null
         return try {
-            val outFile = File(cacheDir, "scan_page_${System.currentTimeMillis()}.jpg")
-            val quad = bestStillQuad(oriented)?.let {
+            val originalFile = File(cacheDir, "scan_orig_${System.currentTimeMillis()}.jpg")
+            FileOutputStream(originalFile).use { fos ->
+                oriented.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+            }
+            val det = bestStillDetection(oriented)
+            val score = det?.score ?: 0f
+            val quad = det?.quad?.let {
                 PerspectiveHelper.insetQuad(it, STILL_QUAD_INSET * 0.5f)
             } ?: QuadAdjustOverlayView.defaultQuad()
             Log.i(
                 TAG,
-                "still corners for adjust area=${"%.2f".format(polygonAreaNorm(quad))}"
+                "still corners score=${"%.2f".format(score)} area=${"%.2f".format(polygonAreaNorm(quad))}"
             )
-            FileOutputStream(outFile).use { fos ->
-                oriented.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+
+            val high = score >= HIGH_AUTO_APPLY_SCORE && det != null
+            if (high) {
+                val warped = deskewStill(oriented, quad)
+                if (warped != null) {
+                    val flat = File(cacheDir, "scan_flat_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(flat).use { fos ->
+                        warped.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                    }
+                    if (!warped.isRecycled) warped.recycle()
+                    Log.i(TAG, "AUTO_APPLY score=${"%.2f".format(score)} file=${flat.name}")
+                    if (!oriented.isRecycled) oriented.recycle()
+                    if (photoFile.exists()) photoFile.delete()
+                    return CapturedPage(
+                        displayPath = flat.absolutePath,
+                        originalPath = originalFile.absolutePath,
+                        adjustQuad = quad,
+                        score = score,
+                        autoApplied = true
+                    )
+                }
+                Log.w(TAG, "AUTO_APPLY warp failed — falling back to corner UI")
             }
+
             if (!oriented.isRecycled) oriented.recycle()
             if (photoFile.exists()) photoFile.delete()
-            CapturedPage(outFile.absolutePath, quad)
+            CapturedPage(
+                displayPath = originalFile.absolutePath,
+                originalPath = originalFile.absolutePath,
+                adjustQuad = quad,
+                score = score,
+                autoApplied = false
+            )
         } catch (e: Exception) {
             Log.e(TAG, "finalize failed", e)
             if (!oriented.isRecycled) oriented.recycle()
@@ -866,19 +901,56 @@ class ScanActivity : AppCompatActivity() {
         }
     }
 
-    private fun detectStillQuadForAdjust(path: String): Array<PointF> {
-        val bmp = BitmapFactory.decodeFile(path) ?: return QuadAdjustOverlayView.defaultQuad()
+    /** Photo-import twin of [finalizeCapturedPage]. */
+    private fun finalizeImportedStill(path: String): CapturedPage {
+        val bmp = BitmapFactory.decodeFile(path)
+        if (bmp == null) {
+            return CapturedPage(
+                displayPath = path,
+                originalPath = path,
+                adjustQuad = QuadAdjustOverlayView.defaultQuad(),
+                score = 0f,
+                autoApplied = false
+            )
+        }
         return try {
-            bestStillQuad(bmp)?.let {
+            val det = bestStillDetection(bmp)
+            val score = det?.score ?: 0f
+            val quad = det?.quad?.let {
                 PerspectiveHelper.insetQuad(it, STILL_QUAD_INSET * 0.5f)
             } ?: QuadAdjustOverlayView.defaultQuad()
+            if (score >= HIGH_AUTO_APPLY_SCORE && det != null) {
+                val warped = deskewStill(bmp, quad)
+                if (warped != null) {
+                    val flat = File(cacheDir, "scan_flat_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(flat).use { fos ->
+                        warped.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                    }
+                    if (!warped.isRecycled) warped.recycle()
+                    Log.i(TAG, "AUTO_APPLY import score=${"%.2f".format(score)} file=${flat.name}")
+                    return CapturedPage(
+                        displayPath = flat.absolutePath,
+                        originalPath = path,
+                        adjustQuad = quad,
+                        score = score,
+                        autoApplied = true
+                    )
+                }
+            }
+            CapturedPage(
+                displayPath = path,
+                originalPath = path,
+                adjustQuad = quad,
+                score = score,
+                autoApplied = false
+            )
         } finally {
             if (!bmp.isRecycled) bmp.recycle()
         }
     }
 
-    /** Best still-detect quad (no warp). Prefer tighter area among strong scores. */
-    private fun bestStillQuad(src: Bitmap): Array<PointF>? {
+    /** Best still-detect result (quad + score). Prefer tighter area among strong scores. */
+    private fun bestStillDetection(src: Bitmap): DocumentEdgeDetector.Detection? {
         val candidates = mutableListOf<Pair<String, DocumentEdgeDetector.Detection>>()
         OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 960)?.let { candidates.add("ocv960" to it) }
         OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 640)?.let { candidates.add("ocv640" to it) }
@@ -900,14 +972,16 @@ class ScanActivity : AppCompatActivity() {
                 "still detect $name score=${"%.2f".format(det.score)} " +
                     "area=${"%.2f".format(polygonAreaNorm(det.quad))}"
             )
-            return det.quad
+            return det
         }
         candidates.maxByOrNull { it.second.score }?.let { (name, det) ->
             Log.i(TAG, "still detect weak $name score=${"%.2f".format(det.score)}")
-            return det.quad
+            return det
         }
         return null
     }
+
+    private fun bestStillQuad(src: Bitmap): Array<PointF>? = bestStillDetection(src)?.quad
 
     /**
      * Perspective-warp [src] with [quadNorm]. Prefer warp; bbox crop last resort.
@@ -998,9 +1072,11 @@ class ScanActivity : AppCompatActivity() {
 
     private fun addOrReplacePage(captured: CapturedPage, replaceSelected: Boolean) {
         val page = ScanPage(
-            sourcePath = captured.path,
+            sourcePath = captured.displayPath,
+            originalPath = captured.originalPath,
             adjustQuad = Array(4) { PointF(captured.adjustQuad[it].x, captured.adjustQuad[it].y) },
-            needsAdjust = true
+            needsAdjust = !captured.autoApplied,
+            detectScore = captured.score
         )
         if (replaceSelected && pages.isNotEmpty() && selectedIndex in pages.indices) {
             pages[selectedIndex] = page
@@ -1009,7 +1085,18 @@ class ScanActivity : AppCompatActivity() {
             selectedIndex = pages.lastIndex
         }
         cropMode = false
-        enterAdjustModeForSelected()
+        if (captured.autoApplied) {
+            adjustMode = false
+            Log.i(TAG, "skip corner UI — high confidence score=${"%.2f".format(captured.score)}")
+            showReviewState()
+            updateCropUi()
+            refreshThumbs()
+            renderSelectedPreview()
+            Toast.makeText(this, "Crop applied — Adjust corners anytime", Toast.LENGTH_SHORT).show()
+        } else {
+            Log.i(TAG, "show corner UI — score=${"%.2f".format(captured.score)} < $HIGH_AUTO_APPLY_SCORE")
+            enterAdjustModeForSelected()
+        }
     }
 
     private fun enterAdjustModeForSelected() {
@@ -1020,6 +1107,10 @@ class ScanActivity : AppCompatActivity() {
             page.adjustQuad = QuadAdjustOverlayView.defaultQuad()
         }
         page.needsAdjust = true
+        // Prefer unwarped still for corner dragging
+        if (page.originalPath != null) {
+            // Keep sourcePath as current flat for after Apply; adjust preview uses originalPath
+        }
         showReviewState()
         updateCropUi()
         refreshThumbs()
@@ -1027,7 +1118,8 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun updateAdjustUi() {
-        val adjusting = adjustMode && currentPage()?.needsAdjust == true
+        val page = currentPage()
+        val adjusting = adjustMode && page?.needsAdjust == true
         adjustMode = adjusting
         quadAdjustOverlay.isVisible = adjusting
         btnApplyAdjust.isVisible = adjusting
@@ -1035,9 +1127,15 @@ class ScanActivity : AppCompatActivity() {
         btnKeepScanning.isVisible = !adjusting
         filterRow.isVisible = !adjusting && !liveCapturePane.isVisible && pages.isNotEmpty()
         btnToggleCrop.isVisible = !adjusting
+        // Escape hatch: always after Apply / auto-Apply when we still have the original still
+        btnAdjustCorners.isVisible = !adjusting && page?.originalPath != null && pages.isNotEmpty()
         btnRotateLeft.isEnabled = !adjusting
         btnRotateRight.isEnabled = !adjusting
-        tvTitle.text = if (adjusting) "Adjust crop" else if (pages.isNotEmpty()) "Review scan" else tvTitle.text
+        tvTitle.text = when {
+            adjusting -> "Adjust crop"
+            pages.isNotEmpty() -> "Review scan"
+            else -> tvTitle.text
+        }
         updateStatus()
     }
 
@@ -1051,8 +1149,8 @@ class ScanActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val newPath = withContext(Dispatchers.IO) {
-                    val src = BitmapFactory.decodeFile(page.sourcePath)
-                        ?: return@withContext null
+                    val srcPath = page.pathForCornerAdjust()
+                    val src = BitmapFactory.decodeFile(srcPath) ?: return@withContext null
                     try {
                         val warped = deskewStill(src, quad) ?: return@withContext null
                         val out = File(cacheDir, "scan_flat_${System.currentTimeMillis()}.jpg")
@@ -1060,8 +1158,12 @@ class ScanActivity : AppCompatActivity() {
                             warped.compress(Bitmap.CompressFormat.JPEG, 92, fos)
                         }
                         if (!warped.isRecycled) warped.recycle()
-                        val old = File(page.sourcePath)
-                        if (old.exists() && old.absolutePath != out.absolutePath) old.delete()
+                        // Keep originalPath; only replace previous flat if different
+                        val prev = page.sourcePath
+                        if (prev != page.originalPath && prev != out.absolutePath) {
+                            val old = File(prev)
+                            if (old.exists()) old.delete()
+                        }
                         out.absolutePath
                     } finally {
                         if (!src.isRecycled) src.recycle()
@@ -1072,7 +1174,9 @@ class ScanActivity : AppCompatActivity() {
                     return@launch
                 }
                 page.sourcePath = newPath
-                page.adjustQuad = null
+                if (page.originalPath == null) {
+                    // Should already be set; keep adjustQuad for escape hatch
+                }
                 page.needsAdjust = false
                 page.resetCrop()
                 page.rotationDegrees = 0
@@ -1082,7 +1186,11 @@ class ScanActivity : AppCompatActivity() {
                 updateCropUi()
                 refreshThumbs()
                 renderSelectedPreview()
-                Toast.makeText(this@ScanActivity, "Crop applied — filter or Save PDF", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this@ScanActivity,
+                    "Crop applied — Adjust corners anytime",
+                    Toast.LENGTH_SHORT
+                ).show()
             } finally {
                 progressSaving.isVisible = false
                 btnApplyAdjust.isEnabled = true
@@ -1103,6 +1211,7 @@ class ScanActivity : AppCompatActivity() {
                 // During corner adjust, show the unwarped still (no axis crop / filter)
                 if (adjustMode && page.needsAdjust) {
                     val clone = page.copy(
+                        sourcePath = page.pathForCornerAdjust(),
                         filter = ScanFilter.ORIGINAL,
                         cropLeft = 0f,
                         cropTop = 0f,

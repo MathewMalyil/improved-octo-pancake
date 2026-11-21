@@ -13,7 +13,12 @@ import kotlin.math.roundToInt
 
 data class ScanPage(
     val id: String = UUID.randomUUID().toString(),
+    /** Current Review/export image (warped after Apply / high-conf auto-Apply). */
     var sourcePath: String,
+    /**
+     * Unwarped still kept so “Adjust corners” can re-open the 4-dot UI anytime.
+     */
+    var originalPath: String? = null,
     var rotationDegrees: Int = 0,
     var filter: ScanFilter = ScanFilter.ORIGINAL,
     /** Normalized axis-aligned crop in [0,1] relative to the rotated bitmap (post-Apply). */
@@ -23,10 +28,12 @@ data class ScanPage(
     var cropBottom: Float = 1f,
     /**
      * Notes-style corner adjust (TL,TR,BR,BL) on the unwarped still.
-     * Non-null + [needsAdjust] means Review should show draggable corners first.
+     * [needsAdjust] true → show draggable corners before filters/Save.
      */
     var adjustQuad: Array<PointF>? = null,
-    var needsAdjust: Boolean = false
+    var needsAdjust: Boolean = false,
+    /** Still-detect confidence that drove auto-Apply vs corner UI. */
+    var detectScore: Float = 0f
 ) {
     fun resetCrop() {
         cropLeft = 0f
@@ -45,6 +52,9 @@ data class ScanPage(
         val q = adjustQuad ?: return null
         return Array(q.size) { PointF(q[it].x, q[it].y) }
     }
+
+    /** Path to show while dragging corners (always the unwarped still when available). */
+    fun pathForCornerAdjust(): String = originalPath ?: sourcePath
 }
 
 object ScanPageRenderer {

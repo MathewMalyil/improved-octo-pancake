@@ -107,17 +107,18 @@ class DocumentEdgeTracker {
             Log.i(TAG, "overlay VISIBLE score=${"%.2f".format(smoothScore)}")
         }
 
-        // Patient gate: confident score + stable geometry
-        val confident = smoothScore >= LOCK_SCORE && raw.score >= LOCK_SCORE * 0.85f
+        // Patient gate: high confidence + stable geometry only
+        val confident = smoothScore >= LOCK_SCORE && raw.score >= LOCK_SCORE
         val stable = frameIou >= STABLE_IOU
         if (visible && confident && stable) {
             if (stableHoldStreak == 0) stableSinceMs = nowMs
             stableHoldStreak++
         } else if (visible && confident) {
             // Jitter — soft decay, don't wipe entirely on one frame
-            stableHoldStreak = (stableHoldStreak - 1).coerceAtLeast(0)
+            stableHoldStreak = (stableHoldStreak - 2).coerceAtLeast(0)
             if (stableHoldStreak == 0) stableSinceMs = 0L
         } else {
+            // Low confidence or lost — reset hold (no hurried fire)
             stableHoldStreak = 0
             stableSinceMs = 0L
         }
@@ -174,29 +175,29 @@ class DocumentEdgeTracker {
     companion object {
         private const val TAG = "EdgeTracker"
 
-        /** Need a couple hits before showing / starting the clock. */
-        private const val ENTER_NEED = 2
+        /** Need a few solid hits before showing / starting the clock. */
+        private const val ENTER_NEED = 3
         private const val MISS_CLEAR = 16
-        private const val SHOW_SCORE = 0.38f
-        private const val HIDE_SCORE = 0.26f
+        private const val SHOW_SCORE = 0.40f
+        private const val HIDE_SCORE = 0.28f
 
         /**
-         * Patient auto: ~1.5–2s of stable+confident frames at ~8 fps.
+         * More patient auto: ~2–2.5s of stable + high-confidence frames at ~8 fps.
          * Wall-clock minimum prevents hurried fire on a burst of hits.
          */
-        const val HOLD_FRAMES = 14
-        const val HOLD_MS_MIN = 1600L
+        const val HOLD_FRAMES = 18
+        const val HOLD_MS_MIN = 2200L
 
-        const val READY_SCORE = 0.48f
-        /** Auto requires this smoothed confidence. */
-        const val LOCK_SCORE = 0.55f
+        const val READY_SCORE = 0.55f
+        /** Auto requires this smoothed + raw confidence (high only). */
+        const val LOCK_SCORE = 0.68f
         const val LOCK_NEED = HOLD_FRAMES
 
-        /** Quad must stay roughly still between frames. */
-        private const val STABLE_IOU = 0.86f
+        /** Quad must stay firmly still between frames. */
+        private const val STABLE_IOU = 0.90f
 
-        private const val SMOOTH_ALPHA = 0.28f
-        private const val SCORE_ALPHA = 0.28f
+        private const val SMOOTH_ALPHA = 0.26f
+        private const val SCORE_ALPHA = 0.26f
         private const val JUMP_REJECT = 0.35f
     }
 }
