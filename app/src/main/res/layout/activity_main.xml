@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  3.19.4: contentFrame is constrained ONLY to toolbar ↔ bottomNav.
+  heroCard and adViewBanner are overlays — GONE/INVISIBLE must never
+  participate in the fragment host's vertical measure (3.19.2–3.19.3 failed).
+-->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -9,119 +14,109 @@
     android:fitsSystemWindows="true"
     android:background="?android:attr/windowBackground">
 
-    <!-- Top app bar -->
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/topAppBar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
+        android:background="?attr/colorSurface"
         app:title="SmartDocAI"
         app:titleCentered="false"
         app:navigationIconTint="@android:color/black"
         app:titleTextAppearance="@style/TextAppearance.Material3.TitleLarge"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:background="?attr/colorSurface" />
+        app:layout_constraintEnd_toEndOf="parent" />
 
-    <!--
-      Vertical column so heroCard GONE never collapses the fragment host.
-      ConstraintLayout Barrier still left contentFrame at 0 height after the
-      first tab switch while hero stayed GONE (S25). LinearLayout weight=1
-      always gives contentFrame remaining space.
-    -->
-    <LinearLayout
-        android:id="@+id/mainColumn"
+    <!-- Fragment host: full remaining height — no dependency on hero or ads -->
+    <FrameLayout
+        android:id="@+id/contentFrame"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:orientation="vertical"
+        android:minHeight="240dp"
+        android:background="?android:attr/windowBackground"
         app:layout_constraintTop_toBottomOf="@id/topAppBar"
-        app:layout_constraintBottom_toTopOf="@id/adViewBanner"
+        app:layout_constraintBottom_toTopOf="@id/bottomNav"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Tools-only usage strip: OVERLAY (does not resize contentFrame) -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/heroCard"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="8dp"
+        android:elevation="6dp"
+        android:visibility="gone"
+        app:cardCornerRadius="14dp"
+        app:cardUseCompatPadding="false"
+        app:strokeWidth="0dp"
+        app:layout_constraintTop_toBottomOf="@id/topAppBar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Compact AI usage strip — Tools only (GONE elsewhere takes no space) -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/heroCard"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="4dp"
-            android:visibility="gone"
-            app:cardCornerRadius="14dp"
-            app:cardUseCompatPadding="false"
-            app:strokeWidth="0dp">
+            android:orientation="vertical"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="12dp"
+            android:background="@drawable/bg_header_gradient">
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/tvAiSource"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="AI Source: –"
+                android:textColor="@color/md3_onPrimary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvUsageText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="12dp"
-                android:background="@drawable/bg_header_gradient">
+                android:layout_marginTop="2dp"
+                android:text="Usage: 0 / 300,000 tokens"
+                android:textColor="@color/md3_onPrimary"
+                android:textSize="13sp" />
 
-                <TextView
-                    android:id="@+id/tvAiSource"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="AI Source: –"
-                    android:textColor="@color/md3_onPrimary"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
+            <ProgressBar
+                android:id="@+id/usageProgressBar"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="6dp"
+                android:layout_marginTop="6dp"
+                android:progress="0"
+                android:indeterminate="false"
+                android:progressTint="@color/md3_onPrimary" />
 
-                <TextView
-                    android:id="@+id/tvUsageText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Usage: 0 / 300,000 tokens"
-                    android:textColor="@color/md3_onPrimary"
-                    android:textSize="13sp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickUpload"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickScan"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickOCR"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
-                <ProgressBar
-                    android:id="@+id/usageProgressBar"
-                    style="@android:style/Widget.ProgressBar.Horizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="6dp"
-                    android:layout_marginTop="6dp"
-                    android:progress="0"
-                    android:indeterminate="false"
-                    android:progressTint="@color/md3_onPrimary" />
-
-                <!-- Kept for MainActivity findViewById; actions moved to Home / FAB -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnQuickUpload"
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:visibility="gone" />
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnQuickScan"
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:visibility="gone" />
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnQuickOCR"
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Fragment host — always consumes remaining column height -->
-        <FrameLayout
-            android:id="@+id/contentFrame"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-    </LinearLayout>
-
-    <!-- AdMob Banner -->
+    <!-- Banner sits above bottom nav; GONE must not resize contentFrame -->
     <com.google.android.gms.ads.AdView
         android:id="@+id/adViewBanner"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:elevation="4dp"
         ads:adSize="BANNER"
         ads:adUnitId="@string/admob_banner_unit_id"
         app:layout_constraintStart_toStartOf="parent"
@@ -132,10 +127,10 @@
         android:id="@+id/fab"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:src="@android:drawable/ic_input_add"
         android:layout_margin="16dp"
+        android:src="@android:drawable/ic_input_add"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/adViewBanner" />
+        app:layout_constraintBottom_toTopOf="@id/bottomNav" />
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNav"

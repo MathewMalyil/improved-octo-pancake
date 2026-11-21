@@ -1,70 +1,74 @@
 package com.mmalyil.smartdocai
 
-import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
+import android.os.Bundle
+import android.util.Log
 import android.view.View
-import com.google.android.material.bottomnavigation.BottomNavigationView
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.floatingactionbutton.FloatingActionButton
+import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
-import androidx.core.os.bundleOf
-import androidx.lifecycle.lifecycleScope
-import com.mmalyil.smartdocai.prefs.OnboardingPrefs
-import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.lifecycle.repeatOnLifecycle
-import com.google.android.material.button.MaterialButton
-import com.mmalyil.smartdocai.util.UsageManager
-import android.widget.ProgressBar
-import com.mmalyil.smartdocai.BuildConfig
-import com.google.android.gms.ads.AdRequest
-import com.google.android.gms.ads.AdView
+import androidx.core.os.bundleOf
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdView
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.mmalyil.smartdocai.prefs.OnboardingPrefs
+import com.mmalyil.smartdocai.ui.onboarding.OnboardingActivity
+import com.mmalyil.smartdocai.util.UsageManager
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
-    private var pendingNav: Int? = null   // ✅ add this
-    private lateinit var adViewBanner: AdView   // 👈 add this
+    private var pendingNav: Int? = null
+    private lateinit var adViewBanner: AdView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
-
-// Hide banner when keyboard is visible (IME)
+        // Hide banner when keyboard is visible — use INVISIBLE so ConstraintLayout
+        // never remasures contentFrame against a GONE ad (Pro users already GONE ads).
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-            findViewById<View>(R.id.adViewBanner)?.visibility =
-                if (imeVisible) View.GONE else View.VISIBLE
+            val ad = findViewById<View>(R.id.adViewBanner)
+            if (ad != null && ad.visibility != View.GONE) {
+                // Only toggle when ads are enabled/shown; never GONE↔VISIBLE thrash layout.
+                ad.visibility = if (imeVisible) View.INVISIBLE else View.VISIBLE
+            }
             insets
         }
 
-
-        // Theme observer (unchanged)
+        // Theme observer — only apply when mode actually changes (avoids Activity recreate
+        // that left contentFrame empty after cold Home paint).
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 com.mmalyil.smartdocai.prefs.ThemePrefs
                     .isDarkMode(this@MainActivity)
                     .collect { enabled ->
-                        AppCompatDelegate.setDefaultNightMode(
-                            if (enabled) AppCompatDelegate.MODE_NIGHT_YES
-                            else AppCompatDelegate.MODE_NIGHT_NO
-                        )
+                        val want = if (enabled) {
+                            AppCompatDelegate.MODE_NIGHT_YES
+                        } else {
+                            AppCompatDelegate.MODE_NIGHT_NO
+                        }
+                        if (AppCompatDelegate.getDefaultNightMode() != want) {
+                            AppCompatDelegate.setDefaultNightMode(want)
+                        }
                     }
             }
         }
-
-        // Action bar – honestly this title looks like it belongs to another screen,
-        // but it's not related to the crash so I’m leaving it.
-        supportActionBar?.title = "Send Feedback"
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         // ✅ Always init fragments & bottom nav synchronously
         initUi(savedInstanceState)
@@ -115,6 +119,8 @@ class MainActivity : AppCompatActivity() {
                 adViewBanner.destroy()
             } catch (_: Exception) {
             }
+            // INVISIBLE keeps a 0-size overlay without ConstraintLayout GONE side-effects
+            // on siblings; contentFrame no longer depends on this view either way.
             adViewBanner.visibility = View.GONE
             return
         }
@@ -265,23 +271,25 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
-        if (savedInstanceState == null) {
-            // Start with Home; keep bottom-nav selection in sync (listener may not fire).
-            bottomNav.selectedItemId = R.id.nav_home
-            switchFragment(R.id.nav_home)
+        // Always ensure a tab is shown (including after process death / theme recreate).
+        val startId = when (bottomNav.selectedItemId) {
+            R.id.nav_home, R.id.nav_tools, R.id.nav_files, R.id.nav_settings ->
+                bottomNav.selectedItemId
+            else -> R.id.nav_home
         }
-
+        if (savedInstanceState == null) {
+            bottomNav.selectedItemId = R.id.nav_home
+        }
+        // selectedItemId may no-op if already home — still attach/show fragment.
+        switchFragment(if (savedInstanceState == null) R.id.nav_home else startId)
 
         val fab = findViewById<FloatingActionButton>(R.id.fab)
         fab.setOnClickListener { showFabActionSheet() }
 
-        // ✅ Hero card views (match your XML IDs)
         val tvUsageText = findViewById<TextView>(R.id.tvUsageText)
-        val usageBar =
-            findViewById<ProgressBar>(R.id.usageProgressBar) // NOTE: platform ProgressBar
+        val usageBar = findViewById<ProgressBar>(R.id.usageProgressBar)
         val tvAiSource = findViewById<TextView>(R.id.tvAiSource)
 
-        // Optional quick buttons if you have them
         findViewById<MaterialButton?>(R.id.btnQuickUpload)?.setOnClickListener {
             goToToolsAndAsk("upload")
         }
@@ -300,7 +308,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // 🔗 Bind usage UI (single source of truth)
         UsageManager.bindUsageUI(
             context = this,
             usageTextView = tvUsageText,
@@ -309,42 +316,116 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Show/hide tab fragments in a permanently-sized [R.id.contentFrame].
+     * Never [replace] — replace + GONE hero/ad previously left a blank host after
+     * leaving Home until Analyse forced a layout pass (3.19.2–3.19.3).
+     */
     private fun switchFragment(itemId: Int) {
         if (supportFragmentManager.isStateSaved) {
             pendingNav = itemId
             return
         }
 
-        val tag = when (itemId) {
-            R.id.nav_home -> HomeFragment::class.java.simpleName
-            R.id.nav_tools -> ToolsFragment::class.java.simpleName
-            R.id.nav_files -> FilesFragment::class.java.simpleName
-            R.id.nav_settings -> SettingsFragment::class.java.simpleName
-            else -> return
+        val tag = tabTag(itemId) ?: return
+        val contentFrame = findViewById<ViewGroup>(R.id.contentFrame) ?: return
+
+        // Overlay only — must not resize contentFrame. Pad Tools content under hero.
+        val hero = findViewById<View>(R.id.heroCard)
+        val toolsSelected = itemId == R.id.nav_tools
+        hero?.visibility = if (toolsSelected) View.VISIBLE else View.GONE
+        if (!toolsSelected) {
+            contentFrame.setPadding(0, 0, 0, 0)
         }
 
-        val currentFragment = supportFragmentManager.findFragmentById(R.id.contentFrame)
-        if (currentFragment?.tag == tag) return
+        contentFrame.visibility = View.VISIBLE
+        contentFrame.minimumHeight = (240 * resources.displayMetrics.density).toInt()
 
-        val newFragment = when (itemId) {
-            R.id.nav_home -> HomeFragment()
-            R.id.nav_tools -> ToolsFragment()
-            R.id.nav_files -> FilesFragment()
-            R.id.nav_settings -> SettingsFragment()
-            else -> return
+        val fm = supportFragmentManager
+        val tx = fm.beginTransaction().setReorderingAllowed(true)
+
+        // Hide every tab fragment we know about.
+        for (id in TAB_IDS) {
+            val t = tabTag(id) ?: continue
+            fm.findFragmentByTag(t)?.let { existing ->
+                if (t != tag) {
+                    tx.hide(existing)
+                    existing.view?.visibility = View.GONE
+                }
+            }
         }
 
-        // Home owns job CTAs — hide usage strip there so jobs are immediate.
-        // Tools keeps the compact AI usage strip.
-        // heroCard lives in a vertical LinearLayout above contentFrame (weight=1),
-        // so GONE never zeroes the fragment host (Barrier still failed after tab switch).
-        findViewById<View>(R.id.heroCard)?.visibility =
-            if (itemId == R.id.nav_tools) View.VISIBLE else View.GONE
+        var target = fm.findFragmentByTag(tag)
+        if (target == null) {
+            target = newTabFragment(itemId) ?: return
+            tx.add(R.id.contentFrame, target, tag)
+            Log.i(TAG, "TAB add $tag")
+        } else {
+            tx.show(target)
+            Log.i(TAG, "TAB show $tag")
+        }
 
-        supportFragmentManager.beginTransaction()
-            .setReorderingAllowed(true)
-            .replace(R.id.contentFrame, newFragment, tag)
-            .commitAllowingStateLoss()
+        // commitNow so view is attached before we force visibility / log heights.
+        try {
+            tx.commitNowAllowingStateLoss()
+        } catch (e: Exception) {
+            Log.e(TAG, "TAB commit failed $tag", e)
+            tx.commitAllowingStateLoss()
+        }
+
+        target.view?.visibility = View.VISIBLE
+        target.view?.requestLayout()
+        contentFrame.requestLayout()
+
+        if (toolsSelected && hero != null) {
+            hero.post {
+                val h = hero.height.coerceAtLeast(hero.measuredHeight)
+                contentFrame.setPadding(0, h, 0, 0)
+                logContentFrameHeight(tag)
+            }
+        } else {
+            contentFrame.post { logContentFrameHeight(tag) }
+        }
+    }
+
+    private fun newTabFragment(itemId: Int): Fragment? = when (itemId) {
+        R.id.nav_home -> HomeFragment()
+        R.id.nav_tools -> ToolsFragment()
+        R.id.nav_files -> FilesFragment()
+        R.id.nav_settings -> SettingsFragment()
+        else -> null
+    }
+
+    private fun tabTag(itemId: Int): String? = when (itemId) {
+        R.id.nav_home -> TAG_HOME
+        R.id.nav_tools -> TAG_TOOLS
+        R.id.nav_files -> TAG_FILES
+        R.id.nav_settings -> TAG_SETTINGS
+        else -> null
+    }
+
+    private fun logContentFrameHeight(tag: String) {
+        val frame = findViewById<View>(R.id.contentFrame) ?: return
+        val hero = findViewById<View>(R.id.heroCard)
+        val ad = findViewById<View>(R.id.adViewBanner)
+        Log.i(
+            TAG,
+            "TAB layout tag=$tag contentFrame=${frame.width}x${frame.height} " +
+                "minH=${frame.minimumHeight} vis=${frame.visibility} " +
+                "heroVis=${hero?.visibility} adVis=${ad?.visibility} " +
+                "childCount=${(frame as? ViewGroup)?.childCount}"
+        )
+    }
+
+    companion object {
+        private const val TAG = "MainTabs"
+        private const val TAG_HOME = "tab_home"
+        private const val TAG_TOOLS = "tab_tools"
+        private const val TAG_FILES = "tab_files"
+        private const val TAG_SETTINGS = "tab_settings"
+        private val TAB_IDS = intArrayOf(
+            R.id.nav_home, R.id.nav_tools, R.id.nav_files, R.id.nav_settings
+        )
     }
 
 
