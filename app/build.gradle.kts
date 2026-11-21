@@ -4,9 +4,9 @@ plugins {
     id("com.android.application")
 
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 
     id("com.google.devtools.ksp")
-    alias(libs.plugins.kotlin.compose)
 }
 
 val localProperties = Properties().apply {
@@ -34,8 +34,8 @@ android {
         minSdk = 26
         targetSdk = 36
 
-        versionCode = 59
-        versionName = "3.15.0"
+        versionCode = 60
+        versionName = "3.16.0"
 
 
         ndk {

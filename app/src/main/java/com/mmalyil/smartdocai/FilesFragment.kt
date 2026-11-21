@@ -74,6 +74,10 @@ class FilesFragment : Fragment() {
             )
         }
 
+        binding.btnFilesCombinePdfs.setOnClickListener {
+            startActivity(Intent(requireContext(), CombinePdfActivity::class.java))
+        }
+
         viewModel.allFiles.observe(viewLifecycleOwner) { files ->
             Log.d("DEBUG", "Observed ${files.size} files")
             adapter.updateFiles(files)

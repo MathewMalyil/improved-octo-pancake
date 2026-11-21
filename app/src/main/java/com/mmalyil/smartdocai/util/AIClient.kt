@@ -10,10 +10,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 
+/** Free Groq chat model used by Tools / chat (no paid AI SKU). */
+const val FREE_CHAT_MODEL = "llama-3.1-8b-instant"
+
 data class ChatReply(
     val content: String,
     val modelUsed: String
 )
+
+/**
+ * Turn raw provider / HTTP error JSON into a short user-facing message.
+ * Never returns blank — always a readable fallback.
+ */
+fun friendlyAiErrorMessage(raw: String?): String {
+    val text = raw?.trim().orEmpty()
+    if (text.isBlank()) return "AI request failed. Please try again."
+    return try {
+        val root = org.json.JSONObject(text)
+        val err = root.optJSONObject("error")
+        val msg = err?.optString("message")?.takeIf { it.isNotBlank() }
+            ?: root.optString("message")?.takeIf { it.isNotBlank() }
+            ?: root.optString("error")?.takeIf { it.isNotBlank() && !it.startsWith("{") }
+        when {
+            !msg.isNullOrBlank() -> "AI error: ${msg.take(240)}"
+            text.startsWith("{") -> "AI request failed. Please try again."
+            else -> text.take(240)
+        }
+    } catch (_: Exception) {
+        text.take(240).ifBlank { "AI request failed. Please try again." }
+    }
+}
 
 suspend fun analyzeWithAI(
     context: Context,

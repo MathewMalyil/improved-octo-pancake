@@ -32,6 +32,19 @@
             android:textColor="@color/md3_tertiary"
             android:textSize="13sp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFilesCombinePdfs"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginBottom="10dp"
+            android:text="Combine PDFs"
+            android:textAllCaps="false"
+            app:icon="@drawable/ic_pdf"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:strokeColor="@color/md3_outline" />
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvFiles"
             android:layout_width="match_parent"

@@ -18,6 +18,9 @@ interface ScannedFileDao {
     @Query("SELECT * FROM scannedfiles ORDER BY timestamp DESC")
     fun getAllFiles(): LiveData<List<ScannedFile>>
 
+    @Query("SELECT * FROM scannedfiles ORDER BY timestamp DESC")
+    suspend fun getAllFilesOnce(): List<ScannedFile>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(file: ScannedFile)
 

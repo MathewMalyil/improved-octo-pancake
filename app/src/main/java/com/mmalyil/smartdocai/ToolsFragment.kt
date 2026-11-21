@@ -1023,6 +1023,11 @@ class ToolsFragment : Fragment() {
             }
         }
 
+        view.findViewById<Button>(R.id.btnCombinePdfs).setOnClickListener {
+            stopWalkthroughIfRunning()
+            startActivity(Intent(requireContext(), CombinePdfActivity::class.java))
+        }
+
 
         val fabUploadScan = view.findViewById<FloatingActionButton>(R.id.fabUploadScan)
         fabUploadScan.setOnClickListener {
