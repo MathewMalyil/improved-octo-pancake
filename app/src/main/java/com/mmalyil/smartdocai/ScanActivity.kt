@@ -476,7 +476,7 @@ class ScanActivity : AppCompatActivity() {
         reviewViews.forEach { it.isVisible = false }
         tvTitle.text = "Scan document"
         tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
-        tvLiveHint.text = "Align page — hold ~1s for auto, or tap ● anytime"
+        tvLiveHint.text = "Hold phone above the page — then hold ~1s for auto, or tap ●"
         edgeOverlay.clear()
     }
 
@@ -608,8 +608,8 @@ class ScanActivity : AppCompatActivity() {
                     Log.d(TAG, "previewBmp ${bmp.width}x${bmp.height} mean=${"%.1f".format(mean)}")
                 }
                 if (mean < 12f) {
-                    // Lens covered / preview not lit yet
-                    runOnUiThread { onDetection(null) }
+                    // Flat on table / lens covered — don't show Ready
+                    runOnUiThread { onPreviewTooDark(mean) }
                     return@execute
                 }
                 val detection = OpenCvDocumentDetector.detectBitmap(bmp)
@@ -654,6 +654,22 @@ class ScanActivity : AppCompatActivity() {
             y += h / 20
         }
         return if (n == 0) 0f else sum.toFloat() / n
+    }
+
+    /**
+     * Preview is nearly black — usually phone laid flat on the table covering the lens.
+     * Clear overlay/Ready and show an explicit tip. Manual shutter still works.
+     */
+    private fun onPreviewTooDark(mean: Float) {
+        if (!liveCapturePane.isVisible || capturing.get()) return
+        edgeTracker.reset()
+        lastQuad = null
+        lastScore = 0f
+        edgeOverlay.clear()
+        tvLiveHint.text = "Hold phone above the page — not flat on the table"
+        if (System.currentTimeMillis() % 2000L < 150L) {
+            Log.d(TAG, "preview too dark mean=${"%.1f".format(mean)} — tip shown")
+        }
     }
 
     /** [detection] quad is already in overlay-normalized PreviewView space. */
