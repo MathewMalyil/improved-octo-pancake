@@ -12,7 +12,8 @@ object UsageManager {
     // GPT-4o (Pro) main counter (historically used for free too in your app)
     private const val KEY_TOKENS_USED = "tokensUsed"
 
-    // Pro flag
+    // Legacy prefs mirror only — source of truth is [DocumentEntitlement] (Document Pro).
+    // Old ai_pro_plan may have set this; [isPro] no longer trusts it alone (SMA-23).
     private const val KEY_PRO_PLAN = "isPro"
 
     // Monthly reset anchor
@@ -33,8 +34,9 @@ object UsageManager {
     fun getPrefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
+    /** True only for Document Pro — never for deactivated [ai_pro_plan]. */
     fun isPro(context: Context): Boolean =
-        getPrefs(context).getBoolean(KEY_PRO_PLAN, false)
+        DocumentEntitlement.isDocumentPro(context)
 
     fun setPro(context: Context, value: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_PRO_PLAN, value).apply()
@@ -148,7 +150,7 @@ object UsageManager {
         // Decide which counter/cap to display based on last used model
         val (label, used, cap) = when {
             lastModel.startsWith("gpt-4") || lastModel == "gpt-4o" -> {
-                Triple("🚀 GPT-4o Pro", getTokensUsed(context), getTokenCap(context))
+                Triple("🚀 GPT-4o", getTokensUsed(context), getTokenCap(context))
             }
             lastModel.startsWith("llama") -> {
                 Triple("⚡ Groq Free", getGroqUsed(context), getGroqCap(context))
@@ -157,9 +159,9 @@ object UsageManager {
                 Triple("🧠 GPT-3.5 Fallback", getGpt35Used(context), getGpt35Cap())
             }
             else -> {
-                // Fallback to Pro vs Free bucket if we don't know last model
+                // Fallback to Document Pro vs free Groq if we don't know last model
                 if (isPro(context)) {
-                    Triple("🚀 GPT-4o Pro", getTokensUsed(context), getTokenCap(context))
+                    Triple("🚀 GPT-4o", getTokensUsed(context), getTokenCap(context))
                 } else {
                     Triple("⚡ Groq Free", getGroqUsed(context), getGroqCap(context))
                 }

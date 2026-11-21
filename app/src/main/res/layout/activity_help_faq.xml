@@ -168,7 +168,7 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Free users can access Groq (LLaMA) with a monthly limit, while Pro users unlock GPT-4o 🚀 for advanced analysis. GPT-3.5 is also available as a fallback within a strict limit."
+            android:text="A: Everyone gets free Groq (LLaMA) AI within a monthly token cap. Document Pro unlocks unlimited document tools, ad-free use, and clean PDF export — it is not the old AI Pro subscription."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"

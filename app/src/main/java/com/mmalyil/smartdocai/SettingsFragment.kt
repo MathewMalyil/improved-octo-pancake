@@ -70,7 +70,7 @@ class SettingsFragment : Fragment() {
         view.findViewById<Button>(R.id.btnManagePlan).setOnClickListener {
             startActivity(
                 Intent(requireContext(), BillingActivity::class.java)
-                    .putExtra("message", "Upgrade now to unlock GPT-4o Pro 🚀")
+                    .putExtra("message", "Unlock Document Pro — unlimited tools, ad-free, clean PDF export.")
             )
         }
 

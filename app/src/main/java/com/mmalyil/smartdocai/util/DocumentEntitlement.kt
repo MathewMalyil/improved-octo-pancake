@@ -10,8 +10,12 @@ import java.util.Calendar
  * Document Pro entitlement + soft free daily caps.
  * Free AI tokens remain in [UsageManager] (separate).
  *
- * Pro unlock via lifetime INAPP or yearly/monthly subscription — all set
- * [isDocumentPro] true (unlimited tools, ad-free, clean export).
+ * Pro unlock via lifetime INAPP (`document_pro`) or yearly/monthly
+ * (`document_pro_yearly` / `document_pro_monthly`) — all set [isDocumentPro] true
+ * (unlimited tools, ad-free, clean export).
+ *
+ * Deactivated Play SKU `ai_pro_plan` (old SmartDocAI / GPT-4o AI Pro) never grants
+ * Document Pro — see [com.mmalyil.smartdocai.billing.BillingManager] (SMA-23).
  */
 object DocumentEntitlement {
 

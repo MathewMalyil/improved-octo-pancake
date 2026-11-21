@@ -43,14 +43,22 @@ class BillingManager(
         const val DOCUMENT_PRO_MONTHLY = "document_pro_monthly"
         const val BASE_PLAN_MONTHLY = "monthly"
 
-        @Deprecated("Replaced by document_pro; kept only to ignore legacy SKUs")
-        const val LEGACY_AI_SUB_ID = "ai_pro_plan"
+        /**
+         * Deactivated Play SKU (old "SmartDocAI Pro" / GPT-4o AI Pro).
+         * Never query ProductDetails for it, never launch it, never grant Document Pro from it.
+         * Kept private so Restore / owned-purchase lists can explicitly ignore it (SMA-23).
+         */
+        private const val LEGACY_AI_SUB_ID = "ai_pro_plan"
 
         val ALL_PRO_PRODUCT_IDS = setOf(
             DOCUMENT_PRO_LIFETIME,
             DOCUMENT_PRO_YEARLY,
             DOCUMENT_PRO_MONTHLY
         )
+
+        fun isDocumentProSku(productId: String): Boolean = productId in ALL_PRO_PRODUCT_IDS
+
+        fun isLegacyAiProSku(productId: String): Boolean = productId == LEGACY_AI_SUB_ID
 
         /** India fallback labels when Play price not fetched yet. */
         const val FALLBACK_PRICE_LIFETIME = "₹399"
@@ -153,6 +161,13 @@ class BillingManager(
     fun launchPurchaseFlow(activity: Activity, productId: String = DOCUMENT_PRO_LIFETIME) {
         if (!isReady()) {
             Log.w(TAG, "launchPurchaseFlow: BillingClient not ready yet")
+            return
+        }
+
+        // Hard refuse deactivated AI Pro SKU — never offer / query it.
+        if (isLegacyAiProSku(productId) || !isDocumentProSku(productId)) {
+            Log.w(TAG, "launchPurchaseFlow refused non-Document-Pro SKU=$productId")
+            listener.onProductUnavailable(productId, "Only Document Pro SKUs are offered")
             return
         }
 
@@ -346,7 +361,13 @@ class BillingManager(
         var owned = false
         var source = DocumentEntitlement.ProSource.NONE
         purchases.forEach { p ->
-            val proId = p.products.firstOrNull { it in ALL_PRO_PRODUCT_IDS } ?: return@forEach
+            // Explicitly ignore deactivated ai_pro_plan (and any other non-Document-Pro SKU).
+            p.products.forEach { id ->
+                if (isLegacyAiProSku(id)) {
+                    Log.i(TAG, "Ignoring legacy SKU $id — does not grant Document Pro")
+                }
+            }
+            val proId = p.products.firstOrNull { isDocumentProSku(it) } ?: return@forEach
             when (p.purchaseState) {
                 Purchase.PurchaseState.PURCHASED -> {
                     owned = true
@@ -376,9 +397,13 @@ class BillingManager(
         }
         if (owned) {
             DocumentEntitlement.setDocumentPro(context, true, source)
+            // Mirror into legacy UsageManager flag so GPT routing follows Document Pro only.
+            com.mmalyil.smartdocai.util.UsageManager.setPro(context, true)
             Log.d(TAG, "Document Pro entitlement active source=$source")
         } else if (clearIfMissing) {
             DocumentEntitlement.setDocumentPro(context, false, DocumentEntitlement.ProSource.NONE)
+            // Clear leftover ai_pro_plan-era UsageManager.isPro prefs.
+            com.mmalyil.smartdocai.util.UsageManager.setPro(context, false)
         }
     }
 

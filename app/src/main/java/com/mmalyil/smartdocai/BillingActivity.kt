@@ -96,7 +96,12 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
                     if (DocumentEntitlement.isDocumentPro(this)) {
                         Toast.makeText(this, "Document Pro restored", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(this, "No Document Pro purchase found", Toast.LENGTH_LONG).show()
+                        // Owned ai_pro_plan (if any) is ignored — does not restore Document Pro.
+                        Toast.makeText(
+                            this,
+                            "No Document Pro purchase found (legacy AI Pro is not restored)",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                     refreshPurchaseUi()
                 }

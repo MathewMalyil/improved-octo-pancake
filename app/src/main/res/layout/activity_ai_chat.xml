@@ -41,7 +41,7 @@
             android:id="@+id/modelUsedText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="GPT-4o"
+            android:text="AI"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
             android:textColor="?attr/colorOnSurfaceVariant"
             android:paddingStart="12dp"
