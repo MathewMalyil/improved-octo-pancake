@@ -600,7 +600,8 @@ class ScanActivity : AppCompatActivity() {
                     if (System.currentTimeMillis() % 1000L < 150L) {
                         Log.d(TAG, "preview bitmap unavailable")
                     }
-                    runOnUiThread { onDetection(null) }
+                    // After camera should be live, treat missing/black preview like flat-on-table
+                    runOnUiThread { onPreviewTooDark(0f) }
                     return@execute
                 }
                 val mean = sampleMeanLuma(bmp)
