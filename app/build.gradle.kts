@@ -14,6 +14,13 @@ val localProperties = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
+// Play upload signing — credentials live in gitignored root keystore.properties
+// pointing at the existing smartdocai.jks (never create a new keystore).
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) load(keystorePropertiesFile.inputStream())
+}
+
 // ✅ Room schema export (for future migrations)
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -34,8 +41,8 @@ android {
         minSdk = 26
         targetSdk = 36
 
-        versionCode = 78
-        versionName = "3.19.15"
+        versionCode = 80
+        versionName = "3.20.0"
 
 
         ndk {
@@ -94,6 +101,17 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Feature flags
@@ -111,6 +129,10 @@ android {
 
             isMinifyEnabled = false
             isShrinkResources = false
+
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
