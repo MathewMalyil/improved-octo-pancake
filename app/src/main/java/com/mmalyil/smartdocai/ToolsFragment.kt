@@ -1154,8 +1154,18 @@ class ToolsFragment : Fragment() {
         loadingOverlay = view.findViewById(R.id.loadingOverlay)
         loadingSpinner = view.findViewById(R.id.loadingSpinner)
 
-        loadingOverlay?.visibility = View.VISIBLE
-        loadingOverlay?.postDelayed({ loadingOverlay?.visibility = View.GONE }, 1000)
+        // Brief flash on open — must clear clickable when hiding or it can eat taps.
+        loadingOverlay?.apply {
+            visibility = View.VISIBLE
+            isClickable = true
+            isFocusable = true
+            postDelayed({
+                visibility = View.GONE
+                isClickable = false
+                isFocusable = false
+                isFocusableInTouchMode = false
+            }, 1000)
+        }
 
 
         //UsageManager.bindUsageUI(requireContext(), usageText, usageBar, aiSourceText)
@@ -1212,11 +1222,7 @@ class ToolsFragment : Fragment() {
 
     override fun onDestroyView() {
         view?.handler?.removeCallbacksAndMessages(null)
-
-        coachOverlay?.dismissCompletely()
-        coachOverlay = null
-        isCoachRunning = false
-
+        tearDownAllCoachLayers()
         super.onDestroyView()
     }
 
@@ -2497,17 +2503,25 @@ class ToolsFragment : Fragment() {
         val owner = viewLifecycleOwnerLiveData.value ?: return
         if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
 
+        // Claim immediately so Settings replay + doOnPreDraw cannot double-add overlays.
         if (suppressGuideThisSession || isCoachRunning) return
+        isCoachRunning = true
 
         owner.lifecycleScope.launch {
             // 🔐 re-check inside coroutine
-            if (!isAdded || !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+            if (!isAdded || !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                isCoachRunning = false
+                return@launch
+            }
 
             if (!force) {
                 val seen = com.mmalyil.smartdocai.prefs.CoachPrefs
                     .hasSeenCoach(ctx)
                     .first()
-                if (seen) return@launch
+                if (seen) {
+                    isCoachRunning = false
+                    return@launch
+                }
             }
 
             // Scroll to top so job buttons + upload are on-screen for rects
@@ -2515,7 +2529,10 @@ class ToolsFragment : Fragment() {
             // One frame for layout after scroll
             kotlinx.coroutines.delay(50)
 
-            if (!isAdded || view == null) return@launch
+            if (!isAdded || view == null) {
+                isCoachRunning = false
+                return@launch
+            }
 
             val rJobs = view?.findViewById<View>(R.id.btnImageToExcel)
                 ?.takeIf { it.isShown }
@@ -2525,7 +2542,10 @@ class ToolsFragment : Fragment() {
             val rAnalyze = rectOf(analyzeButton, rootView)
             val rExport = rectOf(exportShareButton, rootView)
 
-            if (rUpload.isEmpty || rAnalyze.isEmpty || rExport.isEmpty) return@launch
+            if (rUpload.isEmpty || rAnalyze.isEmpty || rExport.isEmpty) {
+                isCoachRunning = false
+                return@launch
+            }
 
             val steps = buildList {
                 if (rJobs != null) {
@@ -2556,23 +2576,23 @@ class ToolsFragment : Fragment() {
                 )
             }
 
-            val root = rootView as? ViewGroup ?: return@launch
-            coachOverlay?.dismissCompletely()
-            coachOverlay = null
+            val root = rootView as? ViewGroup ?: run {
+                isCoachRunning = false
+                return@launch
+            }
+
+            // Sweep any leftover coach / dim layers before attaching a new one.
+            tearDownAllCoachLayers(keepRunningFlag = true)
 
             coachOverlay = com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay(
                 ctx,   // ✅ SAFE — never requireContext()
                 steps
             ) {
-                // Overlay already GONE+detached in dismissCompletely(); clear host refs.
-                isCoachRunning = false
-                coachOverlay?.dismissCompletely()
-                coachOverlay = null
-
+                // Overlay already torn down in dismissCompletely(); sweep hosts + clear refs.
+                tearDownAllCoachLayers()
                 owner.lifecycleScope.launch {
                     com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(ctx, true)
                 }
-
                 if (isAdded) {
                     Toast.makeText(
                         ctx,
@@ -2580,13 +2600,6 @@ class ToolsFragment : Fragment() {
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-            }
-
-            loadingOverlay?.apply {
-                visibility = View.GONE
-                isClickable = false
-                isFocusable = false
-                isFocusableInTouchMode = false
             }
 
             root.addView(
@@ -2597,10 +2610,36 @@ class ToolsFragment : Fragment() {
                 )
             )
 
-            isCoachRunning = true
-
             // 🔐 DO NOT post — show immediately
             coachOverlay?.show()
+        }
+    }
+
+    /**
+     * Nuclear coach teardown: disable + detach known overlay, strip any
+     * SpotlightOverlay freeloaders from fragment / contentFrame / decor,
+     * and ensure loadingOverlay cannot eat taps while GONE.
+     */
+    private fun tearDownAllCoachLayers(keepRunningFlag: Boolean = false) {
+        coachOverlay?.dismissCompletely()
+        coachOverlay = null
+        if (!keepRunningFlag) isCoachRunning = false
+
+        val fragRoot = view as? ViewGroup
+        val contentFrame = activity?.findViewById<ViewGroup>(R.id.contentFrame)
+        val activityContent = activity?.findViewById<ViewGroup>(android.R.id.content)
+        val decor = activity?.window?.decorView as? ViewGroup
+
+        com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay.stripFrom(fragRoot)
+        com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay.stripFrom(contentFrame)
+        com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay.stripFrom(activityContent)
+        com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay.stripFrom(decor)
+
+        loadingOverlay?.apply {
+            visibility = View.GONE
+            isClickable = false
+            isFocusable = false
+            isFocusableInTouchMode = false
         }
     }
 
@@ -2618,15 +2657,11 @@ class ToolsFragment : Fragment() {
         )
     }
 
-    // call once after views are laid out (you already do this in onViewCreated -> doOnPreDraw)
-// call once after views are laid out (you already do this in onViewCreated -> doOnPreDraw)
-// STOP the tour immediately if the user starts any real action,
-// so it can’t “stick” over other flows.
+    // STOP the tour immediately if the user starts any real action,
+    // so it can’t “stick” over other flows.
     private fun stopWalkthroughIfRunning() {
         if (!isCoachRunning && coachOverlay == null) return
-        coachOverlay?.dismissCompletely()
-        coachOverlay = null
-        isCoachRunning = false
+        tearDownAllCoachLayers()
         // we still mark as seen, so it doesn’t bounce back right away
         val ctx = context ?: return
         viewLifecycleOwner.lifecycleScope.launch {
