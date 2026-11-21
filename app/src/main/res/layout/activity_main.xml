@@ -100,13 +100,26 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Content area (your fragments swap here) -->
-    <!-- Content area (your fragments swap here) -->
+    <!--
+      When heroCard is GONE (Home/Files/Settings), pinning contentFrame directly
+      below it can leave contentFrame with 0 height on cold start (S25 blank tabs)
+      until Tools makes heroCard VISIBLE once. Barrier follows the lower of
+      topAppBar / heroCard so the fragment host always has real height.
+    -->
+    <androidx.constraintlayout.widget.Barrier
+        android:id="@+id/contentTopBarrier"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:barrierDirection="bottom"
+        app:barrierAllowsGoneWidgets="false"
+        app:constraint_referenced_ids="topAppBar,heroCard" />
+
+    <!-- Content area (fragments swap here) -->
     <FrameLayout
         android:id="@+id/contentFrame"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintTop_toBottomOf="@id/heroCard"
+        app:layout_constraintTop_toBottomOf="@id/contentTopBarrier"
         app:layout_constraintBottom_toTopOf="@id/adViewBanner"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

@@ -266,7 +266,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState == null) {
-            // Start with Home fragment safely
+            // Start with Home; keep bottom-nav selection in sync (listener may not fire).
+            bottomNav.selectedItemId = R.id.nav_home
             switchFragment(R.id.nav_home)
         }
 
@@ -335,8 +336,11 @@ class MainActivity : AppCompatActivity() {
 
         // Home owns job CTAs — hide usage strip there so jobs are immediate.
         // Tools keeps the compact AI usage strip.
-        findViewById<View>(R.id.heroCard)?.visibility =
-            if (itemId == R.id.nav_tools) View.VISIBLE else View.GONE
+        // contentFrame is constrained via contentTopBarrier (not directly to heroCard)
+        // so GONE heroCard never collapses the fragment host to 0 height.
+        val hero = findViewById<View>(R.id.heroCard)
+        hero?.visibility = if (itemId == R.id.nav_tools) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.contentFrame)?.requestLayout()
 
         supportFragmentManager.beginTransaction()
             .setReorderingAllowed(true)
