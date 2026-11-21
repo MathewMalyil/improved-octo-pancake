@@ -787,13 +787,14 @@ class ToolsFragment : Fragment() {
             parentFragmentManager.clearFragmentResult("toolsFabRequest")
         }
 
-        // B) replayCoach  ✅ separate listener
+        // B) replayCoach — Settings “Tools guided tips”
         parentFragmentManager.setFragmentResultListener("replayCoach", this) { _, bundle ->
             if (bundle.getBoolean("replay", false)) {
                 viewLifecycleOwner.lifecycleScope.launch {
                     com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(requireContext(), false)
+                    // force=true so we don’t race DataStore “seen” still true
+                    view?.let { showWalkthroughNow(it, force = true) }
                 }
-                view?.let { showWalkthroughNow(it) }
             }
         }
 
@@ -2487,8 +2488,11 @@ class ToolsFragment : Fragment() {
         )
     }
 
-    // call once after views are laid out (you already do this in onViewCreated -> doOnPreDraw)
-    private fun showWalkthroughNow(rootView: View) {
+    /**
+     * Analyse coach-marks. Shows once until dismissed; Settings → Tools guided tips
+     * calls with [force]=true. Tap advances; no spam on every launch after seen.
+     */
+    private fun showWalkthroughNow(rootView: View, force: Boolean = false) {
         // 🔐 HARD GUARD — never run if fragment is not attached
         if (!isAdded) return
         val ctx = context ?: return
@@ -2501,31 +2505,58 @@ class ToolsFragment : Fragment() {
             // 🔐 re-check inside coroutine
             if (!isAdded || !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
 
-            val seen = com.mmalyil.smartdocai.prefs.CoachPrefs
-                .hasSeenCoach(ctx)
-                .first()
-            if (seen) return@launch
+            if (!force) {
+                val seen = com.mmalyil.smartdocai.prefs.CoachPrefs
+                    .hasSeenCoach(ctx)
+                    .first()
+                if (seen) return@launch
+            }
 
-            val r1 = rectOf(selectPdfButton, rootView)
-            val r2 = rectOf(analyzeButton, rootView)
-            val r3 = rectOf(exportShareButton, rootView)
+            // Scroll to top so job buttons + upload are on-screen for rects
+            rootView.findViewById<ScrollView>(R.id.scrollView)?.scrollTo(0, 0)
+            // One frame for layout after scroll
+            kotlinx.coroutines.delay(50)
 
-            if (r1.isEmpty || r2.isEmpty || r3.isEmpty) return@launch
+            if (!isAdded || view == null) return@launch
 
-            val steps = listOf(
-                com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                    r1,
-                    "Upload a PDF/Excel/image — or use Image→Excel, Excel→Word, Combine, Scan ID above."
-                ),
-                com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                    r2,
-                    "Analyze with free Groq AI (summary, key points, chat). Soft tool caps show under usage."
-                ),
-                com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                    r3,
-                    "Export TXT/PDF/Word — files save into Files. Document Pro unlocks clean unlimited tools."
+            val rJobs = view?.findViewById<View>(R.id.btnImageToExcel)
+                ?.takeIf { it.isShown }
+                ?.let { rectOf(it, rootView) }
+                ?.takeUnless { it.isEmpty }
+            val rUpload = rectOf(selectPdfButton, rootView)
+            val rAnalyze = rectOf(analyzeButton, rootView)
+            val rExport = rectOf(exportShareButton, rootView)
+
+            if (rUpload.isEmpty || rAnalyze.isEmpty || rExport.isEmpty) return@launch
+
+            val steps = buildList {
+                if (rJobs != null) {
+                    add(
+                        com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                            rJobs,
+                            "Jobs here: Image→Excel, Excel→Word, Combine, Scan ID. Tap to continue."
+                        )
+                    )
+                }
+                add(
+                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                        rUpload,
+                        "Upload a PDF, Excel, or image to Analyse."
+                    )
                 )
-            )
+                add(
+                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                        rAnalyze,
+                        "Free Groq AI — summary, key points, chat. Caps under usage."
+                    )
+                )
+                add(
+                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
+                        rExport,
+                        "Export saves to Files. Document Pro = clean unlimited tools."
+                    )
+                )
+            }
 
             val root = rootView as? ViewGroup ?: return@launch
             coachOverlay?.let { root.removeView(it) }
@@ -2543,7 +2574,11 @@ class ToolsFragment : Fragment() {
                 }
 
                 if (isAdded) {
-                    Toast.makeText(ctx, "Tip: Replay from Settings anytime.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        ctx,
+                        "Replay tips anytime: Settings → Tools guided tips",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
 

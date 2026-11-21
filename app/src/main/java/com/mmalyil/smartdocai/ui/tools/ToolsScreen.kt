@@ -44,7 +44,7 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     uploadSpot = r.toSpotlight(
                         density,
-                        tip = "Upload a PDF/Excel/image — or use Image→Excel, Excel→Word, Combine, Scan ID.",
+                        tip = "Upload a PDF, Excel, or image to Analyse.",
                         accent = Color(0xFF3ECFBF)
                     )
                 }
@@ -59,7 +59,7 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     analyzeSpot = r.toSpotlight(
                         density,
-                        tip = "Analyze with free Groq AI (summary, key points, chat).",
+                        tip = "Free Groq AI — summary, key points, chat.",
                         accent = Color(0xFF1F6F78),
                         preferAbove = false
                     )
@@ -75,7 +75,7 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     exportSpot = r.toSpotlight(
                         density,
-                        tip = "Export TXT/PDF/Word — saves into Files. Document Pro = clean unlimited tools.",
+                        tip = "Export saves to Files. Document Pro = clean unlimited tools.",
                         accent = Color(0xFF3ECFBF),
                         preferAbove = true
                     )

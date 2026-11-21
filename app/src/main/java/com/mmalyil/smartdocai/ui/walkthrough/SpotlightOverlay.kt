@@ -72,19 +72,50 @@ class SpotlightOverlay(
         if (tip.isNotEmpty()) {
             val pad = 24f
             val fm = tipText.fontMetrics
-            val textH = fm.bottom - fm.top
-            val textW = tipText.measureText(tip)
-            val left = r.left
-            val top = (r.bottom + 16f).coerceAtMost(height - textH - 2 * pad)
+            val lineH = fm.bottom - fm.top
+            val maxBubbleW = (width - 32f).coerceAtLeast(120f)
+            val maxTextW = maxBubbleW - 2 * pad
+            val lines = wrapTipLines(tip, tipText, maxTextW)
+            val textBlockH = lineH * lines.size
+            val textBlockW = lines.maxOf { tipText.measureText(it) }
+            val left = r.left.coerceIn(16f, (width - textBlockW - 2 * pad - 16f).coerceAtLeast(16f))
+            var top = r.bottom + 16f
+            if (top + textBlockH + 2 * pad > height - 16f) {
+                top = (r.top - textBlockH - 2 * pad - 16f).coerceAtLeast(16f)
+            }
             val bubble = RectF(
                 left,
                 top,
-                (left + textW + 2 * pad).coerceAtMost(width - 16f),
-                top + textH + 2 * pad
+                (left + textBlockW + 2 * pad).coerceAtMost(width - 16f),
+                top + textBlockH + 2 * pad
             )
             canvas.drawRoundRect(bubble, 16f, 16f, tipBg)
-            canvas.drawText(tip, bubble.left + pad, bubble.top + pad - fm.top, tipText)
+            var y = bubble.top + pad - fm.top
+            for (line in lines) {
+                canvas.drawText(line, bubble.left + pad, y, tipText)
+                y += lineH
+            }
         }
+    }
+
+    /** Simple wrap so long coach tips stay readable (no layout rewrite). */
+    private fun wrapTipLines(text: String, paint: Paint, maxWidth: Float): List<String> {
+        if (text.isEmpty()) return emptyList()
+        if (paint.measureText(text) <= maxWidth) return listOf(text)
+        val words = text.split(' ')
+        val lines = ArrayList<String>()
+        var cur = StringBuilder()
+        for (w in words) {
+            val candidate = if (cur.isEmpty()) w else "$cur $w"
+            if (paint.measureText(candidate) <= maxWidth) {
+                cur = StringBuilder(candidate)
+            } else {
+                if (cur.isNotEmpty()) lines.add(cur.toString())
+                cur = StringBuilder(w)
+            }
+        }
+        if (cur.isNotEmpty()) lines.add(cur.toString())
+        return lines.ifEmpty { listOf(text) }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
