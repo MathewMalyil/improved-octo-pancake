@@ -4,9 +4,14 @@ import android.content.Context
 import android.graphics.*
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 
 data class SpotlightTarget(val rect: RectF, val tip: String)
 
+/**
+ * Full-screen coach scrim. On last tip (or cancel), must [dismissCompletely] —
+ * hide GONE + detach — otherwise a transparent click-catcher can linger for one tap.
+ */
 class SpotlightOverlay(
     context: Context,
     private val steps: List<SpotlightTarget>,
@@ -21,6 +26,7 @@ class SpotlightOverlay(
     private val tipText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 40f }
 
     private var index = 0
+    private var finished = false
     private lateinit var layerBmp: Bitmap
     private lateinit var layerCvs: Canvas
 
@@ -33,7 +39,7 @@ class SpotlightOverlay(
     }
 
     fun show() {
-        if (steps.isEmpty()) return
+        if (steps.isEmpty() || finished) return
         visibility = VISIBLE
         isClickable = true
         isFocusable = true
@@ -46,6 +52,17 @@ class SpotlightOverlay(
         visibility = GONE
         isClickable = false
         isFocusable = false
+        isFocusableInTouchMode = false
+    }
+
+    /** GONE + detach from parent. Safe to call more than once. */
+    fun dismissCompletely() {
+        finished = true
+        hide()
+        val p = parent as? ViewGroup
+        if (p != null) {
+            p.removeView(this)
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -59,7 +76,9 @@ class SpotlightOverlay(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        if (finished || visibility != VISIBLE) return
         if (!::layerBmp.isInitialized || steps.isEmpty()) return
+        if (index !in steps.indices) return
 
         layerBmp.eraseColor(Color.TRANSPARENT)
         layerCvs.drawRect(0f, 0f, width.toFloat(), height.toFloat(), scrimPaint)
@@ -119,13 +138,20 @@ class SpotlightOverlay(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (visibility != VISIBLE || steps.isEmpty()) return false
+        if (finished || visibility != VISIBLE || steps.isEmpty()) return false
         if (event.action != MotionEvent.ACTION_UP) return true
         if (index < steps.lastIndex) {
             index++
             invalidate()
         } else {
-            onFinish()
+            // Hide immediately so this UP can't leave a transparent click-catcher;
+            // detach + host cleanup on next frame (removeView during dispatch is flaky).
+            finished = true
+            hide()
+            post {
+                dismissCompletely()
+                onFinish()
+            }
         }
         return true
     }

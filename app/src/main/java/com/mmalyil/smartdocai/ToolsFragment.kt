@@ -1213,9 +1213,7 @@ class ToolsFragment : Fragment() {
     override fun onDestroyView() {
         view?.handler?.removeCallbacksAndMessages(null)
 
-        (view as? ViewGroup)?.let { parent ->
-            coachOverlay?.let { parent.removeView(it) }
-        }
+        coachOverlay?.dismissCompletely()
         coachOverlay = null
         isCoachRunning = false
 
@@ -2559,14 +2557,16 @@ class ToolsFragment : Fragment() {
             }
 
             val root = rootView as? ViewGroup ?: return@launch
-            coachOverlay?.let { root.removeView(it) }
+            coachOverlay?.dismissCompletely()
+            coachOverlay = null
 
             coachOverlay = com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay(
                 ctx,   // ✅ SAFE — never requireContext()
                 steps
             ) {
+                // Overlay already GONE+detached in dismissCompletely(); clear host refs.
                 isCoachRunning = false
-                coachOverlay?.let { root.removeView(it) }
+                coachOverlay?.dismissCompletely()
                 coachOverlay = null
 
                 owner.lifecycleScope.launch {
@@ -2623,10 +2623,8 @@ class ToolsFragment : Fragment() {
 // STOP the tour immediately if the user starts any real action,
 // so it can’t “stick” over other flows.
     private fun stopWalkthroughIfRunning() {
-        if (!isCoachRunning) return
-        (view as? ViewGroup)?.let { vg ->
-            coachOverlay?.let { vg.removeView(it) }
-        }
+        if (!isCoachRunning && coachOverlay == null) return
+        coachOverlay?.dismissCompletely()
         coachOverlay = null
         isCoachRunning = false
         // we still mark as seen, so it doesn’t bounce back right away
