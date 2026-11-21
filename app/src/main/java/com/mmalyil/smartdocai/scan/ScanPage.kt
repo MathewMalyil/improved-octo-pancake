@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.net.Uri
 import java.io.File
 import java.util.UUID
@@ -12,14 +13,20 @@ import kotlin.math.roundToInt
 
 data class ScanPage(
     val id: String = UUID.randomUUID().toString(),
-    val sourcePath: String,
+    var sourcePath: String,
     var rotationDegrees: Int = 0,
     var filter: ScanFilter = ScanFilter.ORIGINAL,
-    /** Normalized crop rect in [0,1] relative to the rotated bitmap. */
+    /** Normalized axis-aligned crop in [0,1] relative to the rotated bitmap (post-Apply). */
     var cropLeft: Float = 0f,
     var cropTop: Float = 0f,
     var cropRight: Float = 1f,
-    var cropBottom: Float = 1f
+    var cropBottom: Float = 1f,
+    /**
+     * Notes-style corner adjust (TL,TR,BR,BL) on the unwarped still.
+     * Non-null + [needsAdjust] means Review should show draggable corners first.
+     */
+    var adjustQuad: Array<PointF>? = null,
+    var needsAdjust: Boolean = false
 ) {
     fun resetCrop() {
         cropLeft = 0f
@@ -32,6 +39,11 @@ data class ScanPage(
         rotationDegrees = ((rotationDegrees + delta) % 360 + 360) % 360
         // Crop rect is relative to rotated image; reset to avoid confusing orientation
         resetCrop()
+    }
+
+    fun copyAdjustQuad(): Array<PointF>? {
+        val q = adjustQuad ?: return null
+        return Array(q.size) { PointF(q[it].x, q[it].y) }
     }
 }
 

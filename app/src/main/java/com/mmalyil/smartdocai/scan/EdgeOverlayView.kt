@@ -9,7 +9,9 @@ import android.util.AttributeSet
 import android.view.View
 
 /**
- * Draws a live document-edge highlight quad over [androidx.camera.view.PreviewView].
+ * Notes-style live page highlight: filled yellow/gold shade over the detected
+ * document (not a line-only outline), with a soft gold stroke that brightens
+ * when the hold is ready.
  */
 class EdgeOverlayView @JvmOverloads constructor(
     context: Context,
@@ -17,33 +19,44 @@ class EdgeOverlayView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private var quad: Array<PointF>? = null
-    private var locked = false
+    private var ready = false
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0x33C8A04A
+        // ~45% gold — readable shade over the page without hiding content
+        color = 0x73F0C23A.toInt()
+    }
+    private val fillReadyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0x88F5C542.toInt()
     }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3.5f * resources.displayMetrics.density
-        color = 0xFFC8A04A.toInt()
+        strokeWidth = 2.5f * resources.displayMetrics.density
+        strokeJoin = Paint.Join.ROUND
+        color = 0xE6E8B84A.toInt()
     }
-    private val lockedStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val strokeReadyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 4.5f * resources.displayMetrics.density
-        color = 0xFF2E7D32.toInt()
+        strokeWidth = 3.5f * resources.displayMetrics.density
+        strokeJoin = Paint.Join.ROUND
+        color = 0xFFF5C542.toInt()
+    }
+    private val cornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFFF5C542.toInt()
     }
     private val path = Path()
 
     fun setQuad(points: Array<PointF>?, stable: Boolean) {
         quad = points
-        locked = stable
+        ready = stable
         postInvalidateOnAnimation()
     }
 
     fun clear() {
         quad = null
-        locked = false
+        ready = false
         invalidate()
     }
 
@@ -57,7 +70,11 @@ class EdgeOverlayView @JvmOverloads constructor(
             path.lineTo(q[i].x * width, q[i].y * height)
         }
         path.close()
-        canvas.drawPath(path, fillPaint)
-        canvas.drawPath(path, if (locked) lockedStroke else strokePaint)
+        canvas.drawPath(path, if (ready) fillReadyPaint else fillPaint)
+        canvas.drawPath(path, if (ready) strokeReadyPaint else strokePaint)
+        val r = 5.5f * resources.displayMetrics.density
+        for (i in 0 until 4) {
+            canvas.drawCircle(q[i].x * width, q[i].y * height, r, cornerPaint)
+        }
     }
 }

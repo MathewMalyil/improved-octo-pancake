@@ -62,6 +62,12 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
+        <com.mmalyil.smartdocai.scan.QuadAdjustOverlayView
+            android:id="@+id/quadAdjustOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
         <ProgressBar
             android:id="@+id/progressSaving"
             android:layout_width="48dp"
@@ -187,6 +193,18 @@
             android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnApplyAdjust"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:backgroundTint="@color/md3_primary"
+            android:text="Apply"
+            android:textAllCaps="false"
+            android:textColor="@color/md3_onPrimary"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSavePdf"
             android:layout_width="0dp"
             android:layout_height="52dp"
@@ -238,7 +256,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text="Align page, hold ~2s for green lock — or tap ● anytime"
+                android:text="Hold phone above the page — hold steady for auto, or tap ●"
                 android:textColor="#FFF7EA"
                 android:textSize="13sp" />
 

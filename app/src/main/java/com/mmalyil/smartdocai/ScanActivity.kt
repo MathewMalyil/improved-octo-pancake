@@ -53,6 +53,7 @@ import com.mmalyil.smartdocai.scan.EdgeOverlayView
 import com.mmalyil.smartdocai.scan.ImagePdfWriter
 import com.mmalyil.smartdocai.scan.OpenCvDocumentDetector
 import com.mmalyil.smartdocai.scan.PerspectiveHelper
+import com.mmalyil.smartdocai.scan.QuadAdjustOverlayView
 import com.mmalyil.smartdocai.scan.ScanFilter
 import com.mmalyil.smartdocai.scan.ScanPage
 import com.mmalyil.smartdocai.scan.ScanPageRenderer
@@ -104,12 +105,14 @@ class ScanActivity : AppCompatActivity() {
     private lateinit var tvLiveHint: TextView
     private lateinit var ivPreview: ImageView
     private lateinit var cropOverlay: CropOverlayView
+    private lateinit var quadAdjustOverlay: QuadAdjustOverlayView
     private lateinit var edgeOverlay: EdgeOverlayView
     private lateinit var previewView: PreviewView
     private lateinit var liveCapturePane: View
     private lateinit var thumbStrip: RecyclerView
     private lateinit var progressSaving: ProgressBar
     private lateinit var emptyPane: View
+    private lateinit var filterRow: View
     private lateinit var reviewViews: List<View>
 
     private lateinit var chipOriginal: Chip
@@ -120,6 +123,7 @@ class ScanActivity : AppCompatActivity() {
     private lateinit var btnToggleCrop: MaterialButton
     private lateinit var btnRetake: MaterialButton
     private lateinit var btnKeepScanning: MaterialButton
+    private lateinit var btnApplyAdjust: MaterialButton
     private lateinit var btnSavePdf: MaterialButton
     private lateinit var captureButton: MaterialButton
     private lateinit var btnFromPhotos: MaterialButton
@@ -130,9 +134,16 @@ class ScanActivity : AppCompatActivity() {
     private val pages = mutableListOf<ScanPage>()
     private var selectedIndex = 0
     private var cropMode = false
+    /** Notes-style 4-corner adjust before filters/Save PDF. */
+    private var adjustMode = false
     private var previewBitmap: Bitmap? = null
     private var saving = false
     private var retakePending = false
+
+    private data class CapturedPage(
+        val path: String,
+        val adjustQuad: Array<PointF>
+    )
 
     private lateinit var thumbAdapter: ThumbAdapter
 
@@ -254,11 +265,20 @@ class ScanActivity : AppCompatActivity() {
                     if (pages.isEmpty()) showEmptyState()
                     return@launch
                 }
-                imported.forEach { path -> pages.add(ScanPage(sourcePath = path)) }
+                imported.forEach { path ->
+                    val quad = withContext(Dispatchers.IO) {
+                        detectStillQuadForAdjust(path)
+                    }
+                    pages.add(
+                        ScanPage(
+                            sourcePath = path,
+                            adjustQuad = quad,
+                            needsAdjust = true
+                        )
+                    )
+                }
                 selectedIndex = pages.lastIndex
-                showReviewState()
-                refreshThumbs()
-                renderSelectedPreview()
+                enterAdjustModeForSelected()
             }
         }
 
@@ -329,12 +349,14 @@ class ScanActivity : AppCompatActivity() {
         tvLiveHint = findViewById(R.id.tvLiveHint)
         ivPreview = findViewById(R.id.ivPreview)
         cropOverlay = findViewById(R.id.cropOverlay)
+        quadAdjustOverlay = findViewById(R.id.quadAdjustOverlay)
         edgeOverlay = findViewById(R.id.edgeOverlay)
         previewView = findViewById(R.id.previewView)
         liveCapturePane = findViewById(R.id.liveCapturePane)
         thumbStrip = findViewById(R.id.thumbStrip)
         progressSaving = findViewById(R.id.progressSaving)
         emptyPane = findViewById(R.id.emptyCapturePane)
+        filterRow = findViewById(R.id.filterRow)
         chipOriginal = findViewById(R.id.chipOriginal)
         chipEnhance = findViewById(R.id.chipEnhance)
         chipBw = findViewById(R.id.chipBw)
@@ -343,6 +365,7 @@ class ScanActivity : AppCompatActivity() {
         btnToggleCrop = findViewById(R.id.btnToggleCrop)
         btnRetake = findViewById(R.id.btnRetake)
         btnKeepScanning = findViewById(R.id.btnKeepScanning)
+        btnApplyAdjust = findViewById(R.id.btnApplyAdjust)
         btnSavePdf = findViewById(R.id.btnSavePdf)
         captureButton = findViewById(R.id.captureButton)
         btnFromPhotos = findViewById(R.id.btnFromPhotos)
@@ -355,7 +378,7 @@ class ScanActivity : AppCompatActivity() {
         reviewViews = listOf<View>(
             findViewById(R.id.previewContainer),
             thumbStrip,
-            findViewById(R.id.filterRow),
+            filterRow,
             findViewById(R.id.editRow),
             findViewById(R.id.actionRow)
         )
@@ -368,6 +391,9 @@ class ScanActivity : AppCompatActivity() {
                 it.cropBottom = b
             }
         }
+        quadAdjustOverlay.onQuadChanged = { q ->
+            currentPage()?.adjustQuad = Array(4) { PointF(q[it].x, q[it].y) }
+        }
     }
 
     private fun setupThumbs() {
@@ -378,9 +404,16 @@ class ScanActivity : AppCompatActivity() {
                 commitCropToPage()
                 selectedIndex = index
                 cropMode = false
-                updateCropUi()
-                refreshThumbs()
-                renderSelectedPreview()
+                val page = pages.getOrNull(index)
+                if (page?.needsAdjust == true) {
+                    enterAdjustModeForSelected()
+                } else {
+                    adjustMode = false
+                    updateAdjustUi()
+                    updateCropUi()
+                    refreshThumbs()
+                    renderSelectedPreview()
+                }
             }
         )
         thumbStrip.layoutManager =
@@ -408,6 +441,7 @@ class ScanActivity : AppCompatActivity() {
         chipBw.setOnClickListener { setFilter(ScanFilter.BW) }
 
         btnRotateLeft.setOnClickListener {
+            if (adjustMode) return@setOnClickListener
             commitCropToPage()
             currentPage()?.rotateBy(-90)
             cropMode = false
@@ -416,6 +450,7 @@ class ScanActivity : AppCompatActivity() {
             refreshThumbs()
         }
         btnRotateRight.setOnClickListener {
+            if (adjustMode) return@setOnClickListener
             commitCropToPage()
             currentPage()?.rotateBy(90)
             cropMode = false
@@ -424,7 +459,7 @@ class ScanActivity : AppCompatActivity() {
             refreshThumbs()
         }
         btnToggleCrop.setOnClickListener {
-            if (currentPage() == null) return@setOnClickListener
+            if (currentPage() == null || adjustMode) return@setOnClickListener
             if (cropMode) {
                 commitCropToPage()
                 cropMode = false
@@ -435,6 +470,7 @@ class ScanActivity : AppCompatActivity() {
             }
             updateCropUi()
         }
+        btnApplyAdjust.setOnClickListener { applyQuadAdjust() }
         btnRetake.setOnClickListener {
             if (pages.isEmpty()) {
                 checkCameraPermissionAndStart(false)
@@ -444,17 +480,31 @@ class ScanActivity : AppCompatActivity() {
             }
         }
         btnKeepScanning.setOnClickListener {
+            if (adjustMode) {
+                Toast.makeText(this, "Apply the crop first — or Retake", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             commitCropToPage()
             cropMode = false
             updateCropUi()
             checkCameraPermissionAndStart(replaceSelected = false)
         }
-        btnSavePdf.setOnClickListener { savePdf() }
+        btnSavePdf.setOnClickListener {
+            if (adjustMode) {
+                Toast.makeText(this, "Drag the corners, then tap Apply", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            savePdf()
+        }
     }
 
     private fun currentPage(): ScanPage? = pages.getOrNull(selectedIndex)
 
     private fun setFilter(filter: ScanFilter) {
+        if (adjustMode) {
+            Toast.makeText(this, "Apply the crop first", Toast.LENGTH_SHORT).show()
+            return
+        }
         currentPage()?.filter = filter
         when (filter) {
             ScanFilter.ORIGINAL -> chipOriginal.isChecked = true
@@ -480,7 +530,7 @@ class ScanActivity : AppCompatActivity() {
         reviewViews.forEach { it.isVisible = false }
         tvTitle.text = "Scan document"
         tvStatus.text = if (retakePending) "Retake page — hold steady" else "Page ${pages.size + 1} — hold steady"
-        tvLiveHint.text = "Hold phone above the page — then hold ~1s for auto, or tap ●"
+        tvLiveHint.text = "Hold phone above the page — hold steady for auto, or tap ●"
         edgeOverlay.clear()
     }
 
@@ -489,16 +539,17 @@ class ScanActivity : AppCompatActivity() {
         emptyPane.isVisible = false
         liveCapturePane.isVisible = false
         reviewViews.forEach { it.isVisible = true }
-        tvTitle.text = "Review scan"
+        tvTitle.text = if (adjustMode) "Adjust crop" else "Review scan"
         updateStatus()
+        updateAdjustUi()
     }
 
     private fun updateStatus() {
         val n = pages.size
-        tvStatus.text = if (n == 0) {
-            "No pages yet"
-        } else {
-            "Page ${selectedIndex + 1} of $n · crop, rotate, or filter, then Save PDF"
+        tvStatus.text = when {
+            n == 0 -> "No pages yet"
+            adjustMode -> "Page ${selectedIndex + 1} of $n · drag the 4 corners, then Apply"
+            else -> "Page ${selectedIndex + 1} of $n · filter or Save PDF"
         }
     }
 
@@ -706,14 +757,14 @@ class ScanActivity : AppCompatActivity() {
             return
         }
 
-        // Green while overlay is up (ready = visible); brighter path to auto.
+        // Gold fill brightens while stable; patient hold before auto.
         edgeOverlay.setQuad(frame.displayQuad, frame.ready || frame.lockedForCapture)
 
         tvLiveHint.text = when {
-            frame.lockedForCapture -> "Ready — capturing…"
+            frame.lockedForCapture -> "Locked — capturing…"
             frame.holdProgress > 0 ->
-                "Ready — hold still ${frame.holdProgress}/${frame.holdNeeded}"
-            frame.visible -> "Page found — hold still (~1s) or tap ●"
+                "Hold steady… ${frame.holdProgress}/${frame.holdNeeded}"
+            frame.visible -> "Page found — hold steady, or tap ●"
             else -> "Align the page inside the frame"
         }
 
@@ -759,16 +810,16 @@ class ScanActivity : AppCompatActivity() {
                     // not JPEG sensor space. Always re-detect on the still.
                     stopLiveCamera()
                     lifecycleScope.launch {
-                        val path = withContext(Dispatchers.IO) {
+                        val captured = withContext(Dispatchers.IO) {
                             finalizeCapturedPage(photoFile)
                         }
                         capturing.set(false)
-                        if (path == null) {
+                        if (captured == null) {
                             Toast.makeText(this@ScanActivity, "Capture failed", Toast.LENGTH_SHORT).show()
                             if (pages.isEmpty()) showEmptyState() else showReviewState()
                             return@launch
                         }
-                        addOrReplacePage(path, replaceSelected = retakePending)
+                        addOrReplacePage(captured, replaceSelected = retakePending)
                         retakePending = false
                     }
                 }
@@ -788,45 +839,46 @@ class ScanActivity : AppCompatActivity() {
     }
 
     /**
-     * Decode capture with EXIF orientation, re-detect page on the still, perspective-warp
-     * to a flat rectangle. Retries with stronger still params; bbox crop last resort.
+     * Decode capture with EXIF orientation and detect page corners for Notes-style
+     * Review adjust. Perspective warp happens on Apply — not here.
      */
-    private fun finalizeCapturedPage(photoFile: File): String? {
+    private fun finalizeCapturedPage(photoFile: File): CapturedPage? {
         val oriented = decodeCaptureOriented(photoFile) ?: return null
         return try {
-            var working = oriented
             val outFile = File(cacheDir, "scan_page_${System.currentTimeMillis()}.jpg")
-
-            val warped = deskewStill(working)
-            if (warped != null) {
-                if (working !== oriented && !working.isRecycled) working.recycle()
-                working = warped
-            } else {
-                Log.w(TAG, "deskew skipped — Review may show camera perspective")
-            }
-
+            val quad = bestStillQuad(oriented)?.let {
+                PerspectiveHelper.insetQuad(it, STILL_QUAD_INSET * 0.5f)
+            } ?: QuadAdjustOverlayView.defaultQuad()
+            Log.i(
+                TAG,
+                "still corners for adjust area=${"%.2f".format(polygonAreaNorm(quad))}"
+            )
             FileOutputStream(outFile).use { fos ->
-                working.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                oriented.compress(Bitmap.CompressFormat.JPEG, 92, fos)
             }
-            if (working !== oriented && !working.isRecycled) working.recycle()
             if (!oriented.isRecycled) oriented.recycle()
             if (photoFile.exists()) photoFile.delete()
-            outFile.absolutePath
+            CapturedPage(outFile.absolutePath, quad)
         } catch (e: Exception) {
             Log.e(TAG, "finalize failed", e)
             if (!oriented.isRecycled) oriented.recycle()
-            photoFile.absolutePath.takeIf { photoFile.exists() }
+            null
         }
     }
 
-    /**
-     * Always try perspective correction on the still. Pass 1 = STILL, pass 2 = STILL_STRONG.
-     * Never uses live overlay quads (wrong coordinate space).
-     * Still-only: prefer tighter quads, inset before warp, trim leftover dark desk.
-     * Live auto path is untouched.
-     */
-    private fun deskewStill(src: Bitmap): Bitmap? {
-        // Prefer OpenCV at multiple resolutions, then Kotlin STILL / STILL_STRONG
+    private fun detectStillQuadForAdjust(path: String): Array<PointF> {
+        val bmp = BitmapFactory.decodeFile(path) ?: return QuadAdjustOverlayView.defaultQuad()
+        return try {
+            bestStillQuad(bmp)?.let {
+                PerspectiveHelper.insetQuad(it, STILL_QUAD_INSET * 0.5f)
+            } ?: QuadAdjustOverlayView.defaultQuad()
+        } finally {
+            if (!bmp.isRecycled) bmp.recycle()
+        }
+    }
+
+    /** Best still-detect quad (no warp). Prefer tighter area among strong scores. */
+    private fun bestStillQuad(src: Bitmap): Array<PointF>? {
         val candidates = mutableListOf<Pair<String, DocumentEdgeDetector.Detection>>()
         OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 960)?.let { candidates.add("ocv960" to it) }
         OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 640)?.let { candidates.add("ocv640" to it) }
@@ -834,68 +886,52 @@ class ScanActivity : AppCompatActivity() {
         DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL_STRONG)?.let {
             candidates.add("ktStrong" to it)
         }
-
-        // Among strong scores, prefer smaller area (tighter to paper, less desk).
         val ranked = candidates
             .filter { it.second.score >= STILL_WARP_SCORE }
             .sortedWith(
                 compareByDescending<Pair<String, DocumentEdgeDetector.Detection>> {
-                    // Soft-cap area so huge desk-inclusive quads don't win on score alone
                     val a = polygonAreaNorm(it.second.quad)
                     it.second.score - (a - 0.55f).coerceAtLeast(0f) * 0.35f
                 }.thenBy { polygonAreaNorm(it.second.quad) }
             )
-
-        var bestQuad: Array<PointF>? = null
-        var bestScore = -1f
-        var bestName = ""
         for ((name, det) in ranked) {
-            val area = polygonAreaNorm(det.quad)
             Log.i(
                 TAG,
-                "still detect $name score=${"%.2f".format(det.score)} area=${"%.2f".format(area)}"
+                "still detect $name score=${"%.2f".format(det.score)} " +
+                    "area=${"%.2f".format(polygonAreaNorm(det.quad))}"
             )
-            val tight = PerspectiveHelper.insetQuad(det.quad, STILL_QUAD_INSET)
+            return det.quad
+        }
+        candidates.maxByOrNull { it.second.score }?.let { (name, det) ->
+            Log.i(TAG, "still detect weak $name score=${"%.2f".format(det.score)}")
+            return det.quad
+        }
+        return null
+    }
+
+    /**
+     * Perspective-warp [src] with [quadNorm]. Prefer warp; bbox crop last resort.
+     * Still-only (Apply path). Live auto is untouched.
+     */
+    private fun deskewStill(src: Bitmap, quadNorm: Array<PointF>? = null): Bitmap? {
+        if (quadNorm != null && quadNorm.size >= 4) {
+            val tight = PerspectiveHelper.insetQuad(quadNorm, STILL_QUAD_INSET)
             val warped = PerspectiveHelper.warpDocument(src, tight)
             if (warped != null) {
                 val trimmed = PerspectiveHelper.trimDarkMargins(warped)
                 if (trimmed !== warped && !warped.isRecycled) warped.recycle()
-                Log.i(
-                    TAG,
-                    "still WARP ok $name score=${"%.2f".format(det.score)} " +
-                        "inset=$STILL_QUAD_INSET ${trimmed.width}x${trimmed.height}"
-                )
+                Log.i(TAG, "still WARP ok apply inset=$STILL_QUAD_INSET ${trimmed.width}x${trimmed.height}")
                 return trimmed
             }
-            if (det.score > bestScore) {
-                bestScore = det.score
-                bestQuad = tight
-                bestName = name
-            }
-        }
-        // Also try leftover weak candidates for bbox fallback only
-        for ((name, det) in candidates.sortedByDescending { it.second.score }) {
-            if (det.score >= STILL_WARP_SCORE) continue
-            Log.i(TAG, "still detect weak $name score=${"%.2f".format(det.score)}")
-            if (det.score > bestScore) {
-                bestScore = det.score
-                bestQuad = PerspectiveHelper.insetQuad(det.quad, STILL_QUAD_INSET)
-                bestName = name
-            }
-        }
-        val quad = bestQuad ?: run {
-            Log.w(TAG, "still deskew: no usable quad among ${candidates.size} candidates")
-            return null
-        }
-        val box = PerspectiveHelper.boundingCrop(quad)
-        val cropped = cropNormalized(src, box)
-        if (cropped != null) {
+            val box = PerspectiveHelper.boundingCrop(tight)
+            val cropped = cropNormalized(src, box) ?: return null
             val trimmed = PerspectiveHelper.trimDarkMargins(cropped)
             if (trimmed !== cropped && !cropped.isRecycled) cropped.recycle()
-            Log.i(TAG, "still bbox crop fallback $bestName score=$bestScore")
+            Log.i(TAG, "still bbox crop fallback after apply")
             return trimmed
         }
-        return null
+        val q = bestStillQuad(src) ?: return null
+        return deskewStill(src, q)
     }
 
     private fun polygonAreaNorm(quad: Array<PointF>): Float {
@@ -960,18 +996,98 @@ class ScanActivity : AppCompatActivity() {
         )
     }
 
-    private fun addOrReplacePage(path: String, replaceSelected: Boolean) {
+    private fun addOrReplacePage(captured: CapturedPage, replaceSelected: Boolean) {
+        val page = ScanPage(
+            sourcePath = captured.path,
+            adjustQuad = Array(4) { PointF(captured.adjustQuad[it].x, captured.adjustQuad[it].y) },
+            needsAdjust = true
+        )
         if (replaceSelected && pages.isNotEmpty() && selectedIndex in pages.indices) {
-            pages[selectedIndex] = ScanPage(sourcePath = path)
+            pages[selectedIndex] = page
         } else {
-            pages.add(ScanPage(sourcePath = path))
+            pages.add(page)
             selectedIndex = pages.lastIndex
         }
         cropMode = false
+        enterAdjustModeForSelected()
+    }
+
+    private fun enterAdjustModeForSelected() {
+        val page = currentPage() ?: return
+        adjustMode = true
+        cropMode = false
+        if (page.adjustQuad == null) {
+            page.adjustQuad = QuadAdjustOverlayView.defaultQuad()
+        }
+        page.needsAdjust = true
         showReviewState()
         updateCropUi()
         refreshThumbs()
         renderSelectedPreview()
+    }
+
+    private fun updateAdjustUi() {
+        val adjusting = adjustMode && currentPage()?.needsAdjust == true
+        adjustMode = adjusting
+        quadAdjustOverlay.isVisible = adjusting
+        btnApplyAdjust.isVisible = adjusting
+        btnSavePdf.isVisible = !adjusting
+        btnKeepScanning.isVisible = !adjusting
+        filterRow.isVisible = !adjusting && !liveCapturePane.isVisible && pages.isNotEmpty()
+        btnToggleCrop.isVisible = !adjusting
+        btnRotateLeft.isEnabled = !adjusting
+        btnRotateRight.isEnabled = !adjusting
+        tvTitle.text = if (adjusting) "Adjust crop" else if (pages.isNotEmpty()) "Review scan" else tvTitle.text
+        updateStatus()
+    }
+
+    private fun applyQuadAdjust() {
+        val page = currentPage() ?: return
+        if (!adjustMode) return
+        val quad = quadAdjustOverlay.getNormalizedQuad()
+        page.adjustQuad = Array(4) { PointF(quad[it].x, quad[it].y) }
+        progressSaving.isVisible = true
+        btnApplyAdjust.isEnabled = false
+        lifecycleScope.launch {
+            try {
+                val newPath = withContext(Dispatchers.IO) {
+                    val src = BitmapFactory.decodeFile(page.sourcePath)
+                        ?: return@withContext null
+                    try {
+                        val warped = deskewStill(src, quad) ?: return@withContext null
+                        val out = File(cacheDir, "scan_flat_${System.currentTimeMillis()}.jpg")
+                        FileOutputStream(out).use { fos ->
+                            warped.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                        }
+                        if (!warped.isRecycled) warped.recycle()
+                        val old = File(page.sourcePath)
+                        if (old.exists() && old.absolutePath != out.absolutePath) old.delete()
+                        out.absolutePath
+                    } finally {
+                        if (!src.isRecycled) src.recycle()
+                    }
+                }
+                if (newPath == null) {
+                    Toast.makeText(this@ScanActivity, "Could not apply crop", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                page.sourcePath = newPath
+                page.adjustQuad = null
+                page.needsAdjust = false
+                page.resetCrop()
+                page.rotationDegrees = 0
+                adjustMode = false
+                Log.i(TAG, "APPLY_QUAD ok file=${File(newPath).name}")
+                updateAdjustUi()
+                updateCropUi()
+                refreshThumbs()
+                renderSelectedPreview()
+                Toast.makeText(this@ScanActivity, "Crop applied — filter or Save PDF", Toast.LENGTH_SHORT).show()
+            } finally {
+                progressSaving.isVisible = false
+                btnApplyAdjust.isEnabled = true
+            }
+        }
     }
 
     private fun refreshThumbs() {
@@ -984,7 +1100,20 @@ class ScanActivity : AppCompatActivity() {
         syncFilterChips(page.filter)
         lifecycleScope.launch {
             val bmp = withContext(Dispatchers.Default) {
-                ScanPageRenderer.renderForPreview(page)
+                // During corner adjust, show the unwarped still (no axis crop / filter)
+                if (adjustMode && page.needsAdjust) {
+                    val clone = page.copy(
+                        filter = ScanFilter.ORIGINAL,
+                        cropLeft = 0f,
+                        cropTop = 0f,
+                        cropRight = 1f,
+                        cropBottom = 1f,
+                        rotationDegrees = 0
+                    )
+                    ScanPageRenderer.renderForPreview(clone)
+                } else {
+                    ScanPageRenderer.renderForPreview(page)
+                }
             }
             previewBitmap?.let { if (!it.isRecycled) it.recycle() }
             previewBitmap = bmp
@@ -994,8 +1123,12 @@ class ScanActivity : AppCompatActivity() {
             }
             ivPreview.setImageBitmap(bmp)
             ivPreview.post {
-                syncCropOverlayBounds()
+                syncOverlayBounds()
                 if (cropMode) syncCropOverlayFromPage()
+                if (adjustMode && page.needsAdjust) {
+                    val q = page.copyAdjustQuad() ?: QuadAdjustOverlayView.defaultQuad()
+                    quadAdjustOverlay.setNormalizedQuad(q)
+                }
             }
         }
     }
@@ -1007,9 +1140,9 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun updateCropUi() {
-        cropOverlay.isVisible = cropMode
+        cropOverlay.isVisible = cropMode && !adjustMode
         btnToggleCrop.text = if (cropMode) "Done crop" else "Crop"
-        if (cropMode) {
+        if (cropMode && !adjustMode) {
             val page = currentPage() ?: return
             lifecycleScope.launch {
                 val base = withContext(Dispatchers.Default) {
@@ -1026,14 +1159,14 @@ class ScanActivity : AppCompatActivity() {
                 previewBitmap = base
                 ivPreview.setImageBitmap(base)
                 ivPreview.post {
-                    syncCropOverlayBounds()
+                    syncOverlayBounds()
                     syncCropOverlayFromPage()
                 }
             }
         }
     }
 
-    private fun syncCropOverlayBounds() {
+    private fun syncOverlayBounds() {
         val drawable = ivPreview.drawable ?: return
         val vw = ivPreview.width.toFloat()
         val vh = ivPreview.height.toFloat()
@@ -1047,13 +1180,24 @@ class ScanActivity : AppCompatActivity() {
         val left = (vw - shownW) / 2f + ivPreview.paddingLeft
         val top = (vh - shownH) / 2f + ivPreview.paddingTop
         val locIv = IntArray(2)
-        val locOverlay = IntArray(2)
+        val locCrop = IntArray(2)
+        val locQuad = IntArray(2)
         ivPreview.getLocationInWindow(locIv)
-        cropOverlay.getLocationInWindow(locOverlay)
-        val ox = (locIv[0] - locOverlay[0]).toFloat()
-        val oy = (locIv[1] - locOverlay[1]).toFloat()
-        cropOverlay.imageBounds = RectF(ox + left, oy + top, ox + left + shownW, oy + top + shownH)
+        cropOverlay.getLocationInWindow(locCrop)
+        quadAdjustOverlay.getLocationInWindow(locQuad)
+        val cropOx = (locIv[0] - locCrop[0]).toFloat()
+        val cropOy = (locIv[1] - locCrop[1]).toFloat()
+        cropOverlay.imageBounds = RectF(
+            cropOx + left, cropOy + top, cropOx + left + shownW, cropOy + top + shownH
+        )
+        val quadOx = (locIv[0] - locQuad[0]).toFloat()
+        val quadOy = (locIv[1] - locQuad[1]).toFloat()
+        quadAdjustOverlay.imageBounds = RectF(
+            quadOx + left, quadOy + top, quadOx + left + shownW, quadOy + top + shownH
+        )
     }
+
+    private fun syncCropOverlayBounds() = syncOverlayBounds()
 
     private fun syncCropOverlayFromPage() {
         val page = currentPage() ?: return
