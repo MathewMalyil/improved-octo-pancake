@@ -1,6 +1,7 @@
 package com.mmalyil.smartdocai
 
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -14,12 +15,16 @@ import com.mmalyil.smartdocai.util.UsageManager
 /**
  * Document Pro paywall: Yearly (default), Monthly, Lifetime.
  * Free Groq AI stays free; document tools unlock with any Pro SKU.
+ *
+ * When already Pro: one status line, purchase CTAs hidden (not three
+ * identical “Document Pro active” buttons), remaining shown as Unlimited.
  */
 class BillingActivity : AppCompatActivity(), BillingUpdateListener {
 
     private lateinit var statusText: TextView
     private lateinit var benefitsText: TextView
     private lateinit var freeNoteText: TextView
+    private lateinit var recommendedLabel: TextView
     private lateinit var btnYearly: Button
     private lateinit var btnMonthly: Button
     private lateinit var btnLifetime: Button
@@ -37,6 +42,7 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         statusText = findViewById(R.id.tvStatus)
         benefitsText = findViewById(R.id.tvBenefits)
         freeNoteText = findViewById(R.id.tvFreeNote)
+        recommendedLabel = findViewById(R.id.tvRecommended)
         btnYearly = findViewById(R.id.btnYearly)
         btnMonthly = findViewById(R.id.btnMonthly)
         btnLifetime = findViewById(R.id.btnLifetime)
@@ -55,7 +61,7 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
             • Free AI (summary, key points, chat) within monthly token cap
         """.trimIndent()
 
-        freeNoteText.text = freeCapsSummary()
+        freeNoteText.text = freeCapsSummary(DocumentEntitlement.isDocumentPro(this))
 
         billingManager = BillingManager(this, this)
 
@@ -132,39 +138,50 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         btnLifetime.isEnabled = enabled
     }
 
-    private fun freeCapsSummary(): String {
+    private fun setPurchaseCtasVisible(visible: Boolean) {
+        val v = if (visible) View.VISIBLE else View.GONE
+        btnYearly.visibility = v
+        recommendedLabel.visibility = v
+        btnMonthly.visibility = v
+        btnLifetime.visibility = v
+    }
+
+    private fun freeCapsSummary(pro: Boolean): String {
         val aiUsed = UsageManager.getGroqUsed(this)
         val aiCap = UsageManager.getGroqCap(this)
-        return buildString {
-            append("Today’s free remaining — ")
-            append("Image→Excel ${DocumentEntitlement.remainingToday(this@BillingActivity, DocumentEntitlement.Feature.IMAGE_TO_EXCEL)}/${DocumentEntitlement.Feature.IMAGE_TO_EXCEL.dailyFreeLimit}, ")
-            append("Scan→PDF ${DocumentEntitlement.remainingToday(this@BillingActivity, DocumentEntitlement.Feature.SCAN_TO_PDF)}/${DocumentEntitlement.Feature.SCAN_TO_PDF.dailyFreeLimit}, ")
-            append("Clean share ${DocumentEntitlement.remainingToday(this@BillingActivity, DocumentEntitlement.Feature.CLEAN_SHARE)}/${DocumentEntitlement.Feature.CLEAN_SHARE.dailyFreeLimit}, ")
-            append("AI report ${DocumentEntitlement.remainingToday(this@BillingActivity, DocumentEntitlement.Feature.AI_REPORT)}/${DocumentEntitlement.Feature.AI_REPORT.dailyFreeLimit}, ")
-            append("Other exports ${DocumentEntitlement.remainingToday(this@BillingActivity, DocumentEntitlement.Feature.OTHER_EXPORT)}/${DocumentEntitlement.Feature.OTHER_EXPORT.dailyFreeLimit}. ")
-            append("Free AI tokens this month: $aiUsed / $aiCap.")
+        return if (pro) {
+            "Document tools: Unlimited. Free AI tokens this month: $aiUsed / $aiCap."
+        } else {
+            fun rem(f: DocumentEntitlement.Feature) =
+                DocumentEntitlement.remainingToday(this, f)
+            buildString {
+                append("Today’s free remaining — ")
+                append("Image→Excel ${rem(DocumentEntitlement.Feature.IMAGE_TO_EXCEL)}/${DocumentEntitlement.Feature.IMAGE_TO_EXCEL.dailyFreeLimit}, ")
+                append("Scan→PDF ${rem(DocumentEntitlement.Feature.SCAN_TO_PDF)}/${DocumentEntitlement.Feature.SCAN_TO_PDF.dailyFreeLimit}, ")
+                append("Clean share ${rem(DocumentEntitlement.Feature.CLEAN_SHARE)}/${DocumentEntitlement.Feature.CLEAN_SHARE.dailyFreeLimit}, ")
+                append("AI report ${rem(DocumentEntitlement.Feature.AI_REPORT)}/${DocumentEntitlement.Feature.AI_REPORT.dailyFreeLimit}, ")
+                append("Other exports ${rem(DocumentEntitlement.Feature.OTHER_EXPORT)}/${DocumentEntitlement.Feature.OTHER_EXPORT.dailyFreeLimit}. ")
+                append("Free AI tokens this month: $aiUsed / $aiCap.")
+            }
         }
     }
 
     private fun refreshPurchaseUi() {
         val pro = DocumentEntitlement.isDocumentPro(this)
-        freeNoteText.text = freeCapsSummary()
+        freeNoteText.text = freeCapsSummary(pro)
         if (pro) {
             val src = when (DocumentEntitlement.proSource(this)) {
                 DocumentEntitlement.ProSource.YEARLY -> "Yearly"
                 DocumentEntitlement.ProSource.MONTHLY -> "Monthly"
                 DocumentEntitlement.ProSource.LIFETIME -> "Lifetime"
-                else -> "Pro"
+                else -> "active"
             }
-            statusText.text = "Document Pro unlocked ✓ ($src)"
-            btnYearly.isEnabled = false
-            btnMonthly.isEnabled = false
-            btnLifetime.isEnabled = false
-            btnYearly.text = "Document Pro active"
-            btnMonthly.text = "Document Pro active"
-            btnLifetime.text = "Document Pro active"
+            statusText.text = "Document Pro unlocked · $src"
+            setPurchaseCtasVisible(false)
+            setBuyingEnabled(false)
         } else {
             statusText.text = "Unlimited tools · ad-free · clean PDF export"
+            setPurchaseCtasVisible(true)
             setBuyingEnabled(true)
             btnYearly.text = "Yearly — $priceYearly  ·  best value"
             btnMonthly.text = "Monthly — $priceMonthly"
