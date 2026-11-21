@@ -34,8 +34,8 @@ android {
         minSdk = 26
         targetSdk = 36
 
-        versionCode = 54
-        versionName = "3.14.8"
+        versionCode = 55
+        versionName = "3.14.9"
 
 
         ndk {

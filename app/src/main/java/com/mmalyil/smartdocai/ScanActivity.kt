@@ -580,6 +580,9 @@ class ScanActivity : AppCompatActivity() {
     /**
      * Sample the live preview pixels and run OpenCV/Kotlin detect.
      * Quads are already in PreviewView/overlay-normalized space — no CoordinateTransform.
+     *
+     * [PreviewView.getBitmap] MUST run on the main thread (CameraX Preconditions).
+     * Grab here (handler is main), then detect off-main.
      */
     private fun samplePreviewAndDetect() {
         if (!analyzing.compareAndSet(false, true)) return
@@ -587,23 +590,25 @@ class ScanActivity : AppCompatActivity() {
             analyzing.set(false)
             return
         }
+        // Main-thread grab — calling getBitmap off-main always throws and yields no outline.
+        val bmp = try {
+            previewView.bitmap
+        } catch (e: Exception) {
+            Log.w(TAG, "previewView.bitmap failed", e)
+            analyzing.set(false)
+            onPreviewTooDark(0f)
+            return
+        }
+        if (bmp == null || bmp.width < 32 || bmp.height < 32) {
+            if (System.currentTimeMillis() % 1000L < 150L) {
+                Log.d(TAG, "preview bitmap unavailable")
+            }
+            analyzing.set(false)
+            onPreviewTooDark(0f)
+            return
+        }
         executor.execute {
-            var bmp: Bitmap? = null
             try {
-                bmp = try {
-                    previewView.bitmap
-                } catch (e: Exception) {
-                    Log.w(TAG, "previewView.bitmap failed", e)
-                    null
-                }
-                if (bmp == null || bmp.width < 32 || bmp.height < 32) {
-                    if (System.currentTimeMillis() % 1000L < 150L) {
-                        Log.d(TAG, "preview bitmap unavailable")
-                    }
-                    // After camera should be live, treat missing/black preview like flat-on-table
-                    runOnUiThread { onPreviewTooDark(0f) }
-                    return@execute
-                }
                 val mean = sampleMeanLuma(bmp)
                 if (System.currentTimeMillis() % 1500L < 150L) {
                     Log.d(TAG, "previewBmp ${bmp.width}x${bmp.height} mean=${"%.1f".format(mean)}")
@@ -627,7 +632,7 @@ class ScanActivity : AppCompatActivity() {
                 runOnUiThread { onDetection(null) }
             } finally {
                 try {
-                    bmp?.recycle()
+                    bmp.recycle()
                 } catch (_: Exception) {
                 }
                 analyzing.set(false)
