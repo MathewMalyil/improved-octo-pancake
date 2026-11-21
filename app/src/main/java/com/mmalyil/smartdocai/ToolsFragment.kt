@@ -43,6 +43,7 @@ import com.mmalyil.smartdocai.model.ChatRequest
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.mmalyil.smartdocai.util.DocumentEntitlement
+import com.mmalyil.smartdocai.util.FilesHistory
 import com.mmalyil.smartdocai.util.UsageManager
 import com.google.android.gms.auth.api.signin.*
 import com.google.android.gms.common.api.Scope
@@ -113,6 +114,9 @@ class ToolsFragment : Fragment() {
 
     // New launcher for "Image → Excel"
     private lateinit var imageToExcelLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
+
+    /** Pick .xlsx then run Excel → Word (always discoverable CTA). */
+    private lateinit var excelToWordLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>
 
     private var lastGeneratedExcelUri: Uri? = null
 
@@ -658,6 +662,29 @@ class ToolsFragment : Fragment() {
         }
     }
 
+    /** Always-on Excel → Word: use loaded XLSX or pick one first. */
+    fun triggerExcelToWord() {
+        val ctx = context ?: return
+        DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.AI_REPORT) {
+            val uri = runCatching { Uri.parse(selectedFileUri) }.getOrNull()
+            val name = selectedFileName.lowercase()
+            val looksXlsx = !selectedFileUri.isBlank() &&
+                (name.endsWith(".xlsx") ||
+                    selectedFileUri.contains("spreadsheetml", ignoreCase = true))
+            if (uri != null && looksXlsx) {
+                showAiReportPromptOptions(uri)
+            } else {
+                toast("Pick an Excel (.xlsx) file")
+                excelToWordLauncher.launch(
+                    arrayOf(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.ms-excel"
+                    )
+                )
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -724,8 +751,29 @@ class ToolsFragment : Fragment() {
             }
         }
 
-        // ... rest of your onCreate ...
-
+        excelToWordLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            android.util.Log.d(TAG, "OpenDocument (Excel→Word) uri = $uri")
+            if (uri != null) {
+                try {
+                    requireContext().contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) {
+                }
+                // Load sheet text for Analyse context, then offer AI Word report.
+                handlePickedDocument(uri)
+                DocumentEntitlement.requireOrPaywall(
+                    requireContext(),
+                    DocumentEntitlement.Feature.AI_REPORT
+                ) {
+                    showAiReportPromptOptions(uri)
+                }
+            } else {
+                toast("No Excel file selected")
+            }
+        }
 
         // A) toolsFabRequest
         parentFragmentManager.setFragmentResultListener("toolsFabRequest", this) { _, bundle ->
@@ -734,6 +782,7 @@ class ToolsFragment : Fragment() {
                 "scan" -> triggerScanFromFab()
                 "pickImage" -> triggerPickImageFromFab()
                 "imageToExcel" -> triggerImageToExcelFromHome()
+                "excelToWord" -> triggerExcelToWord()
             }
             parentFragmentManager.clearFragmentResult("toolsFabRequest")
         }
@@ -988,16 +1037,14 @@ class ToolsFragment : Fragment() {
         }
 
         val btnExportDocx = view.findViewById<Button>(R.id.btnExportDocx)
+        btnExportDocx.visibility = View.VISIBLE
         btnExportDocx.setOnClickListener {
-            val xlsxUri = runCatching { Uri.parse(selectedFileUri) }.getOrNull()
-            if (xlsxUri == null || selectedFileUri.isBlank()) {
-                toast("Load an Excel (.xlsx) file first")
-                return@setOnClickListener
-            }
-            val ctx = context ?: return@setOnClickListener
-            DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.AI_REPORT) {
-                showAiReportPromptOptions(xlsxUri)
-            }
+            stopWalkthroughIfRunning()
+            triggerExcelToWord()
+        }
+        view.findViewById<Button>(R.id.btnExcelToWord).setOnClickListener {
+            stopWalkthroughIfRunning()
+            triggerExcelToWord()
         }
 
 
@@ -1101,8 +1148,7 @@ class ToolsFragment : Fragment() {
             progressBar = usageBar,
             aiSourceTextView = aiSourceText
         )
-
-
+        refreshDocCaps(view)
 
         loadingOverlay = view.findViewById(R.id.loadingOverlay)
         loadingSpinner = view.findViewById(R.id.loadingSpinner)
@@ -1124,6 +1170,7 @@ class ToolsFragment : Fragment() {
         super.onResume()
 
         view?.let { v ->
+            refreshDocCaps(v)
             val ctx = context ?: return@let
             val prefs = ctx.getSharedPreferences("exports", Context.MODE_PRIVATE)
 
@@ -1397,6 +1444,7 @@ class ToolsFragment : Fragment() {
                     result.onSuccess { file ->
                         context?.let {
                             DocumentEntitlement.recordUse(it, DocumentEntitlement.Feature.AI_REPORT)
+                            refreshDocCaps()
                         }
 
                         // --- choose target URI: Q+ => Downloads, else FileProvider ---
@@ -1417,6 +1465,16 @@ class ToolsFragment : Fragment() {
                         if (file.length() <= 0L) {
                             toast("Report file is empty"); return@onSuccess
                         }
+
+                        FilesHistory.saveAsync(
+                            context = requireContext(),
+                            fileName = file.name,
+                            fileUri = targetUri.toString(),
+                            content = "Excel → Word AI report",
+                            aiResponse = null,
+                            scope = viewLifecycleOwner.lifecycleScope,
+                            anchor = view
+                        )
 
                         // --- base VIEW intent + ClipData for legacy Word ---
                         val openIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -1599,14 +1657,29 @@ class ToolsFragment : Fragment() {
 
         quickAiActions.visibility = View.VISIBLE
 
-        // show “Word (AI Report)” button only for XLSX
-        view?.findViewById<View>(R.id.btnExportDocx)?.visibility =
-            if (kind.equals("XLSX", ignoreCase = true)) View.VISIBLE else View.GONE
-
-
+        // Excel → Word stays always visible (pick Excel if none loaded).
+        view?.findViewById<View>(R.id.btnExportDocx)?.visibility = View.VISIBLE
+        view?.findViewById<View>(R.id.btnExcelToWord)?.visibility = View.VISIBLE
 
         maybeAutoAnalyze()
 
+    }
+
+    private fun refreshDocCaps(root: View? = view) {
+        val tv = root?.findViewById<TextView>(R.id.tvDocCaps) ?: return
+        val ctx = context ?: return
+        if (DocumentEntitlement.isDocumentPro(ctx)) {
+            tv.text = "Document Pro · unlimited Image→Excel, Word reports & exports"
+            return
+        }
+        val img = DocumentEntitlement.remainingToday(ctx, DocumentEntitlement.Feature.IMAGE_TO_EXCEL)
+        val word = DocumentEntitlement.remainingToday(ctx, DocumentEntitlement.Feature.AI_REPORT)
+        val exp = DocumentEntitlement.remainingToday(ctx, DocumentEntitlement.Feature.OTHER_EXPORT)
+        val imgLim = DocumentEntitlement.Feature.IMAGE_TO_EXCEL.dailyFreeLimit
+        val wordLim = DocumentEntitlement.Feature.AI_REPORT.dailyFreeLimit
+        val expLim = DocumentEntitlement.Feature.OTHER_EXPORT.dailyFreeLimit
+        tv.text =
+            "Free today · Image→Excel $img/$imgLim left · Word report $word/$wordLim left · Exports $exp/$expLim left"
     }
 
 
@@ -1745,6 +1818,7 @@ class ToolsFragment : Fragment() {
 
                 withContext(Dispatchers.Main) {
                     if (!isAdded || view == null) return@withContext
+                    refreshDocCaps()
 
                     val intent = Intent(Intent.ACTION_VIEW).apply {
                         setDataAndType(
@@ -1764,19 +1838,15 @@ class ToolsFragment : Fragment() {
                     lastGeneratedExcelUri = shareUri
                     saveLastExcelUri(shareUri)
 
-                    val root = view ?: return@withContext
-                    Snackbar.make(
-                        root,
-                        "Excel created",
-                        Snackbar.LENGTH_LONG
-                    ).setAction("Open") {
-                        if (!isAdded) return@setAction
-                        try {
-                            startActivity(Intent.createChooser(intent, "Open Excel with"))
-                        } catch (_: Exception) {
-                            toast("No app found to open Excel")
-                        }
-                    }.show()
+                    FilesHistory.saveAsync(
+                        context = requireContext(),
+                        fileName = xlsxFile.name,
+                        fileUri = shareUri.toString(),
+                        content = "Image → Excel spreadsheet",
+                        aiResponse = null,
+                        scope = viewLifecycleOwner.lifecycleScope,
+                        anchor = view
+                    )
                 }
 
             } catch (e: Exception) {
@@ -2179,7 +2249,17 @@ class ToolsFragment : Fragment() {
 
                 if (!isAdded) return@launch
                 DocumentEntitlement.recordUse(ctx, capFeature)
+                refreshDocCaps()
                 val uri = getFileUri(ctx, outFile.name, subDir = "exports")
+                FilesHistory.saveAsync(
+                    context = ctx,
+                    fileName = outFile.name,
+                    fileUri = uri.toString(),
+                    content = content.take(2000),
+                    aiResponse = null,
+                    scope = viewLifecycleOwner.lifecycleScope,
+                    anchor = view
+                )
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, uri)
@@ -2244,6 +2324,16 @@ class ToolsFragment : Fragment() {
 
                 withContext(Dispatchers.Main) {
                     if (!isAdded) return@withContext
+                    refreshDocCaps()
+                    FilesHistory.saveAsync(
+                        context = ctx,
+                        fileName = file.name,
+                        fileUri = uri.toString(),
+                        content = content.take(2000),
+                        aiResponse = null,
+                        scope = viewLifecycleOwner.lifecycleScope,
+                        anchor = view
+                    )
                     val share = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_STREAM, uri)

@@ -48,7 +48,7 @@ class AIChatActivity : AppCompatActivity() {
         sendButton = findViewById(R.id.sendButton)
         modelTextView = findViewById(R.id.modelUsedText)
 
-        chatAdapter = ChatAdapter(chatMessages)
+        chatAdapter = ChatAdapter(chatMessages, coroutineScope)
         chatRecyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         chatRecyclerView.adapter = chatAdapter
 

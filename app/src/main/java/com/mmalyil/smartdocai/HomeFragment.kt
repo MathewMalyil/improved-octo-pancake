@@ -53,6 +53,12 @@ class HomeFragment : Fragment() {
         view.findViewById<MaterialCardView>(R.id.cardHomeImageToExcel).setOnClickListener {
             (activity as? MainActivity)?.goToToolsAndAsk("imageToExcel")
         }
+        view.findViewById<MaterialCardView>(R.id.cardHomeExcelToWord).setOnClickListener {
+            (activity as? MainActivity)?.goToToolsAndAsk("excelToWord")
+        }
+        view.findViewById<MaterialCardView>(R.id.cardHomeCombinePdfs).setOnClickListener {
+            startActivity(Intent(requireContext(), CombinePdfActivity::class.java))
+        }
 
         btnSeeAll = view.findViewById(R.id.btnSeeAllFiles)
         btnSeeAll.setOnClickListener { openFilesTab() }

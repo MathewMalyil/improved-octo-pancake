@@ -264,6 +264,129 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Excel → Word (always discoverable) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardHomeExcelToWord"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            app:cardBackgroundColor="@color/md3_surface"
+            app:cardCornerRadius="18dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/md3_outline"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="68dp"
+                android:orientation="horizontal"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="14dp">
+
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_text"
+                    app:tint="@color/md3_onPrimaryContainer" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Excel → Word"
+                        android:textColor="@color/md3_onPrimaryContainer"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Pick Excel → AI Word report"
+                        android:textColor="@color/md3_tertiary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Combine PDFs -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardHomeCombinePdfs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            app:cardBackgroundColor="@color/md3_surface"
+            app:cardCornerRadius="18dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/md3_outline"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="68dp"
+                android:orientation="horizontal"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="14dp">
+
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_pdf"
+                    app:tint="@color/md3_onPrimaryContainer" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Combine PDFs"
+                        android:textColor="@color/md3_onPrimaryContainer"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Merge several PDFs into one file"
+                        android:textColor="@color/md3_tertiary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <TextView
+            android:id="@+id/tvHomeCompressTip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Tip: Compress is on Save after Scan or Combine (Smaller = Document Pro)."
+            android:textColor="@color/md3_tertiary"
+            android:textSize="12sp" />
+
         <!-- Recents header -->
         <LinearLayout
             android:layout_width="match_parent"

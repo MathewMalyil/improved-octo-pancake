@@ -151,6 +151,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIncomingIntent(i: Intent?) {
         if (i == null) return
+        if (i.getBooleanExtra(com.mmalyil.smartdocai.util.FilesHistory.EXTRA_OPEN_FILES, false)) {
+            findViewById<BottomNavigationView>(R.id.bottomNav)?.selectedItemId = R.id.nav_files
+            i.removeExtra(com.mmalyil.smartdocai.util.FilesHistory.EXTRA_OPEN_FILES)
+        }
         when (i.action) {
             Intent.ACTION_VIEW -> i.data?.let {
                 forwardToTools(it, i.type ?: guessMime(it), "VIEW")

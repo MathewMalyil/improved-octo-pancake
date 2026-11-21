@@ -1,23 +1,89 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="8dp"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="10dp">
 
     <TextView
         android:id="@+id/textRole"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textStyle="bold"
+        android:text="Assistant"
         android:textColor="#666666"
-        android:text="User" />
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/textMessage"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Hello, how can I help you?" />
+        android:layout_marginTop="4dp"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="15sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnShowMore"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:minWidth="0dp"
+        android:paddingHorizontal="4dp"
+        android:text="Show more"
+        android:textAllCaps="false"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/assistantActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="start"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCopyReply"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="6dp"
+            android:text="Copy"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnShareReply"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="6dp"
+            android:text="Share"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSaveTxt"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="6dp"
+            android:text="TXT"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSavePdf"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="6dp"
+            android:text="PDF"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+    </LinearLayout>
 </LinearLayout>
