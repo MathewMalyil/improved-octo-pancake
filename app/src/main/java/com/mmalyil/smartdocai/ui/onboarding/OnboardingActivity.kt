@@ -1,6 +1,5 @@
 @file:OptIn(
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.compose.material3.ExperimentalMaterial3Api::class
+    androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 package com.mmalyil.smartdocai.ui.onboarding
 
@@ -8,88 +7,92 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import com.mmalyil.smartdocai.MainActivity
+import com.mmalyil.smartdocai.ScanActivity
 import com.mmalyil.smartdocai.prefs.OnboardingPrefs
 import kotlinx.coroutines.launch
 
+/**
+ * First-run + Settings “Replay walkthrough” intro.
+ * Short slides for current product: Scan / ID / Combine / Compress /
+ * Image→Excel / free AI / Document Pro (not ai_pro_plan).
+ */
 class OnboardingActivity : ComponentActivity() {
 
-    private fun goToMain(openUpload: Boolean = false) {
-        val i = Intent(this@OnboardingActivity, MainActivity::class.java).apply {
+    private fun finishToMain(openScan: Boolean) {
+        val replay = intent.getBooleanExtra("replay", false)
+        val i = Intent(this, MainActivity::class.java).apply {
             putExtra("fromOnboarding", true)
-            putExtra("openUpload", openUpload)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra("openScan", openScan)
+            if (replay) {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            } else {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
         }
         startActivity(i)
+        if (openScan) {
+            startActivity(
+                Intent(this, ScanActivity::class.java).apply {
+                    putExtra(ScanActivity.EXTRA_START_MODE, ScanActivity.MODE_CAMERA)
+                }
+            )
+        }
+        finish()
+    }
+
+    private fun markSeenThen(openScan: Boolean) {
+        lifecycleScope.launch {
+            OnboardingPrefs.setSeen(this@OnboardingActivity, true)
+            finishToMain(openScan)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightStatusBars = false
+
         val isReplay = intent?.getBooleanExtra("replay", false) ?: false
+        val slides = OnboardingSlides
 
         setContent {
-            val darkMode by com.mmalyil.smartdocai.prefs.ThemePrefs
-                .isDarkMode(this)
-                .collectAsState(initial = false)
+            val scope = rememberCoroutineScope()
+            val pagerState = rememberPagerState(pageCount = { slides.size })
 
-            com.mmalyil.smartdocai.ui.theme.SmartDocAITheme(darkTheme = darkMode) {
-                val scope = rememberCoroutineScope()
-                val pagerState = rememberPagerState(pageCount = { 4 })
-
-                Scaffold(
-                    topBar = {
-                        TopAppBar(
-                            title = { Text(if (isReplay) "Tutorial (Replay)" else "Welcome") },
-                            actions = {
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        OnboardingPrefs.setSeen(this@OnboardingActivity, true)
-                                        goToMain(openUpload = false)
-                                    }
-                                }) { Text("Skip") }
+            OnboardingAtmosphere {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    val slide = slides[page]
+                    val last = page == slides.lastIndex
+                    OnboardingSlidePage(
+                        slide = slide,
+                        pageIndex = page,
+                        pageCount = slides.size,
+                        isReplay = isReplay,
+                        onPrimary = {
+                            if (!last) {
+                                scope.launch { pagerState.animateScrollToPage(page + 1) }
+                            } else {
+                                markSeenThen(openScan = true)
                             }
-                        )
-                    }
-                ) { padding ->
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(padding)
-                    ) { page ->
-                        when (page) {
-                            0 -> OnboardingScreen1(
-                                onNextClick = { scope.launch { pagerState.animateScrollToPage(1) } }
-                            )
-                            1 -> OnboardingScreen2(
-                                onNextClick = { scope.launch { pagerState.animateScrollToPage(2) } }
-                            )
-                            2 -> OnboardingScreen3(
-                                onNextClick = { scope.launch { pagerState.animateScrollToPage(3) } },
-                                onTryNow = {
-                                    scope.launch {
-                                        OnboardingPrefs.setSeen(this@OnboardingActivity, true)
-                                        goToMain(openUpload = true) // jump straight to Upload flow
-                                    }
-                                }
-                            )
-                            3 -> OnboardingScreen4(
-                                onGetStarted = {
-                                    scope.launch {
-                                        OnboardingPrefs.setSeen(this@OnboardingActivity, true)
-                                        goToMain(openUpload = false) // finish onboarding
-                                    }
-                                }
-                            )
-                        }
-                    }
+                        },
+                        onSecondary = if (last) {
+                            { markSeenThen(openScan = false) }
+                        } else null,
+                        onSkip = { markSeenThen(openScan = false) }
+                    )
                 }
             }
         }

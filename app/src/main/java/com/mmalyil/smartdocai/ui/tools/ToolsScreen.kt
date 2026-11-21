@@ -44,8 +44,8 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     uploadSpot = r.toSpotlight(
                         density,
-                        tip = "Tap here to upload PDFs, DOCX, PPTX, XLSX or images.",
-                        accent = Color(0xFF00BCD4) // cyan
+                        tip = "Upload a PDF/Excel/image — or use Image→Excel, Excel→Word, Combine, Scan ID.",
+                        accent = Color(0xFF3ECFBF)
                     )
                 }
         ) { Text("Upload") }
@@ -59,8 +59,8 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     analyzeSpot = r.toSpotlight(
                         density,
-                        tip = "Then analyze with AI to summarize or extract.",
-                        accent = Color(0xFF7C4DFF),   // deep purple → LOUD
+                        tip = "Analyze with free Groq AI (summary, key points, chat).",
+                        accent = Color(0xFF1F6F78),
                         preferAbove = false
                     )
                 }
@@ -75,9 +75,9 @@ fun ToolsScreen(
                     val r = coords.boundsInRoot()
                     exportSpot = r.toSpotlight(
                         density,
-                        tip = "Export or share your results anytime.",
-                        accent = Color(0xFFFF7043),   // orange → LOUD
-                        preferAbove = true            // try to keep above so FAB doesn’t cover
+                        tip = "Export TXT/PDF/Word — saves into Files. Document Pro = clean unlimited tools.",
+                        accent = Color(0xFF3ECFBF),
+                        preferAbove = true
                     )
                 }
         ) { Text("Export / Share") }

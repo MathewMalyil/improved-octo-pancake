@@ -2514,13 +2514,16 @@ class ToolsFragment : Fragment() {
 
             val steps = listOf(
                 com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                    r1, "Tap here to upload PDFs, DOCX, PPTX, XLSX or images."
+                    r1,
+                    "Upload a PDF/Excel/image — or use Image→Excel, Excel→Word, Combine, Scan ID above."
                 ),
                 com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                    r2, "Then analyze with AI to summarize or extract."
+                    r2,
+                    "Analyze with free Groq AI (summary, key points, chat). Soft tool caps show under usage."
                 ),
                 com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                    r3, "Export or share your results anytime."
+                    r3,
+                    "Export TXT/PDF/Word — files save into Files. Document Pro unlocks clean unlimited tools."
                 )
             )
 

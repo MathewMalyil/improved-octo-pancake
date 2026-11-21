@@ -185,7 +185,7 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Yes. Go to Settings and tap 'Show Guided Walkthrough (Tools)'. The coach-marks will appear again to guide you through Upload → Analyze → Export."
+            android:text="A: Settings → Replay walkthrough opens the full intro (Scan, ID, Combine, Compress, Excel, free AI, Document Pro). Tools guided tips shows Analyse coach-marks for upload → AI → export."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"
