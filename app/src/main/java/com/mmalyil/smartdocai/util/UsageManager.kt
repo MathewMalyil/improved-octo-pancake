@@ -136,7 +136,8 @@ object UsageManager {
     }
 
     // -----------------------------
-    // UI binding
+    // UI binding — free Analyse AI is Groq only (~30k / month).
+    // Never show GPT-4o / ai_pro_plan / Unknown Source on the meter.
     // -----------------------------
     fun bindUsageUI(
         context: Context,
@@ -144,44 +145,14 @@ object UsageManager {
         progressBar: ProgressBar,
         aiSourceTextView: TextView
     ) {
-        val prefs = getPrefs(context)
-        val lastModel = prefs.getString("lastModelUsed", "unknown") ?: "unknown"
-
-        // Decide which counter/cap to display based on last used model
-        val (label, used, cap) = when {
-            lastModel.startsWith("gpt-4") || lastModel == "gpt-4o" -> {
-                Triple("🚀 GPT-4o", getTokensUsed(context), getTokenCap(context))
-            }
-            lastModel.startsWith("llama") -> {
-                Triple("⚡ Groq Free", getGroqUsed(context), getGroqCap(context))
-            }
-            lastModel.startsWith("gpt-3.5") -> {
-                Triple("🧠 GPT-3.5 Fallback", getGpt35Used(context), getGpt35Cap())
-            }
-            else -> {
-                // Fallback to Document Pro vs free Groq if we don't know last model
-                if (isPro(context)) {
-                    Triple("🚀 GPT-4o", getTokensUsed(context), getTokenCap(context))
-                } else {
-                    Triple("⚡ Groq Free", getGroqUsed(context), getGroqCap(context))
-                }
-            }
-        }
-
+        val used = getGroqUsed(context)
+        val cap = getGroqCap(context).coerceAtLeast(1)
         val percent = ((used.toDouble() / cap) * 100).toInt().coerceIn(0, 100)
+
+        aiSourceTextView.text = "Free AI (Groq)"
+        usageTextView.text = "$used / $cap tokens this month"
         progressBar.progress = percent
-
-        // AI source (last model used)
-        val aiLabel = when {
-            lastModel.startsWith("gpt-4") || lastModel == "gpt-4o" -> "🚀 GPT-4o (OpenAI)"
-            lastModel.startsWith("gpt-3.5") -> "🧠 GPT-3.5 (OpenAI)"
-            lastModel.startsWith("llama") -> "⚡ LLaMA (Groq)"
-            else -> "🤖 Unknown Source"
-        }
-        aiSourceTextView.text = "AI Source: $aiLabel"
-
-        // Usage text
-        usageTextView.text = "$label: $used / $cap tokens used"
+        progressBar.max = 100
     }
 
     fun getLastModelUsed(context: Context): String? {

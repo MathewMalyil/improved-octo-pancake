@@ -1,5 +1,7 @@
 package com.mmalyil.smartdocai
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -24,10 +26,12 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
     private lateinit var statusText: TextView
     private lateinit var benefitsText: TextView
     private lateinit var freeNoteText: TextView
+    private lateinit var howItWorksText: TextView
     private lateinit var recommendedLabel: TextView
     private lateinit var btnYearly: Button
     private lateinit var btnMonthly: Button
     private lateinit var btnLifetime: Button
+    private lateinit var managePlayButton: Button
     private lateinit var restoreButton: Button
     private lateinit var billingManager: BillingManager
 
@@ -42,10 +46,12 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         statusText = findViewById(R.id.tvStatus)
         benefitsText = findViewById(R.id.tvBenefits)
         freeNoteText = findViewById(R.id.tvFreeNote)
+        howItWorksText = findViewById(R.id.tvHowItWorks)
         recommendedLabel = findViewById(R.id.tvRecommended)
         btnYearly = findViewById(R.id.btnYearly)
         btnMonthly = findViewById(R.id.btnMonthly)
         btnLifetime = findViewById(R.id.btnLifetime)
+        managePlayButton = findViewById(R.id.btnManagePlay)
         restoreButton = findViewById(R.id.btnRestore)
 
         benefitsText.text = """
@@ -58,10 +64,12 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
             Free forever (no purchase):
             • Open / view docs & share-in
             • Soft daily tool caps while you try Pro
-            • Free AI (summary, key points, chat) within monthly token cap
+            • Free AI (Groq) within monthly token cap
         """.trimIndent()
 
         freeNoteText.text = freeCapsSummary(DocumentEntitlement.isDocumentPro(this))
+
+        managePlayButton.setOnClickListener { openPlaySubscriptions() }
 
         billingManager = BillingManager(this, this)
 
@@ -166,6 +174,34 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
         }
     }
 
+    private fun howDocumentProWorks(pro: Boolean, planLabel: String): String {
+        return if (pro) {
+            """
+            How Document Pro works:
+            • You’re on $planLabel — tools are unlimited; Free AI (Groq) stays on the monthly token cap.
+            • Manage or cancel Yearly/Monthly in Google Play → Payments & subscriptions.
+            • Lifetime cannot be cancelled (one-time purchase).
+            """.trimIndent()
+        } else {
+            """
+            How Document Pro works:
+            • Choose Yearly (recommended), Monthly, or Lifetime below.
+            • Free AI (Groq) stays free either way — Document Pro unlocks tools, Smaller compress, clean PDF share, and removes ads.
+            • Manage or cancel Yearly/Monthly later in Google Play → Payments & subscriptions.
+            • Lifetime cannot be cancelled (one-time purchase).
+            """.trimIndent()
+        }
+    }
+
+    private fun openPlaySubscriptions() {
+        val uri = Uri.parse("https://play.google.com/store/account/subscriptions")
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+        } catch (_: Exception) {
+            Toast.makeText(this, "Open Google Play → Payments & subscriptions", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun refreshPurchaseUi() {
         val pro = DocumentEntitlement.isDocumentPro(this)
         freeNoteText.text = freeCapsSummary(pro)
@@ -177,10 +213,12 @@ class BillingActivity : AppCompatActivity(), BillingUpdateListener {
                 else -> "active"
             }
             statusText.text = "Document Pro unlocked · $src"
+            howItWorksText.text = howDocumentProWorks(pro = true, planLabel = src)
             setPurchaseCtasVisible(false)
             setBuyingEnabled(false)
         } else {
             statusText.text = "Unlimited tools · ad-free · clean PDF export"
+            howItWorksText.text = howDocumentProWorks(pro = false, planLabel = "")
             setPurchaseCtasVisible(true)
             setBuyingEnabled(true)
             btnYearly.text = "Yearly — $priceYearly  ·  best value"

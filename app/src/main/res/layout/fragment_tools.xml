@@ -39,16 +39,13 @@
                 android:textColor="@color/md3_tertiary"
                 android:textSize="13sp" />
 
-            <!-- AI Source & Usage (also mirrored in MainActivity Tools strip) -->
+            <!-- AI meter lives only in MainActivity heroCard (Tools tab). Keep soft-caps line here. -->
             <TextView
                 android:id="@+id/tvAiSource"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="AI Source: Auto-detecting..."
-                android:textStyle="bold"
-                android:textColor="@color/md3_tertiary"
-                android:textSize="12sp"
-                android:paddingBottom="2dp" />
+                android:layout_height="0dp"
+                android:visibility="gone"
+                android:text="Free AI (Groq)" />
 
             <LinearLayout
                 android:id="@+id/usageContainer"
@@ -60,26 +57,24 @@
                 <TextView
                     android:id="@+id/tvUsageText"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Usage: 0 / 300,000 tokens"
-                    android:textColor="@color/md3_onPrimaryContainer"
-                    android:textSize="13sp" />
+                    android:layout_height="0dp"
+                    android:visibility="gone"
+                    android:text="0 / 30000 tokens this month" />
 
                 <ProgressBar
                     android:id="@+id/usageProgressBar"
                     style="@android:style/Widget.ProgressBar.Horizontal"
                     android:layout_width="match_parent"
-                    android:layout_height="6dp"
-                    android:layout_marginTop="4dp"
+                    android:layout_height="0dp"
+                    android:visibility="gone"
                     android:progress="0"
-                    android:progressTint="@color/md3_primary"
                     android:indeterminate="false" />
 
                 <TextView
                     android:id="@+id/tvDocCaps"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="0dp"
                     android:text="Free today · Image→Excel · Word report · Exports"
                     android:textColor="@color/md3_tertiary"
                     android:textSize="12sp" />

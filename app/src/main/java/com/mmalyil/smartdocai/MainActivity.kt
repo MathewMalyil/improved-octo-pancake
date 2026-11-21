@@ -312,6 +312,14 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        refreshAiMeter()
+    }
+
+    /** Single Tools-tab strip: Free AI (Groq) · used / monthly cap. */
+    private fun refreshAiMeter() {
+        val tvUsageText = findViewById<TextView>(R.id.tvUsageText) ?: return
+        val usageBar = findViewById<ProgressBar>(R.id.usageProgressBar) ?: return
+        val tvAiSource = findViewById<TextView>(R.id.tvAiSource) ?: return
         UsageManager.bindUsageUI(
             context = this,
             usageTextView = tvUsageText,
@@ -381,11 +389,14 @@ class MainActivity : AppCompatActivity() {
         target.view?.requestLayout()
         contentFrame.requestLayout()
 
-        if (toolsSelected && hero != null) {
-            hero.post {
-                val h = hero.height.coerceAtLeast(hero.measuredHeight)
-                contentFrame.setPadding(0, h, 0, 0)
-                logContentFrameHeight(tag)
+        if (toolsSelected) {
+            refreshAiMeter()
+            if (hero != null) {
+                hero.post {
+                    val h = hero.height.coerceAtLeast(hero.measuredHeight)
+                    contentFrame.setPadding(0, h, 0, 0)
+                    logContentFrameHeight(tag)
+                }
             }
         } else {
             contentFrame.post { logContentFrameHeight(tag) }
@@ -506,6 +517,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
 
+        refreshAiMeter()
         refreshBannerAd()
         if (com.mmalyil.smartdocai.util.DocumentEntitlement.isDocumentPro(this)) {
             try { adViewBanner.pause() } catch (_: Exception) {}

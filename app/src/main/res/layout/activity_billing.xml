@@ -40,6 +40,14 @@
             android:layout_height="wrap_content"
             android:textSize="13sp"
             android:textColor="?android:attr/textColorSecondary"
+            android:paddingBottom="12dp" />
+
+        <TextView
+            android:id="@+id/tvHowItWorks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:lineSpacingExtra="3dp"
             android:paddingBottom="16dp" />
 
         <!-- Yearly = default / recommended -->
@@ -76,11 +84,18 @@
             android:text="Lifetime — one-time" />
 
         <Button
+            android:id="@+id/btnManagePlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Manage in Google Play"
+            android:layout_marginTop="16dp" />
+
+        <Button
             android:id="@+id/btnRestore"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Restore purchases"
-            android:layout_marginTop="16dp" />
+            android:layout_marginTop="10dp" />
 
         <Button
             android:id="@+id/btnBack"
