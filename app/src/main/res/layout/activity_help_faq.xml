@@ -185,7 +185,7 @@
             android:layout_height="wrap_content" />
 
         <TextView
-            android:text="A: Settings → Replay intro walkthrough opens the full product intro. Settings → Tools guided tips shows short Analyse coach-marks (jobs → upload → free AI → export). Tap to advance; tips stay dismissed until you replay."
+            android:text="A: Settings → Replay intro walkthrough opens the full product intro. Settings → Tools guided tips shows short Analyse tips (jobs → upload → free AI → export) as a dialog pager — Next/Done. Tips stay dismissed until you replay."
             android:lineSpacingExtra="4dp"
             android:textColor="?attr/colorOnSurface"
             android:layout_width="wrap_content"

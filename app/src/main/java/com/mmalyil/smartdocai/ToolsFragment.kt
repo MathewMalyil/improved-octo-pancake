@@ -170,10 +170,9 @@ class ToolsFragment : Fragment() {
     private var suppressGuideThisSession = false
 
 
-    // at class level
+    // Legacy spotlight host — only swept on teardown; Settings/first-run tips use AlertDialog.
     private var coachOverlay: com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay? = null
-
-    // add at class level
+    private var tipsDialog: AlertDialog? = null
 
     private var isCoachRunning = false
     // Call this from your Upload FAB (you can wire it like "Import from Google Docs")
@@ -2493,22 +2492,22 @@ class ToolsFragment : Fragment() {
     }
 
     /**
-     * Analyse coach-marks. Shows once until dismissed; Settings → Tools guided tips
-     * calls with [force]=true. Tap advances; no spam on every launch after seen.
+     * Tools tips (Settings replay + first-run).
+     *
+     * 3.19.9–3.19.10 SpotlightOverlay left a blank transparent click-eater on S25
+     * (Mathew verify). Abandoned fullscreen spotlight for an AlertDialog pager that
+     * cannot leave a transparent View. Tip copy unchanged from 3.19.8.
      */
     private fun showWalkthroughNow(rootView: View, force: Boolean = false) {
-        // 🔐 HARD GUARD — never run if fragment is not attached
         if (!isAdded) return
         val ctx = context ?: return
         val owner = viewLifecycleOwnerLiveData.value ?: return
         if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
 
-        // Claim immediately so Settings replay + doOnPreDraw cannot double-add overlays.
         if (suppressGuideThisSession || isCoachRunning) return
         isCoachRunning = true
 
         owner.lifecycleScope.launch {
-            // 🔐 re-check inside coroutine
             if (!isAdded || !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                 isCoachRunning = false
                 return@launch
@@ -2524,103 +2523,90 @@ class ToolsFragment : Fragment() {
                 }
             }
 
-            // Scroll to top so job buttons + upload are on-screen for rects
-            rootView.findViewById<ScrollView>(R.id.scrollView)?.scrollTo(0, 0)
-            // One frame for layout after scroll
-            kotlinx.coroutines.delay(50)
-
-            if (!isAdded || view == null) {
-                isCoachRunning = false
-                return@launch
-            }
-
-            val rJobs = view?.findViewById<View>(R.id.btnImageToExcel)
-                ?.takeIf { it.isShown }
-                ?.let { rectOf(it, rootView) }
-                ?.takeUnless { it.isEmpty }
-            val rUpload = rectOf(selectPdfButton, rootView)
-            val rAnalyze = rectOf(analyzeButton, rootView)
-            val rExport = rectOf(exportShareButton, rootView)
-
-            if (rUpload.isEmpty || rAnalyze.isEmpty || rExport.isEmpty) {
-                isCoachRunning = false
-                return@launch
-            }
-
-            val steps = buildList {
-                if (rJobs != null) {
-                    add(
-                        com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                            rJobs,
-                            "Jobs here: Image→Excel, Excel→Word, Combine, Scan ID. Tap to continue."
-                        )
-                    )
-                }
-                add(
-                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                        rUpload,
-                        "Upload a PDF, Excel, or image to Analyse."
-                    )
-                )
-                add(
-                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                        rAnalyze,
-                        "Free Groq AI — summary, key points, chat. Caps under usage."
-                    )
-                )
-                add(
-                    com.mmalyil.smartdocai.ui.walkthrough.SpotlightTarget(
-                        rExport,
-                        "Export saves to Files. Document Pro = clean unlimited tools."
-                    )
-                )
-            }
-
-            val root = rootView as? ViewGroup ?: run {
-                isCoachRunning = false
-                return@launch
-            }
-
-            // Sweep any leftover coach / dim layers before attaching a new one.
+            // Strip any leftover SpotlightOverlay from older installs, then show dialog.
             tearDownAllCoachLayers(keepRunningFlag = true)
-
-            coachOverlay = com.mmalyil.smartdocai.ui.walkthrough.SpotlightOverlay(
-                ctx,   // ✅ SAFE — never requireContext()
-                steps
-            ) {
-                // Overlay already torn down in dismissCompletely(); sweep hosts + clear refs.
-                tearDownAllCoachLayers()
-                owner.lifecycleScope.launch {
-                    com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(ctx, true)
-                }
-                if (isAdded) {
-                    Toast.makeText(
-                        ctx,
-                        "Replay tips anytime: Settings → Tools guided tips",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+            if (!isAdded) {
+                isCoachRunning = false
+                return@launch
             }
-
-            root.addView(
-                coachOverlay,
-                ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            )
-
-            // 🔐 DO NOT post — show immediately
-            coachOverlay?.show()
+            showToolsTipsDialog(ctx)
         }
     }
 
+    /** Non-fullscreen tip pager — dismisses cleanly; no transparent View host. */
+    private fun showToolsTipsDialog(ctx: android.content.Context) {
+        tipsDialog?.dismiss()
+        tipsDialog = null
+
+        val tips = listOf(
+            "Jobs here: Image→Excel, Excel→Word, Combine, Scan ID. Tap to continue.",
+            "Upload a PDF, Excel, or image to Analyse.",
+            "Free Groq AI — summary, key points, chat. Caps under usage.",
+            "Export saves to Files. Document Pro = clean unlimited tools."
+        )
+        var index = 0
+
+        fun finishTips(showReplayToast: Boolean) {
+            tipsDialog = null
+            isCoachRunning = false
+            viewLifecycleOwner.lifecycleScope.launch {
+                com.mmalyil.smartdocai.prefs.CoachPrefs.setCoachSeen(ctx, true)
+            }
+            if (showReplayToast && isAdded) {
+                Toast.makeText(
+                    ctx,
+                    "Replay tips anytime: Settings → Tools guided tips",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        fun showStep() {
+            if (!isAdded) {
+                finishTips(showReplayToast = false)
+                return
+            }
+            val last = index >= tips.lastIndex
+            val dialog = AlertDialog.Builder(ctx)
+                .setTitle("Tools tips (${index + 1}/${tips.size})")
+                .setMessage(tips[index])
+                .setCancelable(true)
+                .setNegativeButton("Skip") { d, _ ->
+                    d.dismiss()
+                    finishTips(showReplayToast = false)
+                }
+                .setPositiveButton(if (last) "Done" else "Next") { d, _ ->
+                    d.dismiss()
+                    if (last) {
+                        finishTips(showReplayToast = true)
+                    } else {
+                        index++
+                        showStep()
+                    }
+                }
+                .setOnCancelListener {
+                    finishTips(showReplayToast = false)
+                }
+                .create()
+            tipsDialog = dialog
+            dialog.show()
+        }
+
+        showStep()
+    }
+
     /**
-     * Nuclear coach teardown: disable + detach known overlay, strip any
-     * SpotlightOverlay freeloaders from fragment / contentFrame / decor,
-     * and ensure loadingOverlay cannot eat taps while GONE.
+     * Dismiss tip dialog + strip any leftover SpotlightOverlay freeloaders
+     * (older builds) from fragment / contentFrame / decor. Clears loadingOverlay
+     * click-eating while GONE.
      */
     private fun tearDownAllCoachLayers(keepRunningFlag: Boolean = false) {
+        try {
+            tipsDialog?.dismiss()
+        } catch (_: Exception) {
+        }
+        tipsDialog = null
+
         coachOverlay?.dismissCompletely()
         coachOverlay = null
         if (!keepRunningFlag) isCoachRunning = false
@@ -2643,26 +2629,10 @@ class ToolsFragment : Fragment() {
         }
     }
 
-    // helper to compute rects
-    private fun rectOf(target: View, root: View): RectF {
-        val r = android.graphics.Rect()
-        target.getGlobalVisibleRect(r)
-        val rootLoc = IntArray(2)
-        root.getLocationOnScreen(rootLoc)
-        return RectF(
-            (r.left - rootLoc[0]).toFloat(),
-            (r.top - rootLoc[1]).toFloat(),
-            (r.right - rootLoc[0]).toFloat(),
-            (r.bottom - rootLoc[1]).toFloat()
-        )
-    }
-
-    // STOP the tour immediately if the user starts any real action,
-    // so it can’t “stick” over other flows.
+    // STOP tips if the user starts any real action.
     private fun stopWalkthroughIfRunning() {
-        if (!isCoachRunning && coachOverlay == null) return
+        if (!isCoachRunning && tipsDialog == null && coachOverlay == null) return
         tearDownAllCoachLayers()
-        // we still mark as seen, so it doesn’t bounce back right away
         val ctx = context ?: return
         viewLifecycleOwner.lifecycleScope.launch {
             CoachPrefs.setCoachSeen(ctx, true)
