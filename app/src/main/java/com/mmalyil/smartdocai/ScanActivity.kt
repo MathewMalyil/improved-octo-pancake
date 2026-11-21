@@ -15,6 +15,8 @@ import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -28,7 +30,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -52,7 +53,6 @@ import com.mmalyil.smartdocai.scan.EdgeOverlayView
 import com.mmalyil.smartdocai.scan.ImagePdfWriter
 import com.mmalyil.smartdocai.scan.OpenCvDocumentDetector
 import com.mmalyil.smartdocai.scan.PerspectiveHelper
-import com.mmalyil.smartdocai.scan.PreviewCoordMapper
 import com.mmalyil.smartdocai.scan.ScanFilter
 import com.mmalyil.smartdocai.scan.ScanPage
 import com.mmalyil.smartdocai.scan.ScanPageRenderer
@@ -92,7 +92,7 @@ class ScanActivity : AppCompatActivity() {
         const val ACTION_DEBUG_FEED_PAGE = "com.mmalyil.smartdocai.DEBUG_FEED_PAGE"
 
         /** Still re-detect must clear this to perspective-warp the capture. */
-        private const val STILL_WARP_SCORE = 0.32f
+        private const val STILL_WARP_SCORE = 0.22f
     }
 
     private lateinit var tvTitle: TextView
@@ -144,6 +144,20 @@ class ScanActivity : AppCompatActivity() {
     private val edgeTracker = DocumentEdgeTracker()
     private val lastAnalyzeMs = AtomicLong(0L)
     private var debugFeedRegistered = false
+    private val previewDetectHandler = Handler(Looper.getMainLooper())
+    private var previewDetectRunning = false
+    private val previewDetectTick = object : Runnable {
+        override fun run() {
+            if (!previewDetectRunning || !liveCapturePane.isVisible || capturing.get()) {
+                if (previewDetectRunning) {
+                    previewDetectHandler.postDelayed(this, 150L)
+                }
+                return
+            }
+            samplePreviewAndDetect()
+            previewDetectHandler.postDelayed(this, 120L)
+        }
+    }
 
     /** DEBUG: adb shell am broadcast -a com.mmalyil.smartdocai.DEBUG_FEED_PAGE */
     private val debugFeedReceiver = object : BroadcastReceiver() {
@@ -164,6 +178,26 @@ class ScanActivity : AppCompatActivity() {
                     val paint = android.graphics.Paint().apply { color = 0xFFF5F5F5.toInt() }
                     c.drawRect(80f, 60f, 560f, 420f, paint)
                     val found = OpenCvDocumentDetector.detectBitmap(bmp)
+                    // Deskew proof: skewed trapezoid page → warp to rectangle
+                    val skew = Bitmap.createBitmap(800, 600, Bitmap.Config.ARGB_8888)
+                    val sc = android.graphics.Canvas(skew)
+                    sc.drawColor(0xFF2A2A2A.toInt())
+                    val path = android.graphics.Path().apply {
+                        moveTo(120f, 80f)
+                        lineTo(720f, 40f)
+                        lineTo(760f, 560f)
+                        lineTo(80f, 520f)
+                        close()
+                    }
+                    sc.drawPath(path, paint)
+                    val warped = deskewStill(skew)
+                    if (warped != null) {
+                        Log.i(TAG, "DEBUG DESKEW ok ${warped.width}x${warped.height}")
+                        warped.recycle()
+                    } else {
+                        Log.e(TAG, "DEBUG DESKEW failed")
+                    }
+                    skew.recycle()
                     bmp.recycle()
                     found
                 }
@@ -490,7 +524,11 @@ class ScanActivity : AppCompatActivity() {
             try {
                 val provider = cameraProviderFuture.get()
                 cameraProvider = provider
-                bindCameraUseCases(provider)
+                // Bind after PreviewView has a real size — avoids black preview on some Samsungs
+                previewView.post {
+                    if (isFinishing || isDestroyed) return@post
+                    bindCameraUseCases(provider)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Camera start failed", e)
                 Toast.makeText(this, "Camera error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -501,13 +539,14 @@ class ScanActivity : AppCompatActivity() {
 
     private fun bindCameraUseCases(provider: ProcessCameraProvider) {
         provider.unbindAll()
+        stopPreviewDetectLoop()
         analysisExecutor?.shutdown()
         analysisExecutor = Executors.newSingleThreadExecutor()
 
         val rotation = previewView.display?.rotation ?: windowManager.defaultDisplay.rotation
 
-        previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
         previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
 
         val preview = Preview.Builder()
             .setTargetRotation(rotation)
@@ -519,99 +558,102 @@ class ScanActivity : AppCompatActivity() {
             .setTargetRotation(rotation)
             .build()
 
-        val analysis = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            // RGBA avoids broken/black Y-plane reads on some S25 streams
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-            .setTargetRotation(rotation)
-            .build()
+        // Preview + Capture only. Live edges come from PreviewView.bitmap so they
+        // match what the user sees (ImageAnalysis was returning near-black frames on S25).
+        val selector = CameraSelector.DEFAULT_BACK_CAMERA
+        provider.bindToLifecycle(this, selector, preview, imageCapture)
+        Log.i(TAG, "Camera bound Preview+Capture; starting PreviewView detect loop")
+        startPreviewDetectLoop()
+    }
 
-        analysis.setAnalyzer(analysisExecutor!!) { imageProxy ->
-            // Throttle ~8 fps — calmer overlay, less CPU thrash
-            val now = System.currentTimeMillis()
-            val prev = lastAnalyzeMs.get()
-            if (now - prev < 120L || !analyzing.compareAndSet(false, true)) {
-                imageProxy.close()
-                return@setAnalyzer
-            }
-            lastAnalyzeMs.set(now)
+    private fun startPreviewDetectLoop() {
+        previewDetectRunning = true
+        previewDetectHandler.removeCallbacks(previewDetectTick)
+        previewDetectHandler.postDelayed(previewDetectTick, 200L)
+    }
+
+    private fun stopPreviewDetectLoop() {
+        previewDetectRunning = false
+        previewDetectHandler.removeCallbacks(previewDetectTick)
+    }
+
+    /**
+     * Sample the live preview pixels and run OpenCV/Kotlin detect.
+     * Quads are already in PreviewView/overlay-normalized space — no CoordinateTransform.
+     */
+    private fun samplePreviewAndDetect() {
+        if (!analyzing.compareAndSet(false, true)) return
+        val executor = analysisExecutor ?: run {
+            analyzing.set(false)
+            return
+        }
+        executor.execute {
+            var bmp: Bitmap? = null
             try {
-                if (now % 2000L < 130L) {
-                    val p0 = imageProxy.planes[0]
-                    Log.d(
-                        TAG,
-                        "frame fmt=${imageProxy.format} ${imageProxy.width}x${imageProxy.height} " +
-                            "planes=${imageProxy.planes.size} stride=${p0.rowStride}/${p0.pixelStride} " +
-                            "rot=${imageProxy.imageInfo.rotationDegrees}"
-                    )
+                bmp = try {
+                    previewView.bitmap
+                } catch (e: Exception) {
+                    Log.w(TAG, "previewView.bitmap failed", e)
+                    null
                 }
-                // OpenCV first (robust); Kotlin heuristic fallback
-                val detection = OpenCvDocumentDetector.detect(imageProxy)
-                    ?: DocumentEdgeDetector.detect(imageProxy)
-                if (detection == null) {
-                    if (now % 1000L < 130L) Log.d(TAG, "analyze: no detection")
-                } else {
-                    Log.d(
-                        TAG,
-                        "analyze HIT score=${"%.2f".format(detection.score)} " +
-                            "opencv=${OpenCvDocumentDetector.isReady()}"
-                    )
+                if (bmp == null || bmp.width < 32 || bmp.height < 32) {
+                    if (System.currentTimeMillis() % 1000L < 150L) {
+                        Log.d(TAG, "preview bitmap unavailable")
+                    }
+                    runOnUiThread { onDetection(null) }
+                    return@execute
                 }
-                // Map WHILE ImageProxy is open — CoordinateTransform needs buffer + PreviewView
-                val overlayMapped: DocumentEdgeDetector.Detection? =
-                    if (detection != null) {
-                        val ow = edgeOverlay.width.takeIf { it > 0 } ?: previewView.width
-                        val oh = edgeOverlay.height.takeIf { it > 0 } ?: previewView.height
-                        var viewQuad = PreviewCoordMapper.analysisQuadToOverlay(
-                            imageProxy = imageProxy,
-                            previewView = previewView,
-                            overlayWidth = ow,
-                            overlayHeight = oh,
-                            quadNorm = detection.quad
-                        )
-                        if (viewQuad == null && ow > 0 && oh > 0) {
-                            viewQuad = PreviewCoordMapper.fallbackMap(
-                                detection.quad,
-                                imageProxy.width,
-                                imageProxy.height,
-                                imageProxy.imageInfo.rotationDegrees,
-                                ow,
-                                oh
-                            )
-                            Log.w(TAG, "overlay map fallback used")
-                        }
-                        if (viewQuad != null) {
-                            DocumentEdgeDetector.Detection(
-                                quad = viewQuad,
-                                score = detection.score,
-                                analysisWidth = detection.analysisWidth,
-                                analysisHeight = detection.analysisHeight
-                            )
-                        } else {
-                            Log.w(TAG, "overlay map failed; feeding raw score for hold")
-                            // Keep score for auto-hold even if draw mapping fails this frame
-                            DocumentEdgeDetector.Detection(
-                                quad = detection.quad,
-                                score = detection.score,
-                                analysisWidth = detection.analysisWidth,
-                                analysisHeight = detection.analysisHeight
-                            )
-                        }
-                    } else null
-
-                runOnUiThread {
-                    onDetection(overlayMapped)
+                val mean = sampleMeanLuma(bmp)
+                if (System.currentTimeMillis() % 1500L < 150L) {
+                    Log.d(TAG, "previewBmp ${bmp.width}x${bmp.height} mean=${"%.1f".format(mean)}")
                 }
+                if (mean < 12f) {
+                    // Lens covered / preview not lit yet
+                    runOnUiThread { onDetection(null) }
+                    return@execute
+                }
+                val detection = OpenCvDocumentDetector.detectBitmap(bmp)
+                    ?: DocumentEdgeDetector.detectBitmap(bmp, DocumentEdgeDetector.Mode.LIVE)
+                if (detection != null) {
+                    Log.d(TAG, "preview HIT score=${"%.2f".format(detection.score)} mean=${"%.0f".format(mean)}")
+                } else if (System.currentTimeMillis() % 1000L < 150L) {
+                    Log.d(TAG, "preview MISS mean=${"%.0f".format(mean)}")
+                }
+                // Already view-normalized
+                runOnUiThread { onDetection(detection) }
             } catch (e: Exception) {
-                Log.w(TAG, "analyze failed", e)
+                Log.w(TAG, "preview detect failed", e)
+                runOnUiThread { onDetection(null) }
             } finally {
+                try {
+                    bmp?.recycle()
+                } catch (_: Exception) {
+                }
                 analyzing.set(false)
-                imageProxy.close()
             }
         }
+    }
 
-        val selector = CameraSelector.DEFAULT_BACK_CAMERA
-        provider.bindToLifecycle(this, selector, preview, imageCapture, analysis)
+    private fun sampleMeanLuma(bmp: Bitmap): Float {
+        val w = bmp.width
+        val h = bmp.height
+        var sum = 0L
+        var n = 0
+        var y = h / 10
+        while (y < h * 9 / 10) {
+            var x = w / 10
+            while (x < w * 9 / 10) {
+                val c = bmp.getPixel(x, y)
+                val r = (c shr 16) and 0xff
+                val g = (c shr 8) and 0xff
+                val b = c and 0xff
+                sum += (0.299 * r + 0.587 * g + 0.114 * b).toLong()
+                n++
+                x += w / 20
+            }
+            y += h / 20
+        }
+        return if (n == 0) 0f else sum.toFloat() / n
     }
 
     /** [detection] quad is already in overlay-normalized PreviewView space. */
@@ -756,31 +798,40 @@ class ScanActivity : AppCompatActivity() {
      * Never uses live overlay quads (wrong coordinate space).
      */
     private fun deskewStill(src: Bitmap): Bitmap? {
-        // Prefer OpenCV still detect, then Kotlin STILL / STILL_STRONG
-        val candidates = mutableListOf<DocumentEdgeDetector.Detection>()
-        OpenCvDocumentDetector.detectBitmap(src)?.let { candidates.add(it) }
-        DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL)?.let { candidates.add(it) }
-        DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL_STRONG)?.let { candidates.add(it) }
+        // Prefer OpenCV at multiple resolutions, then Kotlin STILL / STILL_STRONG
+        val candidates = mutableListOf<Pair<String, DocumentEdgeDetector.Detection>>()
+        OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 960)?.let { candidates.add("ocv960" to it) }
+        OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 640)?.let { candidates.add("ocv640" to it) }
+        DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL)?.let { candidates.add("ktStill" to it) }
+        DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL_STRONG)?.let {
+            candidates.add("ktStrong" to it)
+        }
 
         var bestQuad: Array<PointF>? = null
         var bestScore = -1f
-        for (det in candidates.sortedByDescending { it.score }) {
-            Log.d(TAG, "still detect score=${det.score}")
+        var bestName = ""
+        for ((name, det) in candidates.sortedByDescending { it.second.score }) {
+            Log.i(TAG, "still detect $name score=${"%.2f".format(det.score)}")
             if (det.score < STILL_WARP_SCORE) continue
             val warped = PerspectiveHelper.warpDocument(src, det.quad)
             if (warped != null) {
-                Log.d(TAG, "still warp ok score=${det.score}")
+                Log.i(TAG, "still WARP ok $name score=${"%.2f".format(det.score)} " +
+                    "${warped.width}x${warped.height}")
                 return warped
             }
             if (det.score > bestScore) {
                 bestScore = det.score
                 bestQuad = det.quad
+                bestName = name
             }
         }
-        val quad = bestQuad ?: return null
+        val quad = bestQuad ?: run {
+            Log.w(TAG, "still deskew: no usable quad among ${candidates.size} candidates")
+            return null
+        }
         val box = PerspectiveHelper.boundingCrop(quad)
         val cropped = cropNormalized(src, box)
-        if (cropped != null) Log.d(TAG, "still bbox crop fallback score=$bestScore")
+        if (cropped != null) Log.i(TAG, "still bbox crop fallback $bestName score=$bestScore")
         return cropped
     }
 
@@ -818,6 +869,7 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun stopLiveCamera() {
+        stopPreviewDetectLoop()
         try {
             cameraProvider?.unbindAll()
         } catch (_: Exception) {

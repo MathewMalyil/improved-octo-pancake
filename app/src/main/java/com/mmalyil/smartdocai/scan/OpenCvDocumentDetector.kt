@@ -54,14 +54,19 @@ object OpenCvDocumentDetector {
         }
     }
 
-    fun detectBitmap(source: Bitmap): DocumentEdgeDetector.Detection? {
+    fun detectBitmap(source: Bitmap, analyzeWidth: Int = ANALYZE_W): DocumentEdgeDetector.Detection? {
         if (!ensureInit()) return null
         val rgba = Mat()
         val gray = Mat()
         return try {
             Utils.bitmapToMat(source, rgba)
-            Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
-            detectGrayMat(gray)
+            when (rgba.channels()) {
+                4 -> Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
+                3 -> Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGB2GRAY)
+                1 -> rgba.copyTo(gray)
+                else -> Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_BGRA2GRAY)
+            }
+            detectGrayMat(gray, analyzeWidth.coerceIn(320, 1280))
         } catch (e: Exception) {
             Log.w(TAG, "detectBitmap failed", e)
             null
@@ -71,8 +76,8 @@ object OpenCvDocumentDetector {
         }
     }
 
-    private fun detectGrayMat(graySrc: Mat): DocumentEdgeDetector.Detection? {
-        val scale = ANALYZE_W.toDouble() / max(graySrc.cols(), 1)
+    private fun detectGrayMat(graySrc: Mat, analyzeWidth: Int = ANALYZE_W): DocumentEdgeDetector.Detection? {
+        val scale = analyzeWidth.toDouble() / max(graySrc.cols(), 1)
         val w = max(32, (graySrc.cols() * min(scale, 1.0)).toInt())
         val h = max(32, (graySrc.rows() * min(scale, 1.0)).toInt())
         val gray = Mat()

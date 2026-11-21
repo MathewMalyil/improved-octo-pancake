@@ -166,9 +166,7 @@ object DocumentEdgeDetector {
                 gray[i] = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
             }
             return detectGray(gray, w, h, params)
-                ?: if (mode == Mode.STILL || mode == Mode.STILL_STRONG) {
-                    detectPaperMask(gray, w, h, params)
-                } else null
+                ?: detectPaperMask(gray, w, h, params)
         } finally {
             if (small !== source && !small.isRecycled) small.recycle()
         }
