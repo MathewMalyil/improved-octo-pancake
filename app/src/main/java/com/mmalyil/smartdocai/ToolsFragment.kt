@@ -878,7 +878,7 @@ class ToolsFragment : Fragment() {
             parentFragmentManager.clearFragmentResult("toolsFabRequest")
         }
 
-        // B) replayCoach — Settings “Tools guided tips”
+        // B) replayCoach — Settings “Analyse guided tips”
         parentFragmentManager.setFragmentResultListener("replayCoach", this) { _, bundle ->
             if (bundle.getBoolean("replay", false)) {
                 viewLifecycleOwner.lifecycleScope.launch {
@@ -2702,7 +2702,7 @@ class ToolsFragment : Fragment() {
             if (showReplayToast && isAdded) {
                 Toast.makeText(
                     ctx,
-                    "Replay tips anytime: Settings → Tools guided tips",
+                    "Replay tips anytime: Settings → Analyse guided tips",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -2715,7 +2715,7 @@ class ToolsFragment : Fragment() {
             }
             val last = index >= tips.lastIndex
             val dialog = AlertDialog.Builder(ctx)
-                .setTitle("Tools tips (${index + 1}/${tips.size})")
+                .setTitle("Analyse tips (${index + 1}/${tips.size})")
                 .setMessage(tips[index])
                 .setCancelable(true)
                 .setNegativeButton("Skip") { d, _ ->

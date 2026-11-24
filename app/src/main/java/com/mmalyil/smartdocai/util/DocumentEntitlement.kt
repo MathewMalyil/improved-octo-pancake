@@ -141,9 +141,44 @@ object DocumentEntitlement {
     /**
      * High-value Share / Save to Downloads gate.
      * Pro or under clean-share cap → [onAllowed].
-     * Exhausted → paywall (caller may offer watermarked share separately).
+     * Exhausted → paywall only (prefer [requireCleanShareOrOfferMarked] so Share isn't a dead end).
      */
     fun requireCleanShareOrPaywall(context: Context, onAllowed: () -> Unit) {
         requireOrPaywall(context, Feature.CLEAN_SHARE, onAllowed)
+    }
+
+    /**
+     * Clean Share / Downloads with a free-mark fallback when the daily clean cap is hit.
+     * Pro or under cap → [onCleanAllowed] (caller [recordUse] after success).
+     * Cap exhausted → dialog: marked action / Not now / Upgrade — never Share-only paywall.
+     */
+    fun requireCleanShareOrOfferMarked(
+        context: Context,
+        markedActionLabel: String = "Share with free mark",
+        onCleanAllowed: () -> Unit,
+        onWatermarkedFallback: () -> Unit
+    ) {
+        if (canUse(context, Feature.CLEAN_SHARE)) {
+            onCleanAllowed()
+            return
+        }
+        val activity = context as? android.app.Activity
+        if (activity == null || activity.isFinishing) {
+            openPaywall(context, freeLimitMessage(context, Feature.CLEAN_SHARE))
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setTitle("Clean share limit reached")
+            .setMessage(
+                "You've used today's free clean shares " +
+                    "(${Feature.CLEAN_SHARE.dailyFreeLimit}/day). " +
+                    "Continue with the free mark, or unlock Document Pro for clean PDFs."
+            )
+            .setPositiveButton(markedActionLabel) { _, _ -> onWatermarkedFallback() }
+            .setNeutralButton("Upgrade") { _, _ ->
+                openPaywall(context, freeLimitMessage(context, Feature.CLEAN_SHARE))
+            }
+            .setNegativeButton("Not now", null)
+            .show()
     }
 }

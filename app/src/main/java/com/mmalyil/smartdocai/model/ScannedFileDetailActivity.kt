@@ -63,7 +63,7 @@ class ScannedFileDetailActivity : AppCompatActivity() {
         }
 
         binding.btnSaveToDownloads.setOnClickListener {
-            DocumentEntitlement.requireCleanShareOrPaywall(this) {
+            fun saveToDownloads(recordClean: Boolean) {
                 binding.btnSaveToDownloads.isEnabled = false
                 lifecycleScope.launch {
                     val uri = withContext(Dispatchers.IO) {
@@ -71,10 +71,12 @@ class ScannedFileDetailActivity : AppCompatActivity() {
                     }
                     binding.btnSaveToDownloads.isEnabled = true
                     if (uri != null) {
-                        DocumentEntitlement.recordUse(
-                            this@ScannedFileDetailActivity,
-                            DocumentEntitlement.Feature.CLEAN_SHARE
-                        )
+                        if (recordClean) {
+                            DocumentEntitlement.recordUse(
+                                this@ScannedFileDetailActivity,
+                                DocumentEntitlement.Feature.CLEAN_SHARE
+                            )
+                        }
                         Toast.makeText(
                             this@ScannedFileDetailActivity,
                             "Saved to Downloads — open phone Files / Downloads to find it",
@@ -83,18 +85,31 @@ class ScannedFileDetailActivity : AppCompatActivity() {
                     }
                 }
             }
+            DocumentEntitlement.requireCleanShareOrOfferMarked(
+                context = this,
+                markedActionLabel = "Save with free mark",
+                onCleanAllowed = { saveToDownloads(recordClean = true) },
+                onWatermarkedFallback = { saveToDownloads(recordClean = false) }
+            )
         }
 
         binding.btnShare.setOnClickListener {
             if (isPdf) {
-                DocumentEntitlement.requireCleanShareOrPaywall(this) {
-                    if (ScanStorage.sharePdf(this, file)) {
-                        DocumentEntitlement.recordUse(
-                            this,
-                            DocumentEntitlement.Feature.CLEAN_SHARE
-                        )
+                DocumentEntitlement.requireCleanShareOrOfferMarked(
+                    context = this,
+                    markedActionLabel = "Share with free mark",
+                    onCleanAllowed = {
+                        if (ScanStorage.sharePdf(this, file)) {
+                            DocumentEntitlement.recordUse(
+                                this,
+                                DocumentEntitlement.Feature.CLEAN_SHARE
+                            )
+                        }
+                    },
+                    onWatermarkedFallback = {
+                        ScanStorage.sharePdf(this, file)
                     }
-                }
+                )
                 return@setOnClickListener
             }
 

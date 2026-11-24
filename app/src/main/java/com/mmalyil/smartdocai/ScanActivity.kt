@@ -1629,8 +1629,7 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun sharePdf(uri: Uri, name: String) {
-        DocumentEntitlement.requireCleanShareOrPaywall(this) {
-            DocumentEntitlement.recordUse(this, DocumentEntitlement.Feature.CLEAN_SHARE)
+        fun launchShare() {
             val share = Intent(Intent.ACTION_SEND).apply {
                 type = "application/pdf"
                 putExtra(Intent.EXTRA_STREAM, uri)
@@ -1641,6 +1640,15 @@ class ScanActivity : AppCompatActivity() {
             startActivity(Intent.createChooser(share, "Share PDF"))
             finish()
         }
+        DocumentEntitlement.requireCleanShareOrOfferMarked(
+            context = this,
+            markedActionLabel = "Share with free mark",
+            onCleanAllowed = {
+                DocumentEntitlement.recordUse(this, DocumentEntitlement.Feature.CLEAN_SHARE)
+                launchShare()
+            },
+            onWatermarkedFallback = { launchShare() }
+        )
     }
 
     /**

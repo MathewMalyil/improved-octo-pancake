@@ -242,9 +242,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun forwardToTools(uri: android.net.Uri, mime: String?, source: String) {
+        // Human toast — never surface raw sources like SCAN_SAVE / VIEW.
         android.widget.Toast.makeText(
             this,
-            "Opening file from $source…",
+            "Opening on Analyse…",
             android.widget.Toast.LENGTH_SHORT
         ).show()
 

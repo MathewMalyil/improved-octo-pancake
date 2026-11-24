@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -59,8 +60,7 @@ class FilesFragment : Fragment() {
                 startActivity(intent)
             },
             onDelete = { file ->
-                Log.d("DEBUG_DELETE", "Deleting file: $file")
-                viewModel.deleteFile(file)
+                confirmDeleteFile(file)
             }
         )
         binding.rvFiles.layoutManager = LinearLayoutManager(requireContext())
@@ -106,6 +106,23 @@ class FilesFragment : Fragment() {
         binding.rvFiles.visibility = if (empty) View.GONE else View.VISIBLE
         // Keep Combine reachable even when empty (button sits above the list).
         binding.btnFilesCombinePdfs.visibility = View.VISIBLE
+    }
+
+    /** Same confirm as Files detail — long-press must not wipe a row silently. */
+    private fun confirmDeleteFile(file: ScannedFile) {
+        val ctx = context ?: return
+        AlertDialog.Builder(ctx)
+            .setTitle("Delete file?")
+            .setMessage(
+                "Remove “${file.fileName}” from SmartDocAI history. " +
+                    "The file stays in app storage until cleared with app data."
+            )
+            .setPositiveButton("Delete") { _, _ ->
+                Log.d("DEBUG_DELETE", "Confirmed delete: ${file.fileName}")
+                viewModel.deleteFile(file)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     override fun onDestroyView() {
