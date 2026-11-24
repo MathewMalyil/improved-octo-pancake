@@ -2941,13 +2941,17 @@ class ToolsFragment : Fragment() {
             "Detailed Analysis",
             "Custom Prompt"
         )
-        val label = selectedFileName.ifBlank {
-            uri.lastPathSegment?.substringAfterLast('/') ?: "Excel workbook"
+        val rawName = selectedFileName.ifBlank {
+            uri.lastPathSegment?.substringAfterLast('/') ?: "workbook"
         }
+        val label = if (rawName.contains('.')) rawName else "$rawName.xlsx"
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Choose AI Style")
-            .setMessage("Using: $label\nPick a style, or Change Excel to select another workbook.")
+            .setTitle("Excel → Word report")
+            .setMessage(
+                "Using: $label · Ask what you want in the Word report " +
+                    "(or pick a preset below)."
+            )
             .setCancelable(true)
             .setItems(options) { _, which ->
                 when (which) {
@@ -2962,6 +2966,10 @@ class ToolsFragment : Fragment() {
                     }
                     2 -> showCustomPromptInput(uri)
                 }
+            }
+            .setPositiveButton("Continue") { _, _ ->
+                // Same as recommended preset — one-tap path.
+                exportXlsxAiReportNow(uri)
             }
             .setNeutralButton("Change Excel") { _, _ ->
                 offeredDocxForUri = null
