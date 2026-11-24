@@ -74,6 +74,10 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 // ToolsFragment.kt (top)
 import android.net.TrafficStats
 import android.widget.ScrollView
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import com.google.android.gms.tasks.Tasks
 
 import okhttp3.Interceptor
 import java.util.concurrent.TimeUnit
@@ -82,6 +86,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.mmalyil.smartdocai.prefs.CoachPrefs
 import kotlin.math.max
+import kotlin.math.min
 
 
 
@@ -158,6 +163,11 @@ class ToolsFragment : Fragment() {
         // Tune these as you like
         private const val MAX_PDF_SIZE_BYTES = 40L * 1024 * 1024 // 40 MB
         private const val MAX_PDF_PAGES = 200                     // cap pages to parse
+        /** Image-PDF OCR fallback (SmartDocAI scans) — keep bounded for device OCR. */
+        private const val MAX_PDF_OCR_PAGES = 20
+        /** Below this many alphanumerics → treat extract as empty and OCR pages. */
+        private const val MIN_USABLE_PDF_CHARS = 40
+        private const val PDF_OCR_MAX_WIDTH = 1600
     }
 
     private var pendingAccount: GoogleSignInAccount? = null
@@ -574,15 +584,34 @@ class ToolsFragment : Fragment() {
             // 3) Init PdfBox (safe to call more than once)
             PDFBoxResourceLoader.init(appCtx)
 
-            // 4) Load with a **page cap** to avoid OOM on 1,000+ page docs
-            com.tom_roush.pdfbox.pdmodel.PDDocument.load(tmp).use { doc ->
+            // 4) Fast text extract; image PDFs (SmartDocAI scans) have no text layer.
+            val extracted = com.tom_roush.pdfbox.pdmodel.PDDocument.load(tmp).use { doc ->
                 val totalPages = doc.numberOfPages
                 val stripper = com.tom_roush.pdfbox.text.PDFTextStripper().apply {
                     sortByPosition = false
                     startPage = 1
                     endPage = minOf(totalPages, MAX_PDF_PAGES)
                 }
-                stripper.getText(doc)
+                stripper.getText(doc).orEmpty()
+            }
+            if (isUsablePdfText(extracted)) {
+                Log.i(TAG, "PDF text extract ok chars=${extracted.length}")
+                extracted
+            } else {
+                // 5) Fallback: render pages + ML Kit OCR (same path as image OCR).
+                Log.i(
+                    TAG,
+                    "PDF text sparse (alpha=${countAlphaNum(extracted)}) — OCR fallback"
+                )
+                val ocr = ocrPdfFileBlocking(tmp)
+                when {
+                    ocr.isNotBlank() -> {
+                        Log.i(TAG, "PDF OCR ok chars=${ocr.length}")
+                        ocr
+                    }
+                    extracted.isNotBlank() -> extracted
+                    else -> ""
+                }
             }
         } catch (oom: OutOfMemoryError) {
             Log.e(TAG, "OOM while reading PDF $uri", oom)
@@ -594,6 +623,74 @@ class ToolsFragment : Fragment() {
             // Clean up temp file
             try {
                 tmp.delete()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** True when PDFBox already found enough real text — skip OCR. */
+    private fun isUsablePdfText(text: String): Boolean {
+        if (text.startsWith("Failed to read", ignoreCase = true)) return true
+        return countAlphaNum(text) >= MIN_USABLE_PDF_CHARS
+    }
+
+    private fun countAlphaNum(text: String): Int =
+        text.count { it.isLetterOrDigit() }
+
+    /**
+     * Render PDF pages with [PdfRenderer] and run ML Kit text recognition.
+     * Used only when the PDF has no usable text layer (image scans from ImagePdfWriter).
+     */
+    private fun ocrPdfFileBlocking(file: File): String {
+        val pfd = try {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        } catch (e: Exception) {
+            Log.e(TAG, "ocrPdf open failed", e)
+            return ""
+        }
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        return try {
+            PdfRenderer(pfd).use { renderer ->
+                val pages = min(renderer.pageCount, MAX_PDF_OCR_PAGES)
+                val sb = StringBuilder()
+                for (i in 0 until pages) {
+                    renderer.openPage(i).use { page ->
+                        val pw = page.width.coerceAtLeast(1)
+                        val ph = page.height.coerceAtLeast(1)
+                        val scale = min(1f, PDF_OCR_MAX_WIDTH.toFloat() / pw)
+                        val w = (pw * scale).toInt().coerceAtLeast(1)
+                        val h = (ph * scale).toInt().coerceAtLeast(1)
+                        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        try {
+                            page.render(
+                                bmp,
+                                null,
+                                null,
+                                PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+                            )
+                            val vision = Tasks.await(
+                                recognizer.process(InputImage.fromBitmap(bmp, 0))
+                            )
+                            val pageText = vision.text.trim()
+                            if (pageText.isNotEmpty()) {
+                                if (sb.isNotEmpty()) {
+                                    sb.append("\n\n--- Page Break ---\n\n")
+                                }
+                                sb.append(pageText)
+                            }
+                        } finally {
+                            if (!bmp.isRecycled) bmp.recycle()
+                        }
+                    }
+                }
+                sb.toString()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "ocrPdfFileBlocking failed", e)
+            ""
+        } finally {
+            try {
+                recognizer.close()
             } catch (_: Exception) {
             }
         }
