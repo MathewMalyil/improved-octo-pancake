@@ -138,12 +138,13 @@ class ChatAdapter(
                     ctx, "${ctx.packageName}.fileprovider", file
                 )
                 withContext(Dispatchers.Main) {
+                    val ai = content.trim().takeIf { it.isNotEmpty() }
                     FilesHistory.saveAsync(
                         context = ctx,
                         fileName = file.name,
                         fileUri = uri.toString(),
                         content = content.take(2000),
-                        aiResponse = content,
+                        aiResponse = ai,
                         scope = scope,
                         anchor = anchor
                     )
@@ -209,12 +210,13 @@ class ChatAdapter(
                     ctx, "${ctx.packageName}.fileprovider", file
                 )
                 withContext(Dispatchers.Main) {
+                    val ai = content.trim().takeIf { it.isNotEmpty() }
                     FilesHistory.saveAsync(
                         context = ctx,
                         fileName = file.name,
                         fileUri = uri.toString(),
                         content = content.take(2000),
-                        aiResponse = content,
+                        aiResponse = ai,
                         scope = scope,
                         anchor = anchor
                     )

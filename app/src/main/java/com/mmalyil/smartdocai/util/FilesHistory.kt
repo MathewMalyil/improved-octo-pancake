@@ -35,12 +35,14 @@ object FilesHistory {
         scope.launch(Dispatchers.IO) {
             try {
                 val dao = AppDatabase.getDatabase(context.applicationContext).scannedFileDao()
+                // Never persist blank/placeholder AI — only real replies or omit.
+                val ai = aiResponse?.trim()?.takeIf { it.isNotEmpty() }
                 dao.insert(
                     ScannedFile(
                         fileName = fileName,
                         fileUri = fileUri,
                         content = content,
-                        aiResponse = aiResponse
+                        aiResponse = ai
                     )
                 )
                 withContext(Dispatchers.Main) {

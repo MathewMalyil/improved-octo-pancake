@@ -31,15 +31,16 @@ class ScannedFileViewModel(private val repository: ScannedFileRepository) : View
     }
 
     fun insertFile(fileUri: String, fileName: String, content: String, aiResponse: String?) {
+        // Omit empty/fake AI blobs when nothing was asked / no real reply.
+        val ai = aiResponse?.trim()?.takeIf { it.isNotEmpty() }
         val file = ScannedFile(
             fileName = fileName,
             fileUri = fileUri,
             content = content,
-            aiResponse = aiResponse
+            aiResponse = ai
         )
-        Log.d("DEBUG_INSERT", "Inserting file: $file")
+        Log.d("DEBUG_INSERT", "Inserting file: $fileName ai=${ai != null}")
         Log.d("DEBUG_INSERT", "File URI: $fileUri")
-        Log.d("DEBUG_INSERT", "File Name: $fileName")
         insert(file)
     }
 

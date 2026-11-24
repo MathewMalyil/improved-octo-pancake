@@ -1123,7 +1123,7 @@ class ToolsFragment : Fragment() {
             // Persist a real TXT into Files (valid path), then share that file — no text-only stub.
             val ctx = context ?: return@setOnClickListener
             DocumentEntitlement.requireOrPaywall(ctx, DocumentEntitlement.Feature.OTHER_EXPORT) {
-                shareAndPersistTxt(content)
+                shareAndPersistTxt(content, aiForFiles = aiBlobForFiles(includeAI))
             }
         }
 
@@ -1561,12 +1561,13 @@ class ToolsFragment : Fragment() {
                         val historyUri = fileProviderUri
                         val targetUri = downloadsUri ?: fileProviderUri
 
+                        // DOCX is the AI deliverable — don't invent a fake aiResponse string.
                         FilesHistory.saveAsync(
                             context = ctx,
                             fileName = file.name,
                             fileUri = historyUri.toString(),
                             content = "Excel → Word AI report — open this DOCX from Files.",
-                            aiResponse = "Word report saved as ${file.name}",
+                            aiResponse = null,
                             scope = viewLifecycleOwner.lifecycleScope,
                             anchor = view
                         )
@@ -2355,7 +2356,7 @@ class ToolsFragment : Fragment() {
                     fileName = outFile.name,
                     fileUri = uri.toString(),
                     content = content.take(2000),
-                    aiResponse = if (includeAI) content.take(4000) else null,
+                    aiResponse = aiBlobForFiles(includeAI),
                     scope = viewLifecycleOwner.lifecycleScope,
                     anchor = view
                 )
@@ -2411,14 +2412,20 @@ class ToolsFragment : Fragment() {
             raw.take(2_000_000) + "\n\n[Truncated for export]"
         } else raw
 
-        shareAndPersistTxt(content, recordCap = true, chooserTitle = "Share TXT via")
+        shareAndPersistTxt(
+            content,
+            recordCap = true,
+            chooserTitle = "Share TXT via",
+            aiForFiles = aiBlobForFiles(includeAI)
+        )
     }
 
     /** Write extract/AI text to a real .txt under exports/, save to Room Files, then share. */
     private fun shareAndPersistTxt(
         content: String,
         recordCap: Boolean = true,
-        chooserTitle: String = "Share via"
+        chooserTitle: String = "Share via",
+        aiForFiles: String? = null
     ) {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -2441,7 +2448,7 @@ class ToolsFragment : Fragment() {
                         fileName = file.name,
                         fileUri = uri.toString(),
                         content = content.take(2000),
-                        aiResponse = if (content.contains("AI Analysis")) content.take(4000) else null,
+                        aiResponse = aiForFiles,
                         scope = viewLifecycleOwner.lifecycleScope,
                         anchor = view
                     )
@@ -2467,10 +2474,22 @@ class ToolsFragment : Fragment() {
 
     private fun buildExportContent(includeDoc: Boolean, includeAI: Boolean): String {
         val builder = StringBuilder()
-        if (includeDoc) builder.append("\uD83D\uDCC4 Extracted Document:\n$extractedText\n\n------------------------------\n\n")
-        if (includeAI) builder.append("\uD83E\uDD16 AI Analysis:\n$aiAnswer\n")
+        if (includeDoc) {
+            builder.append("\uD83D\uDCC4 Extracted Document:\n$extractedText\n\n------------------------------\n\n")
+        }
+        // Only append AI when there is a real reply — never an empty “AI Analysis” stub.
+        if (includeAI && aiAnswer.isNotBlank()) {
+            builder.append("\uD83E\uDD16 AI Analysis:\n$aiAnswer\n")
+        }
         return builder.toString()
     }
+
+    /**
+     * Room `aiResponse` only when Include AI is on **and** Ask/Chat already produced text.
+     * Unchecked / empty → null (detail shows “No AI response saved.”).
+     */
+    private fun aiBlobForFiles(includeAI: Boolean): String? =
+        if (includeAI && aiAnswer.isNotBlank()) aiAnswer.take(4000) else null
 
     private fun showExtractedText(message: String) {
         pdfTextDisplay.text =
