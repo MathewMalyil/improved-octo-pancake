@@ -40,14 +40,13 @@ class SmartDocAIApp : Application() {
             )
         }
 
-        // Heavy libs on background
+        // Heavy libs + light Ads config on background (never block Application.onCreate)
         appScope.launch {
             safeInitPdfBox()
             safeInitXmlFactories()
+            // Only light Ads config; no MobileAds.initialize to avoid WebView/Dex ANRs
+            initMobileAdsSafely()
         }
-
-        // Only light Ads config; no MobileAds.initialize to avoid WebView/Dex ANRs
-        initMobileAdsSafely()
     }
 
     private fun safeInitPdfBox() {

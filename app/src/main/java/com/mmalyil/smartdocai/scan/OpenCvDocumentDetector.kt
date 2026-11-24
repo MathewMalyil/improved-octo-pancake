@@ -92,6 +92,18 @@ object OpenCvDocumentDetector {
             return null
         }
 
+        // Still path only: mild CLAHE so uneven lamp light still yields a clean page contour.
+        // Live (~480w) stays untouched so auto-capture timing/feel is unchanged.
+        val stillPath = analyzeWidth > ANALYZE_W + 40
+        if (stillPath) {
+            try {
+                val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+                clahe.apply(gray, gray)
+            } catch (e: Exception) {
+                Log.w(TAG, "still CLAHE skip", e)
+            }
+        }
+
         val strategies = listOf(
             { findByCanny(gray, cannyLo = 40.0, cannyHi = 120.0) },
             { findByAdaptive(gray, brightPaper = true) },

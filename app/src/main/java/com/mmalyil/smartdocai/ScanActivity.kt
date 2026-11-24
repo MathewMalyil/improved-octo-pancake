@@ -99,11 +99,17 @@ class ScanActivity : AppCompatActivity() {
         /** Still re-detect must clear this to perspective-warp the capture. */
         private const val STILL_WARP_SCORE = 0.22f
 
-        /** Pull still quad inward so Review/PDF sheds desk margin around the page. */
-        private const val STILL_QUAD_INSET = 0.028f
+        /**
+         * Pull still quad inward so Review/PDF sheds desk margin around the page.
+         * Slightly tighter than 3.20 (0.028) — still path only; live auto untouched.
+         */
+        private const val STILL_QUAD_INSET = 0.034f
 
         /** Still-detect score at/above this → auto-Apply warp; skip corner UI. */
         private const val HIGH_AUTO_APPLY_SCORE = 0.72f
+
+        /** Deep-link Analyse with the just-saved scan PDF (MainActivity). */
+        const val EXTRA_OPEN_ANALYSE_AFTER_SAVE = "openAnalyseAfterSave"
 
         /** Near-black / flat-on-table — tip only, no outline/auto. */
         private const val PREVIEW_DARK_MEAN = 18f
@@ -1052,6 +1058,8 @@ class ScanActivity : AppCompatActivity() {
     /** Best still-detect result (quad + score). Prefer tighter area among strong scores. */
     private fun bestStillDetection(src: Bitmap): DocumentEdgeDetector.Detection? {
         val candidates = mutableListOf<Pair<String, DocumentEdgeDetector.Detection>>()
+        // Higher-res still pass first — better edge wrap than live ~480w analyze.
+        OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 1280)?.let { candidates.add("ocv1280" to it) }
         OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 960)?.let { candidates.add("ocv960" to it) }
         OpenCvDocumentDetector.detectBitmap(src, analyzeWidth = 640)?.let { candidates.add("ocv640" to it) }
         DocumentEdgeDetector.detectBitmap(src, DocumentEdgeDetector.Mode.STILL)?.let { candidates.add("ktStill" to it) }
@@ -1063,20 +1071,29 @@ class ScanActivity : AppCompatActivity() {
             .sortedWith(
                 compareByDescending<Pair<String, DocumentEdgeDetector.Detection>> {
                     val a = polygonAreaNorm(it.second.quad)
-                    it.second.score - (a - 0.55f).coerceAtLeast(0f) * 0.35f
+                    // Prefer confident + slightly tighter quads (less desk halo).
+                    it.second.score - (a - 0.52f).coerceAtLeast(0f) * 0.40f
                 }.thenBy { polygonAreaNorm(it.second.quad) }
             )
         for ((name, det) in ranked) {
+            val refinedQuad = PerspectiveHelper.refineQuadToEdges(src, det.quad)
+            val refined = DocumentEdgeDetector.Detection(
+                refinedQuad,
+                det.score,
+                det.analysisWidth,
+                det.analysisHeight
+            )
             Log.i(
                 TAG,
                 "still detect $name score=${"%.2f".format(det.score)} " +
-                    "area=${"%.2f".format(polygonAreaNorm(det.quad))}"
+                    "area=${"%.2f".format(polygonAreaNorm(det.quad))} → refined " +
+                    "area=${"%.2f".format(polygonAreaNorm(refinedQuad))}"
             )
-            return det
+            return refined
         }
         candidates.maxByOrNull { it.second.score }?.let { (name, det) ->
             Log.i(TAG, "still detect weak $name score=${"%.2f".format(det.score)}")
-            return det
+            return det.copy(quad = PerspectiveHelper.refineQuadToEdges(src, det.quad))
         }
         return null
     }
@@ -1092,20 +1109,27 @@ class ScanActivity : AppCompatActivity() {
             val tight = PerspectiveHelper.insetQuad(quadNorm, STILL_QUAD_INSET)
             val warped = PerspectiveHelper.warpDocument(src, tight)
             if (warped != null) {
-                val trimmed = PerspectiveHelper.trimDarkMargins(warped)
-                if (trimmed !== warped && !warped.isRecycled) warped.recycle()
-                Log.i(TAG, "still WARP ok apply inset=$STILL_QUAD_INSET ${trimmed.width}x${trimmed.height}")
-                return trimmed
+                val polished = polishWarpedStill(warped)
+                Log.i(TAG, "still WARP ok apply inset=$STILL_QUAD_INSET ${polished.width}x${polished.height}")
+                return polished
             }
             val box = PerspectiveHelper.boundingCrop(tight)
             val cropped = cropNormalized(src, box) ?: return null
-            val trimmed = PerspectiveHelper.trimDarkMargins(cropped)
-            if (trimmed !== cropped && !cropped.isRecycled) cropped.recycle()
+            val polished = polishWarpedStill(cropped)
             Log.i(TAG, "still bbox crop fallback after apply")
-            return trimmed
+            return polished
         }
         val q = bestStillQuad(src) ?: return null
         return deskewStill(src, q)
+    }
+
+    /** Trim desk halo + mild CLAHE lighting — still Review/PDF path only. */
+    private fun polishWarpedStill(warped: Bitmap): Bitmap {
+        val trimmed = PerspectiveHelper.trimDarkMargins(warped)
+        if (trimmed !== warped && !warped.isRecycled) warped.recycle()
+        val lit = PerspectiveHelper.normalizeDocumentLighting(trimmed)
+        if (lit !== trimmed && !trimmed.isRecycled) trimmed.recycle()
+        return lit
     }
 
     private fun polygonAreaNorm(quad: Array<PointF>): Float {
@@ -1575,15 +1599,19 @@ class ScanActivity : AppCompatActivity() {
                         "${outFile.name}\n${pages.size} page(s) saved in SmartDocAI " +
                             "(app storage — not phone Downloads yet). " +
                             if (freeMark) {
-                                "Free PDF includes a light mark — Unlock Pro for clean export. Share or Done."
+                                "Free PDF includes a light mark — Unlock Pro for clean export. " +
+                                    "Share, ask about it on Analyse, or Done."
                             } else {
-                                "Share now, or open later from Recents / Files."
+                                "Share, ask about it on Analyse, or open later from Recents / Files."
                             }
                     )
                     .setPositiveButton("Share") { _, _ ->
                         sharePdf(uri, outFile.name)
                     }
-                    .setNeutralButton("Done") { _, _ -> finish() }
+                    .setNeutralButton("Ask about this on Analyse") { _, _ ->
+                        openAnalyseWithSavedPdf(uri)
+                    }
+                    .setNegativeButton("Done") { _, _ -> finish() }
                     .setCancelable(false)
                     .show()
             } catch (e: Exception) {
@@ -1613,6 +1641,20 @@ class ScanActivity : AppCompatActivity() {
             startActivity(Intent.createChooser(share, "Share PDF"))
             finish()
         }
+    }
+
+    /**
+     * Soft post-save CTA: open Analyse with this PDF preloaded via MainActivity deep-link.
+     * Does not add Ask AI on Files rows or wire Files→AI.
+     */
+    private fun openAnalyseWithSavedPdf(uri: Uri) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(MainActivity.EXTRA_OPEN_ANALYSE_PDF_URI, uri.toString())
+            putExtra(EXTRA_OPEN_ANALYSE_AFTER_SAVE, true)
+        }
+        startActivity(intent)
+        finish()
     }
 
     override fun onDestroy() {

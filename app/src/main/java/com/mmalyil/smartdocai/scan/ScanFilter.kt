@@ -27,10 +27,10 @@ object ScanImageFilters {
     private fun matrixFor(filter: ScanFilter): ColorMatrix = when (filter) {
         ScanFilter.ORIGINAL -> ColorMatrix()
         ScanFilter.ENHANCE -> ColorMatrix().apply {
-            setSaturation(1.15f)
-            // Mild contrast + brightness boost for document scans
-            val contrast = 1.25f
-            val translate = (-0.5f * contrast + 0.5f) * 255f + 12f
+            setSaturation(1.08f)
+            // Document-friendly: mild contrast + slight shadow lift (less blow-out than 3.20)
+            val contrast = 1.18f
+            val translate = (-0.5f * contrast + 0.5f) * 255f + 18f
             val scale = floatArrayOf(
                 contrast, 0f, 0f, 0f, translate,
                 0f, contrast, 0f, 0f, translate,

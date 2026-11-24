@@ -5,12 +5,22 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
+import android.util.Log
+import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 object PerspectiveHelper {
+
+    private const val TAG = "PerspectiveHelper"
 
     /**
      * Shrink a normalized TL,TR,BR,BL quad toward its centroid.
@@ -37,18 +47,112 @@ object PerspectiveHelper {
     }
 
     /**
-     * After warp, shave dark desk strips that still hug the border.
-     * Caps each side so a dark header/footer on the page itself is not eaten.
+     * Nudge each corner of a still quad toward the strongest nearby edge so the
+     * warp hugs paper instead of leaving a desk halo. Still-only; live auto untouched.
+     * Search window is small (~2.2% of min side) to avoid jumping onto text.
      */
-    fun trimDarkMargins(src: Bitmap, maxFrac: Float = 0.10f): Bitmap {
+    fun refineQuadToEdges(src: Bitmap, quadNorm: Array<PointF>): Array<PointF> {
+        if (quadNorm.size < 4 || src.width < 64 || src.height < 64) return quadNorm
+        if (!OpenCvDocumentDetector.ensureInit()) return quadNorm
+        val rgba = Mat()
+        val gray = Mat()
+        val edges = Mat()
+        return try {
+            Utils.bitmapToMat(src, rgba)
+            when (rgba.channels()) {
+                4 -> Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
+                3 -> Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGB2GRAY)
+                else -> Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_BGRA2GRAY)
+            }
+            Imgproc.GaussianBlur(gray, gray, Size(3.0, 3.0), 0.0)
+            Imgproc.Canny(gray, edges, 40.0, 120.0)
+            val w = src.width.toFloat()
+            val h = src.height.toFloat()
+            val radius = (min(src.width, src.height) * 0.022f).roundToInt().coerceIn(6, 28)
+            var cx = 0f
+            var cy = 0f
+            for (p in quadNorm) {
+                cx += p.x * w
+                cy += p.y * h
+            }
+            cx /= 4f
+            cy /= 4f
+            Array(4) { i ->
+                val px = (quadNorm[i].x * w).roundToInt()
+                val py = (quadNorm[i].y * h).roundToInt()
+                val snapped = snapCornerToEdge(edges, px, py, cx, cy, radius)
+                PointF(
+                    (snapped.first / w).coerceIn(0f, 1f),
+                    (snapped.second / h).coerceIn(0f, 1f)
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "refineQuadToEdges failed", e)
+            quadNorm
+        } finally {
+            rgba.release()
+            gray.release()
+            edges.release()
+        }
+    }
+
+    /**
+     * Prefer the strongest edge response in a small window, biased slightly toward
+     * the page centroid so we shrink desk margin rather than expand into print.
+     */
+    private fun snapCornerToEdge(
+        edges: Mat,
+        x0: Int,
+        y0: Int,
+        cx: Float,
+        cy: Float,
+        radius: Int
+    ): Pair<Float, Float> {
+        val cols = edges.cols()
+        val rows = edges.rows()
+        var bestX = x0
+        var bestY = y0
+        var bestScore = -1.0
+        val dxC = cx - x0
+        val dyC = cy - y0
+        val len = hypot(dxC.toDouble(), dyC.toDouble()).toFloat().coerceAtLeast(1f)
+        val inwardX = dxC / len
+        val inwardY = dyC / len
+        for (dy in -radius..radius) {
+            for (dx in -radius..radius) {
+                val x = x0 + dx
+                val y = y0 + dy
+                if (x < 1 || y < 1 || x >= cols - 1 || y >= rows - 1) continue
+                val v = edges.get(y, x)?.get(0) ?: 0.0
+                if (v < 1.0) continue
+                // Prefer edges slightly inward (toward page) over outward desk
+                val toward = (dx * inwardX + dy * inwardY).coerceIn(-radius.toFloat(), radius.toFloat())
+                val score = v + toward * 2.5
+                if (score > bestScore) {
+                    bestScore = score
+                    bestX = x
+                    bestY = y
+                }
+            }
+        }
+        return bestX.toFloat() to bestY.toFloat()
+    }
+
+    /**
+     * After warp, shave desk strips that still hug the border.
+     * Uses page-body contrast (not darkness alone) so colored desks trim too,
+     * while capping each side so dark headers/footers on the page are not eaten.
+     */
+    fun trimDarkMargins(src: Bitmap, maxFrac: Float = 0.12f): Bitmap {
         val w = src.width
         val h = src.height
         if (w < 64 || h < 64) return src
         val maxX = (w * maxFrac).toInt().coerceAtLeast(1)
         val maxY = (h * maxFrac).toInt().coerceAtLeast(1)
         val center = meanRect(src, w / 4, h / 4, 3 * w / 4, 3 * h / 4)
-        // Desk is usually darker than paper; require a clear gap vs page body.
-        val thresh = (center - 28f).coerceAtLeast(70f)
+        // Desk usually differs from paper; require a clear gap vs page body.
+        val darkThresh = (center - 24f).coerceAtLeast(65f)
+        val lightDeskCeil = (center + 18f).coerceAtMost(245f)
 
         fun colMean(x: Int): Float {
             var s = 0.0
@@ -76,14 +180,21 @@ object PerspectiveHelper {
             return (s / max(n, 1)).toFloat()
         }
 
+        fun isDeskStrip(mean: Float): Boolean {
+            // Classic dark desk, or wash/colored strip far from page body luma.
+            if (mean < darkThresh) return true
+            val delta = abs(mean - center)
+            return delta > 22f && mean < lightDeskCeil
+        }
+
         var left = 0
-        while (left < maxX && colMean(left) < thresh) left++
+        while (left < maxX && isDeskStrip(colMean(left))) left++
         var right = w - 1
-        while (right > w - 1 - maxX && colMean(right) < thresh) right--
+        while (right > w - 1 - maxX && isDeskStrip(colMean(right))) right--
         var top = 0
-        while (top < maxY && rowMean(top) < thresh) top++
+        while (top < maxY && isDeskStrip(rowMean(top))) top++
         var bottom = h - 1
-        while (bottom > h - 1 - maxY && rowMean(bottom) < thresh) bottom--
+        while (bottom > h - 1 - maxY && isDeskStrip(rowMean(bottom))) bottom--
 
         val cw = right - left + 1
         val ch = bottom - top + 1
@@ -110,6 +221,64 @@ object PerspectiveHelper {
             y += 8
         }
         return (s / max(n, 1)).toFloat()
+    }
+
+    /**
+     * Mild document lighting polish after warp: CLAHE on L + soft shadow lift.
+     * Keeps paper readable under uneven lamp light without the harsh look of B&W.
+     * Falls back to [src] if OpenCV is unavailable.
+     */
+    fun normalizeDocumentLighting(src: Bitmap): Bitmap {
+        if (src.width < 32 || src.height < 32) return src
+        if (!OpenCvDocumentDetector.ensureInit()) return src
+        val rgba = Mat()
+        val lab = Mat()
+        val enhanced = Mat()
+        val channels = ArrayList<Mat>(3)
+        return try {
+            Utils.bitmapToMat(src, rgba)
+            if (rgba.channels() == 3) {
+                Imgproc.cvtColor(rgba, rgba, Imgproc.COLOR_RGB2RGBA)
+            }
+            Imgproc.cvtColor(rgba, lab, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(lab, lab, Imgproc.COLOR_RGB2Lab)
+            Core.split(lab, channels)
+            if (channels.size < 3) return src
+            val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+            clahe.apply(channels[0], channels[0])
+            // Soft lift of darkest 15% of L without blowing highlights
+            val l = channels[0]
+            val mean = Core.mean(l).`val`[0]
+            if (mean in 40.0..200.0) {
+                val lifted = Mat()
+                l.convertTo(lifted, CvType.CV_32F)
+                val data = FloatArray(lifted.rows() * lifted.cols())
+                lifted.get(0, 0, data)
+                for (i in data.indices) {
+                    val v = data[i]
+                    if (v < 110f) {
+                        data[i] = v + (110f - v) * 0.18f
+                    }
+                }
+                lifted.put(0, 0, data)
+                lifted.convertTo(l, CvType.CV_8U)
+                lifted.release()
+            }
+            Core.merge(channels, lab)
+            Imgproc.cvtColor(lab, enhanced, Imgproc.COLOR_Lab2RGB)
+            Imgproc.cvtColor(enhanced, enhanced, Imgproc.COLOR_RGB2RGBA)
+            val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(enhanced, out)
+            out
+        } catch (e: Exception) {
+            Log.w(TAG, "normalizeDocumentLighting failed", e)
+            src
+        } finally {
+            rgba.release()
+            lab.release()
+            enhanced.release()
+            channels.forEach { it.release() }
+        }
     }
 
     /**

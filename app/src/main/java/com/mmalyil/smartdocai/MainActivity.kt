@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
 
     private var pendingNav: Int? = null
     private lateinit var adViewBanner: AdView
+    private var bannerLoadScheduled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,34 +88,41 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-        // Ads — hidden for Document Pro (and when ADS_ENABLED is false in debug)
+        // Ads — deferred off cold-start / first paint (AdMob WebView ANR risk).
         adViewBanner = findViewById(R.id.adViewBanner)
         refreshBannerAd()
 
-        // Restore Document Pro entitlement quietly on launch
-        try {
-            val bm = com.mmalyil.smartdocai.billing.BillingManager(
-                this,
-                object : com.mmalyil.smartdocai.billing.BillingManager.BillingUpdateListener {
-                    override fun onPurchasesUpdated(purchases: List<com.android.billingclient.api.Purchase>) {
-                        refreshBannerAd()
+        // Restore Document Pro entitlement quietly on launch (after first frame)
+        window.decorView.post {
+            if (isFinishing || isDestroyed) return@post
+            try {
+                val bm = com.mmalyil.smartdocai.billing.BillingManager(
+                    this,
+                    object : com.mmalyil.smartdocai.billing.BillingManager.BillingUpdateListener {
+                        override fun onPurchasesUpdated(purchases: List<com.android.billingclient.api.Purchase>) {
+                            refreshBannerAd()
+                        }
+                    }
+                )
+                bm.startConnection {
+                    bm.queryPurchases {
+                        runOnUiThread { refreshBannerAd() }
+                        bm.destroy()
                     }
                 }
-            )
-            bm.startConnection {
-                bm.queryPurchases {
-                    runOnUiThread { refreshBannerAd() }
-                    bm.destroy()
-                }
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
         }
+
+        // Post-scan Analyse deep-link (soft CTA from ScanActivity)
+        maybeOpenAnalysePdf(intent)
     }
 
     private fun refreshBannerAd() {
         if (!::adViewBanner.isInitialized) return
         val pro = com.mmalyil.smartdocai.util.DocumentEntitlement.isDocumentPro(this)
         if (!BuildConfig.ADS_ENABLED || pro) {
+            bannerLoadScheduled = false
             try {
                 adViewBanner.destroy()
             } catch (_: Exception) {
@@ -125,19 +133,30 @@ class MainActivity : AppCompatActivity() {
             return
         }
         adViewBanner.visibility = View.INVISIBLE
-        window.decorView.postDelayed({
-            if (isFinishing || isDestroyed) return@postDelayed
-            if (com.mmalyil.smartdocai.util.DocumentEntitlement.isDocumentPro(this)) {
-                adViewBanner.visibility = View.GONE
-                return@postDelayed
+        if (bannerLoadScheduled) return
+        bannerLoadScheduled = true
+        // Keep AdMob WebView off the critical path: wait for idle + longer delay than 3.20.
+        window.decorView.post {
+            if (isFinishing || isDestroyed) return@post
+            val queue = android.os.Looper.myQueue()
+            queue.addIdleHandler {
+                if (isFinishing || isDestroyed) return@addIdleHandler false
+                window.decorView.postDelayed({
+                    if (isFinishing || isDestroyed) return@postDelayed
+                    if (com.mmalyil.smartdocai.util.DocumentEntitlement.isDocumentPro(this)) {
+                        adViewBanner.visibility = View.GONE
+                        return@postDelayed
+                    }
+                    try {
+                        adViewBanner.loadAd(AdRequest.Builder().build())
+                        adViewBanner.visibility = View.VISIBLE
+                    } catch (_: Exception) {
+                        adViewBanner.visibility = View.GONE
+                    }
+                }, 4500)
+                false
             }
-            try {
-                adViewBanner.loadAd(AdRequest.Builder().build())
-                adViewBanner.visibility = View.VISIBLE
-            } catch (_: Exception) {
-                adViewBanner.visibility = View.GONE
-            }
-        }, 3500)
+        }
     }
 
     // If your Activity is relaunched with a new Intent (rare here),
@@ -147,6 +166,20 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         handleIncomingIntent(intent)
         maybeHandleDeepLinkFromOnboarding(intent)
+        maybeOpenAnalysePdf(intent)
+    }
+
+    /**
+     * Soft CTA from Scan save: open Analyse tab and preload the just-saved PDF.
+     * Reuses the existing share/open → Tools path (OCR/extract as usual).
+     */
+    private fun maybeOpenAnalysePdf(i: Intent?) {
+        if (i == null) return
+        val uriStr = i.getStringExtra(EXTRA_OPEN_ANALYSE_PDF_URI) ?: return
+        i.removeExtra(EXTRA_OPEN_ANALYSE_PDF_URI)
+        i.removeExtra(ScanActivity.EXTRA_OPEN_ANALYSE_AFTER_SAVE)
+        val uri = runCatching { android.net.Uri.parse(uriStr) }.getOrNull() ?: return
+        forwardToTools(uri, "application/pdf", "SCAN_SAVE")
     }
 
     private fun handleIncomingIntent(i: Intent?) {
@@ -441,6 +474,9 @@ class MainActivity : AppCompatActivity() {
         private val TAB_IDS = intArrayOf(
             R.id.nav_home, R.id.nav_tools, R.id.nav_files, R.id.nav_settings
         )
+
+        /** ScanActivity → Analyse with PDF preloaded. */
+        const val EXTRA_OPEN_ANALYSE_PDF_URI = "openAnalysePdfUri"
     }
 
 
